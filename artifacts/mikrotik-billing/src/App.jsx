@@ -304,7 +304,7 @@ function App() {
                         <Route path="/analytics" element={<AnalyticsReports />} />
                         <Route path="/billing-sales" element={<SalesPage />} />
                         <Route path="/pppoe" element={<PPPoEManagement />} />
-                        <Route path="/hotspot" element={<HotspotManagement />} />
+                        <Route path="/hotspot-management" element={<HotspotManagement />} />
                         <Route
                           path="/hotspot-vouchers"
                           element={<HotspotVouchers />}
