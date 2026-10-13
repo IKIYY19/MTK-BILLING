@@ -1,0 +1,48 @@
+#23 6.194 dist/public/assets/WhatsAppPage-0wmsN1OR.js                 17.78 kB │ gzip:   4.77 kB
+#23 6.194 dist/public/assets/OLTManagement-LJ_U_Mcs.js                18.16 kB │ gzip:   4.67 kB
+#23 6.194 dist/public/assets/HotspotVouchers-mcicCyiP.js              19.19 kB │ gzip:   5.18 kB
+#23 6.194 dist/public/assets/NetworkManagement-YrYzYUr0.js            20.13 kB │ gzip:   4.74 kB
+#23 6.194 dist/public/assets/NetworkServices-BJwcaFrt.js              20.86 kB │ gzip:   4.70 kB
+#23 6.194 dist/public/assets/BillingCustomerDetail-C8pkqhWI.js        21.14 kB │ gzip:   4.40 kB
+#23 6.194 dist/public/assets/PPPoEManagement-DQxEiI8Z.js              21.23 kB │ gzip:   4.71 kB
+#23 6.194 dist/public/assets/BillingCustomers-DyhiSt-M.js             21.34 kB │ gzip:   5.96 kB
+#23 6.194 dist/public/assets/UserManagement-CGRw_Dwk.js               22.72 kB │ gzip:   4.92 kB
+#23 6.194 dist/public/assets/HotspotManagement-DDBAbZKy.js            23.43 kB │ gzip:   5.08 kB
+#23 6.194 dist/public/assets/RouterLink-Co7iKQL7.js                   24.11 kB │ gzip:   6.28 kB
+#23 6.194 dist/public/assets/MpesaReconcile-5rVaK2eR.js               24.67 kB │ gzip:   6.83 kB
+#23 6.194 dist/public/assets/RadiusManagement-DsiprRZ9.js             25.92 kB │ gzip:   5.45 kB
+#23 6.194 dist/public/assets/InventoryPage-DUQ2RK1S.js                26.08 kB │ gzip:   6.38 kB
+#23 6.194 dist/public/assets/IntegrationsSettings-MZkYvANK.js         30.83 kB │ gzip:   9.10 kB
+#23 6.194 dist/public/assets/CaptivePortalBuilder-BuQZvE6Y.js         31.99 kB │ gzip:   9.56 kB
+#23 6.194 dist/public/assets/button-D4B0lwtS.js                       32.66 kB │ gzip:  10.65 kB
+#23 6.194 dist/public/assets/SettingsPage-CHQfy-wU.js                 34.46 kB │ gzip:   9.57 kB
+#23 6.194 dist/public/assets/ResellerPortal-Cw8i_LBK.js               34.88 kB │ gzip:   7.63 kB
+#23 6.194 dist/public/assets/RoutersPage-B2S_Utyd.js                  41.24 kB │ gzip:   9.64 kB
+#23 6.194 dist/public/assets/PaystackModal-ffuYQcL0.js                44.51 kB │ gzip:   7.31 kB
+#23 6.194 dist/public/assets/EnhancedCustomerPortal-BpnWJAPs.js       64.18 kB │ gzip:  12.22 kB
+#23 6.194 dist/public/assets/ProjectDetail-DglMNkUW.js                98.31 kB │ gzip:  14.49 kB
+#23 6.194 dist/public/assets/MapView-Dr3naX6-.js                     168.09 kB │ gzip:  48.94 kB
+#23 6.194 dist/public/assets/index-CSs8LU_v.js                       411.62 kB │ gzip: 135.85 kB
+#23 6.195 ✓ built in 5.39s
+#23 DONE 6.9s
+#24 [18/18] RUN mkdir -p client && rm -rf client/dist && cp -R artifacts/mikrotik-billing/dist/public client/dist
+#24 DONE 0.2s
+#25 exporting to image
+#25 exporting layers 0.1s done
+#25 pushing layers
+#25 pushing layers 1.0s done
+#25 DONE 1.2s
+#26 exporting cache to registry
+#26 sending cache export
+#26 sending cache export 1.8s done
+#26 DONE 1.8s
+==> Deploying...
+==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+{"error":"Missing required production environment variables: JWT_SECRET, ENCRYPTION_KEY","level":"error","message":"Failed to start server","stack":"Error: Missing required production environment variables: JWT_SECRET, ENCRYPTION_KEY\n    at ensureCriticalProductionConfig (/app/artifacts/api-server/src/index.js:128:11)\n    at startServer (/app/artifacts/api-server/src/index.js:291:7)\n    at Object.<anonymous> (/app/artifacts/api-server/src/index.js:862:15)\n    at Module._compile (node:internal/modules/cjs/loader:1929:14)\n    at Object..js (node:internal/modules/cjs/loader:2060:10)\n    at Module.load (node:internal/modules/cjs/loader:1651:32)\n    at Module._load (node:internal/modules/cjs/loader:1443:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47","timestamp":"2026-08-30 18:24:55:2455"}
+==> Exited with status 1
+==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys
+{"error":"Missing required production environment variables: JWT_SECRET, ENCRYPTION_KEY","level":"error","message":"Failed to start server","stack":"Error: Missing required production environment variables: JWT_SECRET, ENCRYPTION_KEY\n    at ensureCriticalProductionConfig (/app/artifacts/api-server/src/index.js:128:11)\n    at startServer (/app/artifacts/api-server/src/index.js:291:7)\n    at Object.<anonymous> (/app/artifacts/api-server/src/index.js:862:15)\n    at Module._compile (node:internal/modules/cjs/loader:1929:14)\n    at Object..js (node:internal/modules/cjs/loader:2060:10)\n    at Module.load (node:internal/modules/cjs/loader:1651:32)\n    at Module._load (node:internal/modules/cjs/loader:1443:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47","timestamp":"2026-08-30 18:24:59:2459"}
+==> No open ports detected, continuing to scan...
+==> Docs on specifying a port: https://render.com/docs/web-services#port-binding
+{"error":"Missing required production environment variables: JWT_SECRET, ENCRYPTION_KEY","level":"error","message":"Failed to start server","stack":"Error: Missing required production environment variables: JWT_SECRET, ENCRYPTION_KEY\n    at ensureCriticalProductionConfig (/app/artifacts/api-server/src/index.js:128:11)\n    at startServer (/app/artifacts/api-server/src/index.js:291:7)\n    at Object.<anonymous> (/app/artifacts/api-server/src/index.js:862:15)\n    at Module._compile (node:internal/modules/cjs/loader:1929:14)\n    at Object..js (node:internal/modules/cjs/loader:2060:10)\n    at Module.load (node:internal/modules/cjs/loader:1651:32)\n    at Module._load (node:internal/modules/cjs/loader:1443:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47","timestamp":"2026-08-30 18:25:15:2515"}
+Need better ways to work with logs? Try theRender CLI, Render MCP Server, or set up a log stream integration 

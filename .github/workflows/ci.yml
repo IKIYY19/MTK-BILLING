@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      JWT_SECRET: test-jwt-secret-key-that-is-long-enough-for-ci
+      ENCRYPTION_KEY: test-encryption-key-thirty-two-chars
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install server dependencies
+        run: npm ci --prefix server
+
+      - name: Install client dependencies
+        run: npm ci --prefix client
+
+
+      - name: Test
+        run: npm run test
+
+      - name: Build client
+        run: npm run build:client

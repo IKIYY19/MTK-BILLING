@@ -1,0 +1,46 @@
+#22 5.928 dist/public/assets/SettingsPage-CHQfy-wU.js                 34.46 kB │ gzip:   9.57 kB
+#22 5.928 dist/public/assets/ResellerPortal-Cw8i_LBK.js               34.88 kB │ gzip:   7.63 kB
+#22 5.928 dist/public/assets/RoutersPage-B2S_Utyd.js                  41.24 kB │ gzip:   9.64 kB
+#22 5.928 dist/public/assets/PaystackModal-ffuYQcL0.js                44.51 kB │ gzip:   7.31 kB
+#22 5.928 dist/public/assets/EnhancedCustomerPortal-BpnWJAPs.js       64.18 kB │ gzip:  12.22 kB
+#22 5.928 dist/public/assets/ProjectDetail-DglMNkUW.js                98.31 kB │ gzip:  14.49 kB
+#22 5.928 dist/public/assets/MapView-Dr3naX6-.js                     168.09 kB │ gzip:  48.94 kB
+#22 5.928 dist/public/assets/index-CSs8LU_v.js                       411.62 kB │ gzip: 135.85 kB
+#22 5.928 ✓ built in 5.13s
+#22 DONE 6.2s
+#23 [18/18] RUN mkdir -p client && rm -rf client/dist && cp -R artifacts/mikrotik-billing/dist/public client/dist
+#23 DONE 0.1s
+#24 exporting to image
+#24 exporting layers
+#24 exporting layers 8.2s done
+#24 pushing layers
+#24 ...
+#25 exporting cache to registry
+#25 sending cache export
+#25 ...
+#24 exporting to image
+#24 pushing layers 6.3s done
+#24 DONE 14.8s
+#25 exporting cache to registry
+#25 sending cache export 9.6s done
+#25 DONE 9.6s
+==> Deploying...
+==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+{"level":"warn","message":"DATABASE_URL or DB_HOST not set - using in-memory storage (not recommended for production)","timestamp":"2026-08-30 19:02:28:228"}
+{"level":"warn","message":"Sentry DSN not configured. Error tracking is disabled.","timestamp":"2026-08-30 19:02:28:228"}
+{"level":"warn","message":"Get your DSN from: https://sentry.io/settings/[org]/projects/","timestamp":"2026-08-30 19:02:28:228"}
+{"error":"DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production","level":"error","message":"PostgreSQL connection failed — required for production","timestamp":"2026-08-30 19:02:28:228"}
+{"error":"DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production","level":"error","message":"Failed to start server","stack":"Error: DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production\n    at Object.<anonymous> (/app/artifacts/api-server/src/db/index.js:74:11)\n    at Module._compile (node:internal/modules/cjs/loader:1929:14)\n    at Object..js (node:internal/modules/cjs/loader:2060:10)\n    at Module.load (node:internal/modules/cjs/loader:1651:32)\n    at Module._load (node:internal/modules/cjs/loader:1443:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.require (node:internal/modules/cjs/loader:1674:12)\n    at require (node:internal/modules/helpers:157:16)\n    at initDB (/app/artifacts/api-server/src/index.js:191:18)\n    at startServer (/app/artifacts/api-server/src/index.js:303:11)","timestamp":"2026-08-30 19:02:28:228"}
+==> Exited with status 1
+==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys
+{"level":"warn","message":"DATABASE_URL or DB_HOST not set - using in-memory storage (not recommended for production)","timestamp":"2026-08-30 19:02:35:235"}
+{"level":"warn","message":"Sentry DSN not configured. Error tracking is disabled.","timestamp":"2026-08-30 19:02:35:235"}
+{"level":"warn","message":"Get your DSN from: https://sentry.io/settings/[org]/projects/","timestamp":"2026-08-30 19:02:35:235"}
+{"error":"DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production","level":"error","message":"PostgreSQL connection failed — required for production","timestamp":"2026-08-30 19:02:35:235"}
+{"error":"DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production","level":"error","message":"Failed to start server","stack":"Error: DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production\n    at Object.<anonymous> (/app/artifacts/api-server/src/db/index.js:74:11)\n    at Module._compile (node:internal/modules/cjs/loader:1929:14)\n    at Object..js (node:internal/modules/cjs/loader:2060:10)\n    at Module.load (node:internal/modules/cjs/loader:1651:32)\n    at Module._load (node:internal/modules/cjs/loader:1443:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.require (node:internal/modules/cjs/loader:1674:12)\n    at require (node:internal/modules/helpers:157:16)\n    at initDB (/app/artifacts/api-server/src/index.js:191:18)\n    at startServer (/app/artifacts/api-server/src/index.js:303:11)","timestamp":"2026-08-30 19:02:35:235"}
+{"level":"warn","message":"DATABASE_URL or DB_HOST not set - using in-memory storage (not recommended for production)","timestamp":"2026-08-30 19:02:50:250"}
+{"level":"warn","message":"Sentry DSN not configured. Error tracking is disabled.","timestamp":"2026-08-30 19:02:50:250"}
+{"level":"warn","message":"Get your DSN from: https://sentry.io/settings/[org]/projects/","timestamp":"2026-08-30 19:02:50:250"}
+{"error":"DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production","level":"error","message":"PostgreSQL connection failed — required for production","timestamp":"2026-08-30 19:02:51:251"}
+{"error":"DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production","level":"error","message":"Failed to start server","stack":"Error: DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production\n    at Object.<anonymous> (/app/artifacts/api-server/src/db/index.js:74:11)\n    at Module._compile (node:internal/modules/cjs/loader:1929:14)\n    at Object..js (node:internal/modules/cjs/loader:2060:10)\n    at Module.load (node:internal/modules/cjs/loader:1651:32)\n    at Module._load (node:internal/modules/cjs/loader:1443:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.require (node:internal/modules/cjs/loader:1674:12)\n    at require (node:internal/modules/helpers:157:16)\n    at initDB (/app/artifacts/api-server/src/index.js:191:18)\n    at startServer (/app/artifacts/api-server/src/index.js:303:11)","timestamp":"2026-08-30 19:02:51:251"}
+Need better ways to work with logs? Try theRender CLI, Render MCP Serv

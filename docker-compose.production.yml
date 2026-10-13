@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-mikrotik_config_builder}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./radius/radius_schema.sql:/docker-entrypoint-initdb.d/radius_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-mikrotik_config_builder}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  radius:
+    build:
+      context: ./radius
+      dockerfile: Dockerfile.radius
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      RADIUS_DB_NAME: ${RADIUS_DB_NAME:-mikrotik_config_builder}
+      RADIUS_SECRET: ${RADIUS_SECRET}
+      RUN_RADIUS_MIGRATIONS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      APP_URL: ${APP_URL}
+      DATABASE_URL: ${DATABASE_URL:-}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-mikrotik_config_builder}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      RADIUS_SERVER: ${RADIUS_SERVER:-radius}
+      RADIUS_SECRET: ${RADIUS_SECRET}
+      ENABLE_ROUTER_CONNECTIVITY: ${ENABLE_ROUTER_CONNECTIVITY:-true}
+      ENABLE_MONITORING_API: ${ENABLE_MONITORING_API:-true}
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      radius:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+volumes:
+  pgdata:

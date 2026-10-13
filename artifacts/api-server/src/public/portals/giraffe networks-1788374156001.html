@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>giraffe networks — WiFi</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: linear-gradient(135deg, #061224, #0a1a38, #0d2240); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; position: relative; overflow: hidden; }
+    
+    body::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 30% 20%, #d620ee08 0%, transparent 60%), radial-gradient(ellipse at 70% 80%, #d620ee05 0%, transparent 50%); }
+    
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes shimmer { 0% { background-position: -200px 0; } 100% { background-position: 200px 0; } }
+    .container { width: 100%; max-width: 420px; position: relative; z-index: 2; }
+    .logo { text-align: center; margin-bottom: 24px; animation: fadeUp 0.6s ease-out; }
+    .logo-icon { width: 64px; height: 64px; margin: 0 auto 14px; background: linear-gradient(135deg, #d620ee33, #d620ee10); border: 2px solid rgba(56,189,248,0.12); border-radius: 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 40px rgba(56,189,248,0.12); }
+    .logo-icon span { font-size: 28px; }
+    .brand-name { font-size: 28px; font-weight: 800; color: #e0f2fe; letter-spacing: -0.5px; }
+    .welcome { color: #e0f2fe; opacity: 0.55; font-size: 14px; margin-top: 5px; }
+    .card { background: rgba(6,18,36,0.82); backdrop-filter: blur(26px) saturate(140%); -webkit-backdrop-filter: blur(26px) saturate(140%); border: 1.5px solid rgba(56,189,248,0.12); border-radius: 24px; padding: 36px 28px; box-shadow: 0 0 40px rgba(56,189,248,0.12); animation: fadeUp 0.7s ease-out 0.1s; position: relative; overflow: hidden; }
+    .packages { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 24px; }
+    .pkg-card { background: linear-gradient(135deg, rgba(56,189,248,0.04), rgba(255,255,255,0.02)); border: 2px solid rgba(56,189,248,0.12); border-radius: 16px; padding: 16px 8px; text-align: center; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); position: relative; }
+    .pkg-card:hover { border-color: #d620ee77; background: #d620ee12; transform: translateY(-2px); }
+    .pkg-card.selected { border-color: #d620ee; background: #d620ee20; box-shadow: 0 0 20px #d620ee33; transform: translateY(-3px); }
+    .pkg-badge { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, #d620ee, #d620eedd); color: #061224; font-size: 9px; font-weight: 700; padding: 3px 12px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.5px; display: none; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    .pkg-card.selected .pkg-badge { display: block; }
+    .pkg-name { font-size: 13px; font-weight: 700; color: #e0f2fe; margin-bottom: 8px; }
+    .pkg-price { font-size: 22px; font-weight: 800; color: #d620ee; line-height: 1; }
+    .pkg-price span { font-size: 10px; font-weight: 500; opacity: 0.5; display: block; margin-top: 3px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; color: #e0f2fe; font-size: 11px; font-weight: 700; margin-bottom: 8px; opacity: 0.65; letter-spacing: 0.5px; text-transform: uppercase; }
+    .input-wrap { position: relative; }
+    .input-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 16px; opacity: 0.4; pointer-events: none; }
+    .input-wrap input { width: 100%; padding: 16px 16px 16px 42px; background: rgba(56,189,248,0.04); border: 2px solid rgba(56,189,248,0.12); border-radius: 16px; color: #e0f2fe; font-size: 15px; outline: none; transition: all 0.3s; font-family: inherit; }
+    .input-wrap input:focus { border-color: #d620ee; box-shadow: 0 0 0 4px #d620ee18; background: #d620ee0a; }
+    .input-wrap input::placeholder { color: #e0f2fe; opacity: 0.2; }
+    .btn-connect { width: 100%; padding: 18px; background: linear-gradient(135deg, #d620ee, #d620eecc); color: #061224; border: none; border-radius: 16px; font-size: 17px; font-weight: 700; cursor: pointer; margin-top: 14px; transition: all 0.3s; box-shadow: 0 6px 30px #d620ee44; letter-spacing: 0.5px; }
+    .btn-connect:hover { transform: translateY(-2px); box-shadow: 0 8px 40px #d620ee66; }
+    .btn-connect:active { transform: scale(0.97); }
+    .btn-connect:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+    .terms { text-align: center; margin-top: 16px; }
+    .terms label { color: #e0f2fe; opacity: 0.45; font-size: 11px; cursor: pointer; }
+    .terms input { margin-right: 8px; accent-color: #d620ee; }
+    .status { text-align: center; margin-top: 14px; font-size: 14px; font-weight: 600; display: none; }
+    .status.show { display: block; }
+    .status.error { color: #f87171; }
+    .status.success { color: #4ade80; }
+    .selected-pkg { text-align: center; margin-bottom: 16px; font-size: 12px; color: #e0f2fe; opacity: 0.5; font-weight: 600; }
+    .footer { text-align: center; margin-top: 24px; color: #e0f2fe; opacity: 0.25; font-size: 11px; }
+    .footer strong { color: #d620ee; opacity: 0.7; }
+    @media (max-width: 480px) { .container { max-width: 370px; } .card { padding: 28px 20px; border-radius: 20px; } .brand-name { font-size: 22px; } }
+  </style>
+  <script src="/md5.js"></script>
+  <script>
+    var selectedPackage = { name: '1 Hour', price: '50' };
+    function selectPackage(el, name, price) {
+      document.querySelectorAll('.pkg-card').forEach(function(c) { c.classList.remove('selected'); });
+      el.classList.add('selected'); selectedPackage = { name: name, price: price };
+      var label = document.getElementById('sel-pkg-label');
+      if (label) { label.textContent = 'Selected: ' + name + ' — KES ' + price; label.style.display = 'block'; }
+    }
+    function doLogin() {
+      var u = document.getElementById('username').value;
+      var p = document.getElementById('password').value;
+      var s = document.getElementById('status');
+      if (!u || !p) { s.textContent = 'Please fill in both fields'; s.className = 'status show error'; return; }
+      var terms = document.getElementById('terms'); if (terms && !terms.checked) { s.textContent = 'Accept the terms to continue'; s.className = 'status show error'; return; }
+      s.className = 'status'; var btn = document.getElementById('connect'); btn.disabled = true; btn.textContent = 'Connecting...';
+      var chal = 'bzkzt3r9';
+      var pass = typeof hexMD5 === 'function' ? hexMD5('\0' + p + chal) : p;
+      var url = 'http://' + location.hostname + '/login?username=' + encodeURIComponent(u) + '&password=' + encodeURIComponent(pass) + '&dst=' + encodeURIComponent(location.href);
+      if (selectedPackage) { url += '&comment=' + encodeURIComponent(selectedPackage.name + '|' + selectedPackage.price); }
+      var req = new XMLHttpRequest();
+      req.open('GET', url, true);
+      req.onload = function() {
+        if (req.status === 200) { s.textContent = 'Connected! Redirecting...'; s.className = 'status show success'; setTimeout(function() { location.href = 'https://google.com'; }, 1500); }
+        else { btn.disabled = false; btn.textContent = 'Connect to WiFi'; s.textContent = 'Login failed. Check your details.'; s.className = 'status show error'; }
+      };
+      req.onerror = function() { btn.disabled = false; btn.textContent = 'Connect to WiFi'; s.textContent = 'Connection error. Try again.'; s.className = 'status show error'; };
+      req.send();
+    }
+  </script>
+</head>
+<body>
+  
+  <div class="container">
+    <div class="logo">
+      <div class="logo-icon">
+        <span>📶</span>
+      </div>
+      <div class="brand-name">giraffe networks</div>
+      <p class="welcome">Welcome to our HotSpot</p>
+    </div>
+    <div class="card">
+      
+      <div class="packages">
+        
+        <div class="pkg-card selected" onclick="selectPackage(this, '1 Hour', '50')">
+          <div class="pkg-badge">BEST</div>
+          <div class="pkg-name">1 Hour</div>
+          <div class="pkg-price">KES 50<span>1h</span></div>
+        </div>
+        <div class="pkg-card" onclick="selectPackage(this, '1 Day', '100')">
+          
+          <div class="pkg-name">1 Day</div>
+          <div class="pkg-price">KES 100<span>1d</span></div>
+        </div>
+        <div class="pkg-card" onclick="selectPackage(this, '1 Week', '500')">
+          
+          <div class="pkg-name">1 Week</div>
+          <div class="pkg-price">KES 500<span>7d</span></div>
+        </div>
+      </div>
+      <p id="sel-pkg-label" class="selected-pkg" style="display:block">Selected: 1 Hour — KES 50</p>
+      
+      <form onsubmit="event.preventDefault(); doLogin();">
+        <div class="form-group">
+          <label>Phone Number</label>
+          <div class="input-wrap"><span class="input-icon">📱</span><input id="username" type="text" placeholder="0712 345 678" autocomplete="off" inputmode="tel" /></div>
+        </div>
+        <div class="form-group">
+          <label>Password / Voucher Code</label>
+          <div class="input-wrap"><span class="input-icon">🔒</span><input id="password" type="password" placeholder="Enter your code" /></div>
+        </div>
+        <button type="submit" id="connect" class="btn-connect">Connect to WiFi</button>
+      </form>
+      <div class="terms"><label><input type="checkbox" id="terms" /> I accept the Terms of Service</label></div>
+      <div id="status" class="status"></div>
+    </div>
+    <div class="footer">Powered by <strong>giraffe networks</strong> &middot; 📞 0746447739</div>
+  </div>
+</body>
+</html>

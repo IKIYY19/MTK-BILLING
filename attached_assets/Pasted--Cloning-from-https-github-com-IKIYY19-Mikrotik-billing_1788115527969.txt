@@ -1,0 +1,87 @@
+==> Cloning from https://github.com/IKIYY19/Mikrotik-billing
+==> Checking out commit 4507883049c5bcf840e46b40a4c99c2dc914ab8b in branch master
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.50kB done
+#1 DONE 0.0s
+#2 [internal] load metadata for docker.io/library/node:24-bookworm-slim
+#2 ...
+#3 [auth] library/node:pull render-prod/docker-mirror-repository/library/node:pull token for us-west1-docker.pkg.dev
+#3 DONE 0.0s
+#2 [internal] load metadata for docker.io/library/node:24-bookworm-slim
+#2 DONE 0.5s
+#4 [internal] load .dockerignore
+#4 transferring context: 158B done
+#4 DONE 0.0s
+#5 [internal] load build context
+#5 DONE 0.0s
+#6 [ 1/18] FROM docker.io/library/node:24-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e
+#6 resolve docker.io/library/node:24-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e done
+#6 DONE 0.0s
+#7 importing cache manifest
+#7 inferred cache manifest type: application/vnd.oci.image.manifest.v1+json done
+#7 DONE 0.1s
+#5 [internal] load build context
+#5 transferring context: 6.58MB 0.1s done
+#5 DONE 0.1s
+#8 [ 9/18] COPY artifacts/mockup-sandbox/package.json artifacts/mockup-sandbox/package.json
+#8 CACHED
+#9 [11/18] COPY lib/api-spec/package.json lib/api-spec/package.json
+#9 CACHED
+#10 [ 8/18] COPY artifacts/mikrotik-billing-mobile/package.json artifacts/mikrotik-billing-mobile/package.json
+#10 CACHED
+#11 [10/18] COPY lib/api-client-react/package.json lib/api-client-react/package.json
+#11 CACHED
+#12 [12/18] COPY lib/api-zod/package.json lib/api-zod/package.json
+#12 CACHED
+#13 [16/18] COPY . .
+#13 CACHED
+#14 [ 6/18] COPY artifacts/api-server/package.json artifacts/api-server/package.json
+#14 CACHED
+#15 [15/18] RUN pnpm install --frozen-lockfile
+#15 CACHED
+#16 [ 4/18] WORKDIR /app
+#16 CACHED
+#17 [ 2/18] RUN corepack enable
+#17 CACHED
+#18 [ 7/18] COPY artifacts/mikrotik-billing/package.json artifacts/mikrotik-billing/package.json
+#18 CACHED
+#19 [ 3/18] RUN corepack prepare pnpm@10.26.1 --activate
+#19 CACHED
+#20 [ 5/18] COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+#20 CACHED
+#21 [17/18] RUN PORT=4173 BASE_PATH=/ pnpm --filter @workspace/mikrotik-billing run build
+#21 CACHED
+#22 [13/18] COPY lib/db/package.json lib/db/package.json
+#22 CACHED
+#23 [14/18] COPY scripts/package.json scripts/package.json
+#23 CACHED
+#24 [18/18] RUN mkdir -p client && rm -rf client/dist && cp -R artifacts/mikrotik-billing/dist/public client/dist
+#24 CACHED
+#25 exporting to image
+#25 exporting layers done
+#25 pushing layers
+#25 pushing layers 0.3s done
+#25 DONE 0.3s
+#26 exporting cache to registry
+#26 sending cache export
+#26 sending cache export 0.5s done
+#26 DONE 0.6s
+==> Deploying...
+==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+{"level":"warn","message":"DATABASE_URL or DB_HOST not set - using in-memory storage (not recommended for production)","timestamp":"2026-08-30 18:43:57:4357"}
+{"level":"warn","message":"Sentry DSN not configured. Error tracking is disabled.","timestamp":"2026-08-30 18:43:57:4357"}
+{"level":"warn","message":"Get your DSN from: https://sentry.io/settings/[org]/projects/","timestamp":"2026-08-30 18:43:57:4357"}
+{"error":"DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production","level":"error","message":"PostgreSQL connection failed — required for production","timestamp":"2026-08-30 18:43:57:4357"}
+{"error":"DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production","level":"error","message":"Failed to start server","stack":"Error: DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production\n    at Object.<anonymous> (/app/artifacts/api-server/src/db/index.js:74:11)\n    at Module._compile (node:internal/modules/cjs/loader:1929:14)\n    at Object..js (node:internal/modules/cjs/loader:2060:10)\n    at Module.load (node:internal/modules/cjs/loader:1651:32)\n    at Module._load (node:internal/modules/cjs/loader:1443:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.require (node:internal/modules/cjs/loader:1674:12)\n    at require (node:internal/modules/helpers:157:16)\n    at initDB (/app/artifacts/api-server/src/index.js:191:18)\n    at startServer (/app/artifacts/api-server/src/index.js:303:11)","timestamp":"2026-08-30 18:43:57:4357"}
+==> Exited with status 1
+==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys
+{"level":"warn","message":"DATABASE_URL or DB_HOST not set - using in-memory storage (not recommended for production)","timestamp":"2026-08-30 18:44:00:440"}
+{"level":"warn","message":"Sentry DSN not configured. Error tracking is disabled.","timestamp":"2026-08-30 18:44:00:440"}
+{"level":"warn","message":"Get your DSN from: https://sentry.io/settings/[org]/projects/","timestamp":"2026-08-30 18:44:00:440"}
+{"error":"DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production","level":"error","message":"PostgreSQL connection failed — required for production","timestamp":"2026-08-30 18:44:00:440"}
+{"error":"DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production","level":"error","message":"Failed to start server","stack":"Error: DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production\n    at Object.<anonymous> (/app/artifacts/api-server/src/db/index.js:74:11)\n    at Module._compile (node:internal/modules/cjs/loader:1929:14)\n    at Object..js (node:internal/modules/cjs/loader:2060:10)\n    at Module.load (node:internal/modules/cjs/loader:1651:32)\n    at Module._load (node:internal/modules/cjs/loader:1443:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.require (node:internal/modules/cjs/loader:1674:12)\n    at require (node:internal/modules/helpers:157:16)\n    at initDB (/app/artifacts/api-server/src/index.js:191:18)\n    at startServer (/app/artifacts/api-server/src/index.js:303:11)","timestamp":"2026-08-30 18:44:00:440"}
+{"level":"warn","message":"DATABASE_URL or DB_HOST not set - using in-memory storage (not recommended for production)","timestamp":"2026-08-30 18:44:12:4412"}
+{"level":"warn","message":"Sentry DSN not configured. Error tracking is disabled.","timestamp":"2026-08-30 18:44:12:4412"}
+{"level":"warn","message":"Get your DSN from: https://sentry.io/settings/[org]/projects/","timestamp":"2026-08-30 18:44:12:4412"}
+{"error":"DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production","level":"error","message":"PostgreSQL connection failed — required for production","timestamp":"2026-08-30 18:44:13:4413"}
+{"error":"DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production","level":"error","message":"Failed to start server","stack":"Error: DATABASE_URL or DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD are required in production\n    at Object.<anonymous> (/app/artifacts/api-server/src/db/index.js:74:11)\n    at Module._compile (node:internal/modules/cjs/loader:1929:14)\n    at Object..js (node:internal/modules/cjs/loader:2060:10)\n    at Module.load (node:internal/modules/cjs/loader:1651:32)\n    at Module._load (node:internal/modules/cjs/loader:1443:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.require (node:internal/modules/cjs/loader:1674:12)\n    at require (node:internal/modules/helpers:157:16)\n    at initDB (/app/artifacts/api-server/src/index.js:191:18)\n    at startServer (/app/artifacts/api-server/src/index.js:303:11)","timestamp":"2026-08-30 18:44:13:4413"}

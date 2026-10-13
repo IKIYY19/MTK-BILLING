@@ -1,0 +1,37 @@
+FROM freeradius/freeradius-server:3.2.6
+
+# Switch to root to install packages and configure
+USER root
+
+# Install PostgreSQL client and other utilities
+RUN apt-get update && \
+    apt-get install -y \
+    postgresql-client \
+    netcat-openbsd \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy configuration files
+COPY clients.conf /etc/freeradius/clients.conf
+COPY mods-available/sql /etc/freeradius/mods-available/sql
+COPY radius_schema.sql /docker-entrypoint-initdb.d/radius_schema.sql
+
+# Copy entrypoint script and enable the SQL module as a real symlink.
+COPY entrypoint.sh /entrypoint.sh
+RUN rm -f /etc/freeradius/mods-enabled/sql && \
+    ln -s ../mods-available/sql /etc/freeradius/mods-enabled/sql && \
+    chmod +x /entrypoint.sh
+
+# Keep root for entrypoint-time configuration injection; FreeRADIUS drops to freerad.
+USER root
+
+# Expose RADIUS ports
+# 1812/udp - Authentication
+# 1813/udp - Accounting
+EXPOSE 1812/udp 1813/udp
+
+# Set entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Run FreeRADIUS in foreground
+CMD ["freeradius", "-X"]

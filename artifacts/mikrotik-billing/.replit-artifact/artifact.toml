@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "MikroTik Billing"
+version = "1.0.0"
+id = "artifacts/mikrotik-billing"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24323
+
+[services.development]
+run = "pnpm --filter @workspace/mikrotik-billing run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mikrotik-billing", "run", "build" ]
+publicDir = "artifacts/mikrotik-billing/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24323"
+BASE_PATH = "/"

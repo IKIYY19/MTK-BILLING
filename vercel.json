@@ -1,0 +1,8 @@
+{
+  "buildCommand": "corepack enable && pnpm install --frozen-lockfile && pnpm --filter @workspace/mikrotik-billing run build",
+  "outputDirectory": "artifacts/mikrotik-billing/dist/public",
+  "installCommand": "corepack enable && pnpm install --frozen-lockfile",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://your-backend-url.railway.app/api/:path*" }
+  ]
+}

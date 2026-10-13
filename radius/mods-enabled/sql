@@ -1,0 +1,3 @@
+# Symlink to sql module configuration
+# This file enables the SQL module in FreeRADIUS
+../mods-available/sql

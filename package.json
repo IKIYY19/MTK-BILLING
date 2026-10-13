@@ -1,0 +1,25 @@
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {
+    "preinstall": "node -e \"if (!(process.env.npm_config_user_agent || '').startsWith('pnpm/')) { console.error('Use pnpm instead'); process.exit(1); }\"",
+    "dev": "pnpm --parallel --filter @workspace/api-server --filter @workspace/mikrotik-billing dev",
+    "dev:api": "pnpm --filter @workspace/api-server dev",
+    "dev:web": "pnpm --filter @workspace/mikrotik-billing dev",
+    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+  },
+  "private": true,
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "cpu-features"
+    ]
+  },
+  "devDependencies": {
+    "@rollup/rollup-win32-x64-msvc": "4.62.2",
+    "prettier": "^3.8.4",
+    "typescript": "~5.9.3"
+  }
+}
