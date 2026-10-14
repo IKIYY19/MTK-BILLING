@@ -114,7 +114,7 @@ class OLTService {
     const { v4: uuidv4 } = require('uuid');
     const id = data.id || uuidv4();
     
-    const encryptedPassword = encrypt(data.password);
+    const encryptedPassword = encrypt(data.password || "");
     const encryptedCommunity = encrypt(data.snmp_community || 'public');
     const customOIDs = data.custom_oids ? JSON.stringify(data.custom_oids) : null;
 
@@ -233,7 +233,8 @@ class OLTService {
       });
 
       const oids = this.getOIDs(conn);
-      
+      if (!oids.onuList || !oids.opticalPower) { throw new Error(`ONU and optical-power OIDs are not configured for vendor '${conn.vendor}'.`); }
+
       // Walk ONU table
       const onus = await new Promise((resolve, reject) => {
         const onus = [];
@@ -254,10 +255,8 @@ class OLTService {
         });
       });
 
-      session.close();
-
-      // Get optical power data
       const opticalPower = await this.getOpticalPower(session, conn, oids);
+      session.close();
 
       return {
         success: true,
@@ -311,6 +310,7 @@ class OLTService {
       });
 
       const oids = this.getOIDs(conn);
+      if (!oids.ponPorts) { throw new Error(`PON-port OID is not configured for vendor '${conn.vendor}'.`); }
 
       const ports = await new Promise((resolve, reject) => {
         const ports = [];
