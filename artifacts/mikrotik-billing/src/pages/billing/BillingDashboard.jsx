@@ -17,7 +17,7 @@ function StatCard({ label, value, icon: Icon, gradient, bg, ring, textColor, sub
     <Card className="card-hover group">
       <CardContent className="p-5">
         <div className="flex items-center justify-between mb-4">
-          <div className={`w-10 h-10 rounded-xl ${bg} ring-1 ${ring} flex items-center justify-center group-hover:scale-110 transition-transform duration-300`}>
+          <div className={`w-10 h-10 rounded-xl ${bg} ring-1 ${ring} flex items-center justify-center transition-colors duration-150`}>
             <Icon className={`w-5 h-5 ${textColor}`} />
           </div>
           {trend && (
@@ -95,7 +95,7 @@ export function BillingDashboard() {
   if (loading) {
     return (
       <div className="p-8 animate-fade-in">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           {[1,2,3,4,5,6,7,8].map(i => <div key={i} className="skeleton h-28 rounded-2xl" />)}
         </div>
       </div>
@@ -116,7 +116,7 @@ export function BillingDashboard() {
   ];
 
   return (
-    <div className="p-8">
+    <div className="billing-page">
       {/* Header */}
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-white gradient-text">Billing Dashboard</h2>
@@ -124,7 +124,7 @@ export function BillingDashboard() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {statCards.map((card, i) => (
           <StatCard key={i} {...card} />
         ))}
@@ -153,89 +153,51 @@ export function BillingDashboard() {
         </CardContent>
       </Card>
 
-      {/* Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Invoices */}
-        <Card className="card-gradient">
+      {/* Recent activity registers */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <Card className="billing-overview-panel">
           <CardHeader className="border-b border-zinc-800">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <FileText className="w-4 h-4 text-zinc-500" /> Recent Invoices
-              </CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => navigate('/billing-invoices')} className="text-blue-400 hover:text-blue-300 flex items-center gap-1">
-                View all <ArrowRight className="w-3 h-3" />
-              </Button>
+              <CardTitle className="text-sm flex items-center gap-2"><FileText className="w-4 h-4 text-zinc-500" /> Recent Invoices</CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/billing-invoices')} className="text-blue-400 hover:text-blue-300 flex items-center gap-1">View all <ArrowRight className="w-3 h-3" /></Button>
             </div>
           </CardHeader>
-          <CardContent className="p-5">
-            {recentInvoices.length === 0 ? (
-              <div className="py-8 text-center">
-                <div className="empty-state-icon">
-                  <FileText className="w-6 h-6 text-zinc-600" />
-                </div>
-                <div className="empty-state-desc">No invoices yet</div>
-              </div>
-            ) : (
-              <div className="space-y-0">
-                {recentInvoices.map((inv, i) => (
-                  <div key={inv.id} className="flex items-center justify-between py-3 border-b border-zinc-800/30 last:border-0 animate-slide-in-right" style={{ animationDelay: `${i * 50}ms`, animationFillMode: 'backwards' }}>
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-zinc-800/50 flex items-center justify-center">
-                        <span className="text-xs font-semibold text-zinc-400">{inv.invoice_number?.slice(-2) || '??'}</span>
-                      </div>
-                      <div>
-                        <div className="text-sm text-white font-medium">{inv.customer?.name || 'Unknown'}</div>
-                        <div className="text-xs text-zinc-500">{inv.invoice_number}</div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm text-white font-semibold">KES {(inv.total ?? 0).toFixed(2)}</div>
-                      <span className={`badge ${inv.status === 'paid' ? 'badge-green' : inv.status === 'partial' ? 'badge-blue' : 'badge-amber'}`}>{inv.status}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          <CardContent className="billing-overview-table-wrap">
+            {recentInvoices.length === 0 ? <div className="billing-list-empty">No invoices yet</div> : (
+              <table className="billing-data-table billing-overview-table">
+                <thead><tr><th>Invoice</th><th>Customer</th><th>Status</th><th className="numeric-cell">Total</th></tr></thead>
+                <tbody>{recentInvoices.map(inv => (
+                  <tr key={inv.id}>
+                    <td className="billing-primary-cell">{inv.invoice_number || '—'}</td>
+                    <td>{inv.customer?.name || 'Unknown'}</td>
+                    <td><span className={`billing-status-pill ${inv.status === 'paid' ? 'is-paid' : 'is-pending'}`}>{inv.status || 'pending'}</span></td>
+                    <td className="numeric-cell billing-primary-cell">KES {(Number(inv.total) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
             )}
           </CardContent>
         </Card>
-
-        {/* Recent Payments */}
-        <Card className="card-gradient">
+        <Card className="billing-overview-panel">
           <CardHeader className="border-b border-zinc-800">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-zinc-500" /> Recent Payments
-              </CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => navigate('/billing-payments')} className="text-blue-400 hover:text-blue-300 flex items-center gap-1">
-                View all <ArrowRight className="w-3 h-3" />
-              </Button>
+              <CardTitle className="text-sm flex items-center gap-2"><CreditCard className="w-4 h-4 text-zinc-500" /> Recent Payments</CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/billing-payments')} className="text-blue-400 hover:text-blue-300 flex items-center gap-1">View all <ArrowRight className="w-3 h-3" /></Button>
             </div>
           </CardHeader>
-          <CardContent className="p-5">
-            {recentPayments.length === 0 ? (
-              <div className="py-8 text-center">
-                <div className="empty-state-icon">
-                  <CreditCard className="w-6 h-6 text-zinc-600" />
-                </div>
-                <div className="empty-state-desc">No payments recorded</div>
-              </div>
-            ) : (
-              <div className="space-y-0">
-                {recentPayments.map((pay, i) => (
-                  <div key={pay.id} className="flex items-center justify-between py-3 border-b border-zinc-800/30 last:border-0 animate-slide-in-right" style={{ animationDelay: `${i * 50}ms`, animationFillMode: 'backwards' }}>
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/20 flex items-center justify-center">
-                        <DollarSign className="w-4 h-4 text-emerald-400" />
-                      </div>
-                      <div>
-                        <div className="text-sm text-white font-medium">{pay.customer?.name || 'Unknown'}</div>
-                        <div className="text-xs text-zinc-500 capitalize">{pay.method?.replace('_', ' ')} • {pay.receipt_number}</div>
-                      </div>
-                    </div>
-                    <div className="text-emerald-400 font-semibold text-sm">+KES {(pay.amount ?? 0).toFixed(2)}</div>
-                  </div>
-                ))}
-              </div>
+          <CardContent className="billing-overview-table-wrap">
+            {recentPayments.length === 0 ? <div className="billing-list-empty">No payments recorded</div> : (
+              <table className="billing-data-table billing-overview-table">
+                <thead><tr><th>Customer</th><th>Method / receipt</th><th>Date</th><th className="numeric-cell">Amount</th></tr></thead>
+                <tbody>{recentPayments.map(pay => (
+                  <tr key={pay.id}>
+                    <td className="billing-primary-cell">{pay.customer?.name || 'Unknown'}</td>
+                    <td><span className="billing-primary-cell capitalize">{pay.method?.replaceAll('_', ' ') || '—'}</span><small className="billing-secondary-cell">{pay.receipt_number || '—'}</small></td>
+                    <td>{pay.received_at ? new Date(pay.received_at).toLocaleDateString() : '—'}</td>
+                    <td className="numeric-cell billing-amount-cell">KES {(Number(pay.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
             )}
           </CardContent>
         </Card>

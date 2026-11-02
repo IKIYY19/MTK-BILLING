@@ -150,7 +150,7 @@ function QuickLink({ to, icon: Icon, label, desc, color }) {
   }[color] || { bg: 'bg-blue-500/10', text: 'text-blue-400', border: 'border-blue-500/20' };
   return (
     <Link to={to} className={`flex items-center gap-3 p-3.5 rounded-xl border ${c.border} bg-[#151821] hover:bg-[#1a1e2e] transition-all group`}>
-      <div className={`w-9 h-9 rounded-lg ${c.bg} flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform`}>
+      <div className={`w-9 h-9 rounded-lg ${c.bg} flex items-center justify-center flex-shrink-0 transition-colors`}>
         <Icon className={`w-4.5 h-4.5 ${c.text}`} />
       </div>
       <div className="min-w-0">
@@ -195,7 +195,7 @@ export function NetworkManagement() {
   // ─── Loading ────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0f111a] flex items-center justify-center">
+      <div className="min-h-screen network-ops-state">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
           <p className="text-gray-400 text-sm">Loading network data…</p>
@@ -207,7 +207,7 @@ export function NetworkManagement() {
   // ─── Error ──────────────────────────────────────────────────────────────────
   if (error) {
     return (
-      <div className="min-h-screen bg-[#0f111a] flex items-center justify-center">
+      <div className="min-h-screen network-ops-state">
         <div className="flex flex-col items-center gap-4 text-center max-w-md">
           <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center">
             <AlertTriangle className="w-8 h-8 text-red-400" />
@@ -228,11 +228,8 @@ export function NetworkManagement() {
   const ipUsedPct       = ipam?.total_ips ? pct(ipam.used_ips, ipam.total_ips) : 0;
 
   return (
-    <div className="bg-[#0f111a] text-white p-6 md:p-8 space-y-8 overflow-x-hidden">
-      {/* ─── Gradient overlay ─── */}
-      <div className="fixed top-0 left-0 right-0 h-64 bg-gradient-to-b from-blue-500/5 to-transparent pointer-events-none z-0" />
-
-      <div className="relative z-10 space-y-8 max-w-7xl mx-auto">
+    <div className="network-ops-page">
+      <div className="network-ops-content">
 
         {/* ─── HEADER ─── */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -278,7 +275,7 @@ export function NetworkManagement() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           {/* Routers */}
-          <div className="bg-[#151821] border border-white/[0.06] rounded-2xl overflow-hidden">
+          <div className="network-ops-panel">
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
@@ -326,7 +323,7 @@ export function NetworkManagement() {
           </div>
 
           {/* NAS Devices */}
-          <div className="bg-[#151821] border border-white/[0.06] rounded-2xl overflow-hidden">
+          <div className="network-ops-panel">
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center">
@@ -356,7 +353,7 @@ export function NetworkManagement() {
         </div>
 
         {/* ─── IP POOL / IPAM ─── */}
-        <div className="bg-[#151821] border border-white/[0.06] rounded-2xl overflow-hidden">
+        <div className="network-ops-panel">
           <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center">
@@ -423,7 +420,7 @@ export function NetworkManagement() {
         </div>
 
         {/* ─── SUBSCRIPTION SUMMARY ─── */}
-        <div className="bg-[#151821] border border-white/[0.06] rounded-2xl overflow-hidden">
+        <div className="network-ops-panel">
           <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">

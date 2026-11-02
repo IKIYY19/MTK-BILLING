@@ -18,6 +18,7 @@ import {
   X,
   MapPin,
   Smartphone,
+  Users,
 } from "lucide-react";
 import { useToast } from "../../hooks/useToast";
 import { MpesaStkModal } from "../../components/MpesaStkModal";
@@ -490,7 +491,7 @@ export function BillingCustomers() {
 
   return (
     <>
-    <div className="p-8">
+    <div className="customers-page">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h2 className="text-2xl font-bold text-white gradient-text">
@@ -608,151 +609,77 @@ export function BillingCustomers() {
         />
       </div>
 
-      {/* Cards Grid */}
+      {/* Customer register */}
       {loading ? (
-        <div className="p-6 space-y-3">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="skeleton h-14 rounded-xl" />
-          ))}
-        </div>
+        <div className="customers-table-loading" role="status">Loading customer accounts…</div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-16">
-          <p className="text-slate-500 text-lg">
-            {search
-              ? "No results found"
-              : "No customers yet. Add your first customer."}
-          </p>
+        <div className="customers-table-empty">
+          <UserPlus className="w-5 h-5" aria-hidden="true" />
+          <span>{search ? "No customers match this search." : "No customer accounts yet."}</span>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {filtered.map((c) => (
-            <Card key={c.id} className="card-gradient overflow-hidden">
-              <CardHeader className="border-b border-zinc-800">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(c.id)}
-                      onChange={() => toggleSelect(c.id)}
-                      className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-blue-500 cursor-pointer"
-                    />
-                    <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-semibold ${
-                        onlineData[c.id]
-                          ? "bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 ring-1 ring-emerald-500/20 text-emerald-400"
-                          : "bg-gradient-to-br from-blue-500/20 to-violet-500/20 ring-1 ring-blue-500/10 text-blue-400"
-                      }`}
-                    >
-                      {c.name.charAt(0)}
-                    </div>
-                    <div>
-                      <CardTitle className="text-lg">{c.name}</CardTitle>
-                      {c.account_number && (
-                        <p className="text-[11px] text-zinc-500 font-mono">
-                          {c.account_number}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <span
-                    className={`px-2 py-1 rounded text-xs font-semibold ${
-                      c.status === "active"
-                        ? "bg-green-600/20 text-green-400"
-                        : "bg-red-600/20 text-red-400"
-                    }`}
-                  >
-                    {c.status}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm border-t border-zinc-800">
-                <div className="text-zinc-400">
-                  Email:{" "}
-                  <span className="text-white truncate block">
-                    {c.email || "—"}
-                  </span>
-                </div>
-                <div className="text-zinc-400">
-                  Phone: <span className="text-white">{c.phone || "—"}</span>
-                </div>
-                <div className="text-zinc-400">
-                  Location:{" "}
-                  <span className="text-white">
-                    {[c.city, c.country].filter(Boolean).join(", ") || "—"}
-                  </span>
-                </div>
-                <div className="text-zinc-400">
-                  Subs:{" "}
-                  <span className="text-white">{c.subscription_count}</span>
-                </div>
-                <div className="text-zinc-400">
-                  Balance:{" "}
-                  <span
-                    className={`font-semibold ${c.outstanding_balance > 0 ? "text-rose-400" : "text-emerald-400"}`}
-                  >
-                    ${c.outstanding_balance.toFixed(2)}
-                  </span>
-                </div>
-                {selectedConnection && (
-                  <div className="text-zinc-400">
-                    {onlineData[c.id] ? (
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-2 h-2 rounded-full bg-emerald-400 status-dot" />
-                        <span className="text-emerald-400 font-medium">
-                          Online
-                        </span>
-                        {onlineData[c.id].type === "pppoe" ? (
-                          <Wifi className="w-3 h-3 text-blue-400" />
-                        ) : (
-                          <Zap className="w-3 h-3 text-amber-400" />
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-zinc-600">Offline</span>
+        <div className="customers-table-wrap">
+          <table className="customers-table">
+            <thead>
+              <tr>
+                <th scope="col" className="customers-select-column">
+                  <input type="checkbox" checked={selectAll} onChange={() => setSelectAll(!selectAll)} aria-label={selectAll ? "Deselect all customers" : "Select all customers"} />
+                </th>
+                <th scope="col">Customer</th>
+                <th scope="col">Contact</th>
+                <th scope="col">Service</th>
+                <th scope="col">Status</th>
+                <th scope="col">Balance</th>
+                {selectedConnection && <th scope="col">Session</th>}
+                <th scope="col" className="customers-actions-column">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c) => {
+                const balance = Number(c.outstanding_balance) || 0;
+                return (
+                  <tr key={c.id}>
+                    <td className="customers-select-column">
+                      <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelect(c.id)} aria-label={`Select ${c.name}`} />
+                    </td>
+                    <td>
+                      <button type="button" className="customer-name-link" onClick={() => navigate(`/billing-customers/${c.id}`)}>
+                        <span>{c.name}</span>
+                        <small>{c.account_number || "No account number"}</small>
+                      </button>
+                    </td>
+                    <td>
+                      <span className="customer-contact-primary">{c.phone || "—"}</span>
+                      <small className="customer-contact-secondary">{c.email || "No email"}</small>
+                    </td>
+                    <td>
+                      <span className="customer-contact-primary">{c.subscription?.plan?.name || c.plan_name || "No active plan"}</span>
+                      <small className="customer-contact-secondary">{Number(c.subscription_count) || 0} subscription(s)</small>
+                    </td>
+                    <td><span className={`customer-status-badge ${c.status === "active" ? "is-active" : c.status === "suspended" ? "is-suspended" : "is-inactive"}`}>{c.status || "unknown"}</span></td>
+                    <td><span className={`customer-balance ${balance > 0 ? "has-balance" : "clear-balance"}`}>{settings.currency_symbol || settings.currency || "KES"} {balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></td>
+                    {selectedConnection && (
+                      <td>
+                        {onlineData[c.id] ? (
+                          <span className="customer-session-online"><span aria-hidden="true" />Online</span>
+                        ) : <span className="customer-session-offline">Offline</span>}
+                      </td>
                     )}
-                  </div>
-                )}
-              </CardContent>
-              <CardContent className="p-4 border-t border-zinc-800 flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate(`/portal/${c.id}`)}
-                  className="flex items-center gap-1"
-                >
-                  <ExternalLink className="w-3 h-3" /> Portal
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setStkTarget(c)}
-                  className="flex items-center gap-1 text-green-400 border-green-800 hover:bg-green-900/30"
-                  title="Send M-Pesa STK Push"
-                >
-                  <Smartphone className="w-3 h-3" /> M-Pesa
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => editCustomer(c)}
-                  className="flex items-center gap-1"
-                >
-                  <Pencil className="w-3 h-3" /> Edit
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDelete(c.id)}
-                  className="flex items-center gap-1 text-red-400 ml-auto"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+                    <td className="customers-actions-column">
+                      <div className="customer-row-actions">
+                        <Button variant="outline" size="sm" onClick={() => navigate(`/portal/${c.id}`)} title="Open customer portal" aria-label={`Open ${c.name} portal`}><ExternalLink className="w-3.5 h-3.5" /></Button>
+                        <Button variant="outline" size="sm" onClick={() => setStkTarget(c)} title="Send M-Pesa STK Push" aria-label={`Request M-Pesa payment from ${c.name}`}><Smartphone className="w-3.5 h-3.5" /></Button>
+                        <Button variant="outline" size="sm" onClick={() => editCustomer(c)} title="Edit customer" aria-label={`Edit ${c.name}`}><Pencil className="w-3.5 h-3.5" /></Button>
+                        <Button variant="outline" size="sm" onClick={() => handleDelete(c.id)} title="Delete customer" aria-label={`Delete ${c.name}`}><Trash2 className="w-3.5 h-3.5" /></Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
-
       {/* Form Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">

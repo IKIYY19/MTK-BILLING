@@ -56,7 +56,7 @@ export function BillingPayments() {
   const methodColors = { cash: 'text-green-400', bank: 'text-blue-400', mobile_money: 'text-purple-400', card: 'text-amber-400', other: 'text-slate-400' };
 
   return (
-    <div className="p-8">
+    <div className="billing-page">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h2 className="text-2xl font-bold text-white gradient-text">Payments ({payments.length})</h2>
@@ -68,40 +68,25 @@ export function BillingPayments() {
       </div>
 
       {payments.length === 0 ? (
-        <div className="text-center py-16">
-          <p className="text-slate-500 text-lg">No payments recorded yet.</p>
-        </div>
+        <div className="billing-list-empty">No payments recorded yet.</div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {payments.map(pay => (
-            <Card key={pay.id} className="card-gradient overflow-hidden">
-              <CardHeader className="border-b border-zinc-800">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                      <DollarSign className="w-4 h-4 text-emerald-400" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-sm text-blue-400 font-mono">{pay.receipt_number}</CardTitle>
-                      <p className="text-xs text-zinc-500">{pay.customer?.name || 'Unknown'}</p>
-                    </div>
-                  </div>
-                  <span className={`px-2 py-1 rounded text-xs font-semibold capitalize ${methodColors[pay.method] || 'text-slate-400'}`}>
-                    {pay.method.replace('_', ' ')}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent className="p-4 grid grid-cols-2 gap-3 text-sm border-t border-zinc-800">
-                <div className="text-zinc-400">Invoice: <span className="text-white">{pay.invoice?.invoice_number || '-'}</span></div>
-                <div className="text-zinc-400">Amount: <span className="text-green-400 font-semibold">+KES {pay.amount.toFixed(2)}</span></div>
-                <div className="text-zinc-400">Reference: <span className="text-white">{pay.reference || '-'}</span></div>
-                <div className="text-zinc-400">Date: <span className="text-white">{new Date(pay.received_at).toLocaleDateString()}</span></div>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="billing-table-wrap">
+          <table className="billing-data-table">
+            <thead><tr><th>Receipt</th><th>Customer</th><th>Invoice</th><th>Method</th><th>Reference</th><th>Received</th><th className="numeric-cell">Amount</th></tr></thead>
+            <tbody>{payments.map((pay) => (
+              <tr key={pay.id}>
+                <td className="billing-primary-cell">{pay.receipt_number || "—"}</td>
+                <td>{pay.customer?.name || "Unknown"}</td>
+                <td>{pay.invoice?.invoice_number || "—"}</td>
+                <td><span className={`billing-method ${methodColors[pay.method] || ""}`}>{(pay.method || "other").replaceAll("_", " ")}</span></td>
+                <td className="billing-mono-cell">{pay.reference || "—"}</td>
+                <td>{pay.received_at ? new Date(pay.received_at).toLocaleString() : "—"}</td>
+                <td className="numeric-cell billing-amount-cell">KES {(Number(pay.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+              </tr>
+            ))}</tbody>
+          </table>
         </div>
       )}
-
       {showForm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <Card className="card-glow w-full max-w-lg max-h-[90vh] overflow-y-auto">

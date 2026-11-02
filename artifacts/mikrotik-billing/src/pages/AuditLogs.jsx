@@ -201,6 +201,8 @@ export function AuditLogs() {
 
   useEffect(() => {
     fetchLogs();
+    const interval = window.setInterval(fetchLogs, 5000);
+    return () => window.clearInterval(interval);
   }, [fetchLogs]);
 
   const toggleRow = (id) => {

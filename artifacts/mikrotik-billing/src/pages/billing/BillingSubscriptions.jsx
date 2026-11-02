@@ -180,7 +180,7 @@ export function BillingSubscriptions() {
   };
 
   return (
-    <div className="p-8">
+    <div className="billing-page">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h2 className="text-2xl font-bold text-white gradient-text">
@@ -199,152 +199,34 @@ export function BillingSubscriptions() {
       </div>
 
       {subs.length === 0 ? (
-        <div className="text-center py-16">
-          <p className="text-slate-500 text-lg">
-            No subscriptions yet. Create your first subscription.
-          </p>
-        </div>
+        <div className="billing-list-empty">No subscriptions yet. Create your first subscription.</div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {subs.map((sub) => (
-            <Card key={sub.id} className="card-gradient overflow-hidden">
-              <CardHeader className="border-b border-zinc-800">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-lg">
-                      {sub.customer?.name || "Unknown"}
-                    </CardTitle>
-                    <p className="text-slate-400 text-sm">
-                      {sub.plan?.name || "No plan"}
-                    </p>
-                  </div>
-                  <span
-                    className={`px-2 py-1 rounded text-xs font-semibold ${
-                      sub.status === "active"
-                        ? "bg-green-600/20 text-green-400"
-                        : "bg-red-600/20 text-red-400"
-                    }`}
-                  >
-                    {sub.status}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent className="p-4 grid grid-cols-2 gap-3 text-sm border-t border-zinc-800">
-                <div className="text-zinc-400">
-                  Plan:{" "}
-                  <span className="text-white">
-                    {sub.plan?.speed_up}/{sub.plan?.speed_down}
-                  </span>
-                </div>
-                <div className="text-zinc-400">
-                  Price:{" "}
-                  <span className="text-white">${sub.plan?.price}/mo</span>
-                </div>
-                <div className="text-zinc-400">
-                  PPPoE:{" "}
-                  <span className="text-white font-mono">
-                    {sub.pppoe_username || "—"}
-                  </span>
-                </div>
-                <div className="text-zinc-400">
-                  Router:{" "}
-                  <span className="text-white">{sub.router?.name || "—"}</span>
-                </div>
-                <div className="text-zinc-400">
-                  Profile:{" "}
-                  <span className="text-white">
-                    {sub.pppoe_profile || "default"}
-                  </span>
-                </div>
-                <div className="text-zinc-400">
-                  Started: <span className="text-white">{sub.start_date}</span>
-                </div>
-                <div className="col-span-2 text-zinc-400 flex items-center gap-3">
-                  <span>Sync:</span>
-                  <span
-                    className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded ${
-                      sub.last_sync_status === "synced"
-                        ? "bg-green-600/20 text-green-400"
-                        : "bg-amber-600/20 text-amber-400"
-                    }`}
-                    title={`API: ${sub.last_sync_status || "never"}${sub.last_sync_error ? " — " + sub.last_sync_error : ""}`}
-                  >
-                    <Wifi className="w-3 h-3" />
-                    {sub.last_sync_status || "not synced"}
-                  </span>
-                  <span
-                    className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded ${
-                      sub.last_radius_sync_status === "synced"
-                        ? "bg-blue-600/20 text-blue-400"
-                        : "bg-slate-600/20 text-slate-400"
-                    }`}
-                    title={`RADIUS: ${sub.last_radius_sync_status || "disabled"}${sub.last_radius_sync_error ? " — " + sub.last_radius_sync_error : ""}`}
-                  >
-                    <Shield className="w-3 h-3" />
-                    RADIUS
-                  </span>
-                </div>
-                <div className="text-zinc-400">
-                  Cycle:{" "}
-                  <span className="text-white capitalize">
-                    {sub.billing_cycle}
-                  </span>
-                </div>
-              </CardContent>
-              {sub.last_sync_error && (
-                <CardContent className="pt-0 pb-2 border-t border-amber-600/30 bg-amber-600/5">
-                  <div className="flex items-start gap-2 text-xs text-amber-300">
-                    <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
-                    <span>{sub.last_sync_error}</span>
-                  </div>
-                </CardContent>
-              )}
-              <CardContent className="p-4 border-t border-zinc-800 flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleEdit(sub)}
-                  className="flex items-center gap-1"
-                >
-                  <Pencil className="w-3 h-3" /> Edit
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => syncSubscription(sub)}
-                  className="flex items-center gap-1"
-                >
-                  Sync
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDelete(sub)}
-                  className="flex items-center gap-1 text-red-400"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => toggleStatus(sub)}
-                  className={`flex items-center gap-1 ml-auto ${
-                    sub.status === "active" ? "text-red-400" : "text-green-400"
-                  }`}
-                >
-                  {sub.status === "active" ? (
-                    <PowerOff className="w-3 h-3" />
-                  ) : (
-                    <Power className="w-3 h-3" />
-                  )}
-                  {sub.status === "active" ? "Suspend" : "Activate"}
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="billing-table-wrap">
+          <table className="billing-data-table">
+            <thead><tr><th>Customer</th><th>Plan</th><th>PPPoE Username</th><th>Router</th><th>Billing</th><th>RADIUS</th><th>Status</th><th>Start Date</th><th>Actions</th></tr></thead>
+            <tbody>{subs.map((sub) => (
+              <tr key={sub.id}>
+                <td className="billing-primary-cell">{sub.customer?.name || "Unknown"}</td>
+                <td><span className="billing-primary-cell">{sub.plan?.name || "No plan"}</span><small className="billing-secondary-cell">{sub.plan?.speed_up || "—"}/{sub.plan?.speed_down || "—"} Mbps · KES {sub.plan?.price ?? "—"}/mo</small></td>
+                <td className="billing-mono-cell">{sub.pppoe_username || "—"}</td>
+                <td>{sub.router?.name || "—"}</td>
+                <td><span className={`billing-sync-pill ${sub.last_sync_status === "synced" ? "is-synced" : "is-pending"}`}>{sub.last_sync_status || "not synced"}</span></td>
+                <td><span className={`billing-sync-pill ${sub.last_radius_sync_status === "synced" ? "is-synced" : "is-pending"}`}>{sub.last_radius_sync_status || "disabled"}</span></td>
+                <td><span className={`billing-status-pill ${sub.status === "active" ? "is-paid" : "is-pending"}`}>{sub.status || "unknown"}</span></td>
+                <td>{sub.start_date ? new Date(sub.start_date).toLocaleDateString() : "—"}</td>
+                <td><div className="billing-row-actions">
+                  <Button variant="outline" size="sm" onClick={() => handleEdit(sub)} title="Edit subscription" aria-label={`Edit ${sub.customer?.name || "subscription"}`}><Pencil className="w-3.5 h-3.5" /></Button>
+                  <Button variant="outline" size="sm" onClick={() => syncSubscription(sub)} title="Synchronize subscription" aria-label={`Synchronize ${sub.customer?.name || "subscription"}`}><RefreshCw className="w-3.5 h-3.5" /></Button>
+                  <Button variant="outline" size="sm" onClick={() => handleDelete(sub)} title="Delete subscription" aria-label={`Delete ${sub.customer?.name || "subscription"}`}><Trash2 className="w-3.5 h-3.5" /></Button>
+                  <Button variant="outline" size="sm" onClick={() => toggleStatus(sub)} title={sub.status === "active" ? "Suspend" : "Activate"} aria-label={`${sub.status === "active" ? "Suspend" : "Activate"} ${sub.customer?.name || "subscription"}`}>
+                    {sub.status === "active" ? <PowerOff className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5" />}
+                  </Button>
+                </div></td>
+              </tr>
+            ))}</tbody>
+          </table>
         </div>
       )}
-
       {showForm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <Card className="card-glow w-full max-w-lg max-h-[90vh] overflow-y-auto">

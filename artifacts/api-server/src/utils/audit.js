@@ -134,7 +134,7 @@ function requestAuditMiddleware(category) {
           return;
         }
       } else {
-        if (!isWrite || (!failed && global.dbAvailable)) {
+        if (!isWrite) {
           return;
         }
       }

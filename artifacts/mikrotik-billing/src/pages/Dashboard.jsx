@@ -229,7 +229,7 @@ export function Dashboard() {
           </span>
           <button
             type="button"
-            onClick={() => navigate("/billing-customers/new")}
+            onClick={() => navigate("/billing-customers")}
             className="dashboard-button dashboard-button-primary"
           >
             <Plus aria-hidden="true" /> Add customer
