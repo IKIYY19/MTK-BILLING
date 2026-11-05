@@ -723,10 +723,11 @@ export function UserManagement() {
   };
 
   const formatLastSeen = (dateStr) => {
-    if (!dateStr) {return "Never";}
+    if (!dateStr) {return "No recorded activity";}
     const now = new Date();
     const lastSeen = new Date(dateStr);
-    const diffMs = now - lastSeen;
+    if (Number.isNaN(lastSeen.getTime())) {return "No recorded activity";}
+    const diffMs = Math.max(0, now - lastSeen);
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
@@ -859,7 +860,7 @@ export function UserManagement() {
                   Online
                 </th>
                 <th className="text-left text-xs font-medium text-zinc-500 uppercase tracking-wider px-4 py-3">
-                  Last Seen
+                  Last Seen / Login
                 </th>
                 <th className="text-left text-xs font-medium text-zinc-500 uppercase tracking-wider px-4 py-3">
                   Created
@@ -930,7 +931,7 @@ export function UserManagement() {
                     <td className="px-4 py-3 text-sm text-zinc-400">
                       <div className="flex items-center gap-1.5">
                         <Clock className="w-3 h-3 text-zinc-500" />
-                        {formatLastSeen(user.last_seen)}
+                        {formatLastSeen(user.last_seen || user.last_login_at)}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-zinc-500">
