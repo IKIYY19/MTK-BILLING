@@ -112,7 +112,7 @@ router.get('/dashboard/stats', async (req, res) => {
 router.get('/technicians', async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT id, name, email, phone, role,
+      `SELECT id, name, email, role,
               (SELECT COUNT(*) FROM tickets WHERE assignee_id = users.id AND status != 'closed') as active_tickets
        FROM users WHERE is_active = true ORDER BY name ASC`
     );
