@@ -8,6 +8,7 @@ const tenantMigrations = require("./tenantMigrations");
 const provisioningQueueMigrations = require("./provisioningQueueMigrations");
 const { runRlsMigrations } = require("./rlsMigrations");
 const { runSchemaFixesMigrations } = require("./schemaFixesMigrations");
+const { runDnsAdblockMigrations } = require("./dnsAdblockMigrations");
 
 const coreMigrations = [
   // Users table (MUST be first - required for auth)
@@ -406,6 +407,9 @@ async function runMigrations() {
 
     await runBillingMigrations(db);
     console.log("Billing migrations completed successfully");
+
+    await runDnsAdblockMigrations(db);
+    console.log("DNS ad-block migrations completed successfully");
 
     const integrationsOk = await runIntegrationsMigration();
     if (!integrationsOk) {

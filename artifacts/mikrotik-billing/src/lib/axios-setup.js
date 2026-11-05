@@ -15,7 +15,8 @@ axios.interceptors.request.use((config) => {
     /\/(?:api\/)?portal\/auth\/(?:login|token-login|forgot-pin|reset-pin)(?:\/|$)/i.test(requestPath);
   const isCustomerPortalApi =
     /\/api\/portal\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}(?:\/|$)/i.test(requestPath) ||
-    /\/api\/portal\/auth\/(?:me|change-pin)(?:\/|$)/i.test(requestPath);
+    /\/api\/portal\/auth\/(?:me|change-pin)(?:\/|$)/i.test(requestPath) ||
+    /\/api\/portal\/dns-adblock(?:\/|$)/i.test(requestPath);
 
   // If a stale offline/demo token is stored, clear it now and redirect to login
   if (token === 'demo-token-offline') {

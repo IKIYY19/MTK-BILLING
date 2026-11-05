@@ -655,10 +655,16 @@ const startServer = async () => {
       messagingLimiter,
       require("./routes/telegram"),
     );
+    app.get("/api/dns-adblock/feed/:id/:token", require("./routes/dnsAdblock").handleFeed);
     app.use("/api/storage", authenticate, require("./routes/storage"));
     app.use("/api/features", authenticate, require("./routes/features"));
-    const { verifyCustomerToken } = require("./routes/customerAuth");
+    const { verifyCustomerToken, authenticateCustomer } = require("./routes/customerAuth");
     const customerPortalRouter = require("./routes/customerPortal");
+    const dnsAdblockRoutes = require("./routes/dnsAdblock");
+
+    app.use("/api/dns-adblock", authenticate, dnsAdblockRoutes);
+    app.use("/api/portal/dns-adblock", authenticateCustomer, (req,res,next)=>{req.customer={id:req.customerId};next();}, dnsAdblockRoutes);
+
     app.use("/api/portal", (req, res, next) => {
       const customerRoute = req.path.match(
         /^\/([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})(?:\/|$)/i,
@@ -804,6 +810,13 @@ const startServer = async () => {
         });
       }
 
+      // Start DNS ad-block update and health workers.
+      try {
+        require("./cron/dnsAdblock").startCron();
+        logger.info("DNS ad-block scheduler started");
+      } catch (e) {
+        logger.warn("Could not start DNS ad-block scheduler", { error: e.message });
+      }
       // Start usage alerts cron
       try {
         const { startCron: startUsageAlerts } = require("./cron/usageAlerts");

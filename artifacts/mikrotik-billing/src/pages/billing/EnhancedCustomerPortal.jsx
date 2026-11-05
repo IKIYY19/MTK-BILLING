@@ -37,6 +37,7 @@ import {
   ThumbsDown,
   LogOut,
   Layers,
+  ShieldCheck,
 } from "lucide-react";
 import { useToast } from "../../hooks/useToast";
 import { getToken } from "../../lib/auth";
@@ -71,6 +72,28 @@ function StatCard({ title, value, icon: Icon, color = "blue", sub }) {
   );
 }
 
+function CustomerDnsPolicy() {
+  const toast = useToast();
+  const [summary, setSummary] = useState({ policies: [], managed: false, enabled: false, self_service_allowed: false });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const reload = async () => {
+    try { const { data } = await axios.get(`${API}/portal/dns-adblock/customer-policy`); setSummary(data || { policies: [], managed: false, enabled: false, self_service_allowed: false }); }
+    catch (error) { toast.error("Could not load DNS filtering preference", error.response?.data?.error || error.message); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { reload(); }, []);
+  const change = async (enabled) => {
+    setSaving(true);
+    try { const { data } = await axios.put(`${API}/portal/dns-adblock/customer-policy`, { enabled }); await reload(); if (data.results?.some(result => !result.success)) toast.error("Some router policy changes could not be synchronized; contact support."); else toast.success("DNS filtering preference updated"); }
+    catch (error) { toast.error("DNS preference could not be changed", error.response?.data?.error || error.message); }
+    finally { setSaving(false); }
+  };
+  if (loading) return <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6 text-zinc-400">Loading DNS preference…</div>;
+  const policies = summary.policies || [];
+  if (!policies.length) return <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6"><h3 className="text-white font-semibold flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-emerald-400"/>DNS ad-blocking</h3><p className="mt-2 text-sm text-zinc-400">No administrator-managed customer DNS policy is assigned to this account yet.</p></div>;
+  return <section className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6 space-y-4"><div><h3 className="text-white font-semibold flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-emerald-400"/>DNS ad-blocking</h3><p className="text-sm text-zinc-400 mt-1">Filtering is applied to your authenticated connection session where supported.</p></div><div className="flex items-center justify-between gap-4 border-t border-zinc-800 pt-4"><div><div className="text-sm font-medium text-white">Ad blocking</div><div className="text-xs text-zinc-500 mt-1">{summary.enabled ? "Enabled" : "Disabled"} · {policies.map(p=>`${p.access_type} ${p.username}`).join(", ")}</div></div>{summary.self_service_allowed&&<button type="button" disabled={saving} onClick={()=>change(!summary.enabled)} className={`px-4 py-2 rounded-lg text-sm font-semibold ${summary.enabled?"bg-emerald-600 text-white":"bg-zinc-800 text-zinc-200"}`}>{summary.enabled?"Turn off":"Turn on ad-blocking"}</button>}</div>{!summary.self_service_allowed&&<p className="text-xs text-zinc-500">Your administrator controls this setting.</p>}</section>;
+}
 export function CustomerPortal() {
   const { customerId } = useParams();
   const navigate = useNavigate();
@@ -525,6 +548,7 @@ export function CustomerPortal() {
     { id: "review", label: "Review", icon: Star },
     { id: "plans", label: "Plans", icon: Layers },
     { id: "settings", label: "Settings", icon: Lock },
+    { id: "dns", label: "DNS Filter", icon: ShieldCheck },
   ];
 
   const handleLogout = () => {
@@ -1095,6 +1119,9 @@ export function CustomerPortal() {
           </div>
         )}
 
+        {activeTab === "dns" && (
+          <CustomerDnsPolicy />
+        )}
         {/* Speed Test Tab */}
         {activeTab === "speedtest" && (
           <div className="space-y-6">

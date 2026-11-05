@@ -55,6 +55,7 @@ import {
   AlertTriangle,
   LayoutGrid,
   Monitor,
+  ShieldCheck,
 } from "lucide-react";
 import { clearAuth } from "../lib/auth";
 import { SearchButton } from "./GlobalSearch";
@@ -110,6 +111,7 @@ const navGroups = [
       { to: "/tr069", icon: Router, label: "TR-069 CPE", feature: "tr069" },
       { to: "/radius", icon: Shield, label: "RADIUS", feature: "radius" },
       { to: "/radius-import", icon: Upload, label: "RADIUS Import", feature: "radius" },
+      { to: "/dns-adblock", icon: ShieldCheck, label: "DNS Ad-Blocker", feature: "network" },
       { to: "/bandwidth", icon: Activity, label: "Bandwidth", feature: "bandwidth" },
       { to: "/speedtest", icon: Zap, label: "Speed Test", feature: "speedtest" },
     ],

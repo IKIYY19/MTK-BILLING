@@ -83,6 +83,7 @@ const FUPProfiles = lazy(() => import("./pages/network/FUPProfiles").then(m => (
 const TR069Devices = lazy(() => import("./pages/network/TR069Devices").then(m => ({ default: m.TR069Devices })));
 const SpeedTest = lazy(() => import("./pages/network/SpeedTest").then(m => ({ default: m.SpeedTest })));
 const NetworkManagementDashboard = lazy(() => import("./pages/network/NetworkManagementDashboard").then(m => ({ default: m.NetworkManagementDashboard })));
+const DNSAdblockPage = lazy(() => import("./pages/DNSAdblockPage").then(m => ({ default: m.DNSAdblockPage })));
 
 const SignupPage = lazy(() => import("./pages/public/SignupPage").then(m => ({ default: m.SignupPage })));
 const PlansPage = lazy(() => import("./pages/public/PlansPage").then(m => ({ default: m.PlansPage })));
@@ -320,6 +321,7 @@ function App() {
                         <Route path="/speedtest" element={<SpeedTest />} />
                         <Route path="/ipam" element={<IPAMPage />} />
                         <Route path="/network-dashboard" element={<NetworkManagementDashboard />} />
+                        <Route path="/dns-adblock" element={<DNSAdblockPage />} />
                         <Route path="/billing-monitoring" element={<MonitoringDashboard />} />
                         <Route path="/radius" element={<RadiusManagement />} />
                         <Route path="/radius-import" element={<RadiusImport />} />

@@ -57,7 +57,6 @@ const rlsMigrations = [
   `CREATE INDEX IF NOT EXISTS idx_captive_sessions_tenant ON captive_hotspot_sessions(tenant_id)`,
   `ALTER TABLE captive_hotspot_events ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE`,
   `CREATE INDEX IF NOT EXISTS idx_captive_events_tenant ON captive_hotspot_events(tenant_id)`,
-
   // Add tenant_id to hotspot_vouchers
   `ALTER TABLE hotspot_vouchers ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE`,
   `CREATE INDEX IF NOT EXISTS idx_hotspot_vouchers_tenant ON hotspot_vouchers(tenant_id)`,
@@ -260,7 +259,40 @@ const rlsMigrations = [
       NULLIF(current_setting('app.current_tenant_id', true), '') IS NULL
       OR tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid
     )`,
-];
+  // DNS table tenant policies are applied after all billing and base RLS tables.
+  // DNS tenant migration runs after all feature tables exist.
+  `ALTER TABLE dns_adblock_source_history ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE`,
+  `ALTER TABLE dns_adblock_sources ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE`,
+  `ALTER TABLE dns_adblock_groups ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE`,
+  `ALTER TABLE dns_adblock_router_configs ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE`,
+  `ALTER TABLE dns_adblock_versions ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE`,
+  `ALTER TABLE dns_adblock_policies ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE`,
+  `ALTER TABLE dns_adblock_domains ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE`,
+  `ALTER TABLE dns_adblock_sync_logs ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE`,
+  `UPDATE dns_adblock_sources SET tenant_id='00000000-0000-0000-0000-000000000001' WHERE tenant_id IS NULL`,
+  `UPDATE dns_adblock_groups SET tenant_id='00000000-0000-0000-0000-000000000001' WHERE tenant_id IS NULL`,
+  `UPDATE dns_adblock_router_configs SET tenant_id='00000000-0000-0000-0000-000000000001' WHERE tenant_id IS NULL`,
+  `UPDATE dns_adblock_versions v SET tenant_id=c.tenant_id FROM dns_adblock_router_configs c WHERE v.router_config_id=c.id AND v.tenant_id IS NULL`,
+  `UPDATE dns_adblock_policies p SET tenant_id=c.tenant_id FROM dns_adblock_router_configs c WHERE p.router_config_id=c.id AND p.tenant_id IS NULL`,
+  `UPDATE dns_adblock_domains SET tenant_id='00000000-0000-0000-0000-000000000001' WHERE tenant_id IS NULL`,
+  `UPDATE dns_adblock_sync_logs l SET tenant_id=c.tenant_id FROM dns_adblock_router_configs c WHERE l.router_config_id=c.id AND l.tenant_id IS NULL`,
+  `UPDATE dns_adblock_source_history h SET tenant_id=s.tenant_id FROM dns_adblock_sources s WHERE h.source_id=s.id AND h.tenant_id IS NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_dns_sources_tenant ON dns_adblock_sources(tenant_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_dns_router_tenant ON dns_adblock_router_configs(tenant_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_dns_source_history_tenant ON dns_adblock_source_history(tenant_id,source_id,created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_dns_policy_tenant ON dns_adblock_policies(tenant_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_dns_domains_tenant ON dns_adblock_domains(tenant_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_dns_logs_tenant ON dns_adblock_sync_logs(tenant_id)`,
+  `ALTER TABLE dns_adblock_sources ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE dns_adblock_groups ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE dns_adblock_router_configs ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE dns_adblock_versions ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE dns_adblock_policies ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE dns_adblock_domains ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE dns_adblock_sync_logs ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE dns_adblock_source_history ENABLE ROW LEVEL SECURITY`,
+  ...['dns_adblock_sources','dns_adblock_groups','dns_adblock_router_configs','dns_adblock_versions','dns_adblock_policies','dns_adblock_domains','dns_adblock_sync_logs','dns_adblock_source_history'].map(table => `DROP POLICY IF EXISTS tenant_isolation ON ${table}`),
+  ...['dns_adblock_sources','dns_adblock_groups','dns_adblock_router_configs','dns_adblock_versions','dns_adblock_policies','dns_adblock_domains','dns_adblock_sync_logs','dns_adblock_source_history'].map(table => `CREATE POLICY tenant_isolation ON ${table} AS PERMISSIVE FOR ALL TO PUBLIC USING (NULLIF(current_setting('app.current_tenant_id',true),'') IS NULL OR tenant_id IS NULL OR tenant_id=NULLIF(current_setting('app.current_tenant_id',true),'')::uuid) WITH CHECK (NULLIF(current_setting('app.current_tenant_id',true),'') IS NULL OR tenant_id IS NULL OR tenant_id=NULLIF(current_setting('app.current_tenant_id',true),'')::uuid)`),];
 
 async function runRlsMigrations(db) {
   console.log("🔒 Running RLS migrations...");

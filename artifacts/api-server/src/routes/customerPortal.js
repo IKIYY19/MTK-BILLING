@@ -15,6 +15,7 @@ const logger = require("../utils/logger");
 const db = global.dbAvailable ? global.db : require("../db/memory");
 const radiusSync = require("../services/radiusSync");
 const mikrotikProvisioning = require("../services/mikrotikProvisioning");
+const dnsAdblockService = require("../services/dnsAdblockService");
 
 const MIN_PASSWORD_LENGTH = 8;
 const isNonEmptyString = (value) =>
@@ -235,6 +236,7 @@ router.get("/:customerId/dashboard", async (req, res) => {
     res.json({
       customer,
       subscription,
+      dns_adblock_policies: await dnsAdblockService.getCustomerPolicy(customer.id).catch(() => []),
       usage: {
         ...usage,
         quota_gb: subscription?.plan?.quota_gb,
