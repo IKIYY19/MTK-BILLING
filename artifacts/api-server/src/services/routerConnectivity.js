@@ -138,23 +138,17 @@ class RouterConnectivityService {
         [isOnline, now.toISOString(), connectionId],
       );
 
-      // Create alert if status changed
+      // Create alert if status changed (only on real transitions, so no spam)
       if (wasOnline && !isOnline) {
-        await this.createAlert(
-          connectionId,
-          ALERT_TYPES.ROUTER_OFFLINE,
-          SEVERITY.CRITICAL,
-          "Router Offline",
-          `Router ${connection.name} (${connection.ip_address}) is not responding`,
-        );
+        const title = "Router Offline";
+        const message = `Router ${connection.name} (${connection.ip_address}) is not responding`;
+        await this.createAlert(connectionId, ALERT_TYPES.ROUTER_OFFLINE, SEVERITY.CRITICAL, title, message);
+        await this.notify(connection, ALERT_TYPES.ROUTER_OFFLINE, SEVERITY.CRITICAL, title, message);
       } else if (!wasOnline && isOnline) {
-        await this.createAlert(
-          connectionId,
-          ALERT_TYPES.ROUTER_ONLINE,
-          SEVERITY.INFO,
-          "Router Online",
-          `Router ${connection.name} (${connection.ip_address}) is back online`,
-        );
+        const title = "Router Online";
+        const message = `Router ${connection.name} (${connection.ip_address}) is back online`;
+        await this.createAlert(connectionId, ALERT_TYPES.ROUTER_ONLINE, SEVERITY.INFO, title, message);
+        await this.notify(connection, ALERT_TYPES.ROUTER_ONLINE, SEVERITY.INFO, title, message);
         // Resolve any open offline alerts
         await this.resolveAlerts(connectionId, ALERT_TYPES.ROUTER_OFFLINE);
       }
@@ -165,6 +159,16 @@ class RouterConnectivityService {
         connectionId,
         error: error.message,
       });
+    }
+  }
+
+  // Send router status alert through all configured notification channels
+  async notify(connection, alertType, severity, title, message) {
+    try {
+      const notifier = require("./routerAlertNotifier");
+      await notifier.send(connection, alertType, severity, title, message);
+    } catch (error) {
+      logger.error("Failed to send router alert notification", { error: error.message });
     }
   }
 

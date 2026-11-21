@@ -8,6 +8,11 @@ import {
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
+const formatMetric = (value, suffix) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? `${numeric.toFixed(1)}${suffix}` : '-';
+};
+
 export function Monitoring() {
   const [connections, setConnections] = useState([]);
   const [alerts, setAlerts] = useState([]);
@@ -46,6 +51,54 @@ export function Monitoring() {
       setAlerts(data);
     } catch (e) {
       console.error('Failed to fetch alerts:', e);
+    }
+  };
+
+  const fetchChannels = async () => {
+    try {
+      // Channels are per admin user; fetch for the current user id from localStorage
+      let userId = '';
+      try { userId = JSON.parse(localStorage.getItem('auth_user') || '{}').id || ''; } catch {}
+      const { data } = await axios.get(`${API}/monitoring/notification-channels/${userId}`).catch(() => ({ data: [] }));
+      setChannels(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error('Failed to fetch notification channels:', e);
+    }
+  };
+
+  const openChannels = () => {
+    fetchChannels();
+    setShowChannelModal(true);
+  };
+
+  const [channelForm, setChannelForm] = useState({ channel_type: 'sms', phone: '', chat_id: '', is_enabled: true });
+
+  const addChannel = async () => {
+    try {
+      let userId = '';
+      try { userId = JSON.parse(localStorage.getItem('auth_user') || '{}').id || ''; } catch {}
+      const config = {};
+      if (channelForm.phone) config.phone = channelForm.phone;
+      if (channelForm.chat_id) config.chat_id = channelForm.chat_id;
+      await axios.post(`${API}/monitoring/notification-channels`, {
+        user_id: userId,
+        channel_type: channelForm.channel_type,
+        is_enabled: channelForm.is_enabled,
+        config,
+      });
+      setChannelForm({ channel_type: 'sms', phone: '', chat_id: '', is_enabled: true });
+      fetchChannels();
+    } catch (e) {
+      console.error('Failed to add channel:', e);
+    }
+  };
+
+  const deleteChannel = async (id) => {
+    try {
+      await axios.delete(`${API}/monitoring/notification-channels/${id}`);
+      fetchChannels();
+    } catch (e) {
+      console.error('Failed to delete channel:', e);
     }
   };
 
@@ -214,9 +267,14 @@ export function Monitoring() {
           </h1>
           <p className="text-zinc-400 mt-1">Self-diagnosis and alerting for MikroTik routers</p>
         </div>
-        <button onClick={fetchAlerts} className="btn-ghost p-2" title="Refresh">
-          <RefreshCw className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={openChannels} className="btn-ghost flex items-center gap-2" title="Configure alert notifications">
+            <Bell className="w-5 h-5" /> Alerts
+          </button>
+          <button onClick={fetchAlerts} className="btn-ghost p-2" title="Refresh">
+            <RefreshCw className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Connection Selector */}
@@ -408,9 +466,9 @@ export function Monitoring() {
                         {check.status}
                       </span>
                     </td>
-                    <td className="text-sm text-zinc-400">{check.cpu_usage ? `${check.cpu_usage.toFixed(1)}%` : '-'}</td>
-                    <td className="text-sm text-zinc-400">{check.memory_usage ? `${check.memory_usage.toFixed(1)}%` : '-'}</td>
-                    <td className="text-sm text-zinc-400">{check.latency_ms ? `${check.latency_ms.toFixed(1)}ms` : '-'}</td>
+                    <td className="text-sm text-zinc-400">{formatMetric(check.cpu_usage, '%')}</td>
+                    <td className="text-sm text-zinc-400">{formatMetric(check.memory_usage, '%')}</td>
+                    <td className="text-sm text-zinc-400">{formatMetric(check.latency_ms, 'ms')}</td>
                     <td className="text-sm text-zinc-400">{new Date(check.checked_at).toLocaleString()}</td>
                   </tr>
                 );
@@ -424,6 +482,71 @@ export function Monitoring() {
               <p className="text-zinc-500">Start monitoring to see health check history</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Notification Channels Modal */}
+      {showChannelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowChannelModal(false)}>
+          <div className="glass rounded-2xl w-full max-w-lg p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2"><Bell className="w-5 h-5" /> Alert Notifications</h2>
+                <p className="text-zinc-400 text-sm mt-1">Get notified when a router goes offline or comes back online.</p>
+              </div>
+              <button onClick={() => setShowChannelModal(false)} className="text-zinc-400 hover:text-white"><XCircle className="w-5 h-5" /></button>
+            </div>
+
+            <div className="space-y-3 mb-6">
+              {channels.length === 0 && (
+                <div className="text-center py-6 text-zinc-500 text-sm">No notification channels configured yet.</div>
+              )}
+              {channels.map(ch => {
+                const Icon = getChannelIcon(ch.channel_type);
+                return (
+                  <div key={ch.id} className="flex items-center gap-3 rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-3">
+                    <Icon className="w-4 h-4 text-violet-400" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white capitalize">{ch.channel_type}</p>
+                      <p className="text-xs text-zinc-500 truncate">{ch.config?.phone || ch.config?.chat_id || ch.email || '—'}</p>
+                    </div>
+                    <span className={`text-xs ${ch.is_enabled ? 'text-emerald-400' : 'text-zinc-500'}`}>{ch.is_enabled ? 'Enabled' : 'Disabled'}</span>
+                    <button onClick={() => deleteChannel(ch.id)} className="text-zinc-500 hover:text-red-400" title="Remove"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="border-t border-zinc-700/50 pt-5">
+              <h3 className="text-sm font-semibold text-white mb-3">Add a channel</h3>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <select
+                  value={channelForm.channel_type}
+                  onChange={e => setChannelForm({ ...channelForm, channel_type: e.target.value })}
+                  className="modern-input"
+                >
+                  <option value="sms">SMS</option>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="telegram">Telegram</option>
+                  <option value="email">Email</option>
+                </select>
+                <input
+                  className="modern-input"
+                  placeholder={channelForm.channel_type === 'telegram' ? 'Chat ID' : channelForm.channel_type === 'email' ? 'Email' : 'Phone (+254...)'}
+                  value={channelForm.channel_type === 'telegram' ? (channelForm.chat_id || '') : (channelForm.phone || '')}
+                  onChange={e => setChannelForm(channelForm.channel_type === 'telegram'
+                    ? { ...channelForm, chat_id: e.target.value }
+                    : { ...channelForm, phone: e.target.value })}
+                />
+              </div>
+              <button onClick={addChannel} className="btn-primary w-full flex items-center justify-center gap-2">
+                <Plus className="w-4 h-4" /> Add Channel
+              </button>
+              <p className="text-xs text-zinc-500 mt-3">
+                SMS/WhatsApp need a provider configured in Integrations. Telegram needs the bot configured.
+              </p>
+            </div>
+          </div>
         </div>
       )}
     </div>

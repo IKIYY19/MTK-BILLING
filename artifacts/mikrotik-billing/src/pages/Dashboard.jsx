@@ -17,9 +17,16 @@ import {
   Link,
   Zap,
   ChevronRight,
+  DollarSign,
+  Users,
+  Receipt,
+  TrendingUp,
+  Clock,
+  User,
 } from "lucide-react";
 import { useToast } from "../hooks/useToast";
 import { useStore } from "../store";
+import { getUser } from "../lib/auth";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -135,11 +142,160 @@ function QuickAction({ icon: Icon, label, color, onClick }) {
   );
 }
 
+// ─── Splynx-style Stat Card ───────────────────────────────────────────────────
+function SplynxStatCard({ icon: Icon, label, value, prefix = "", color, onClick, trend, trendLabel }) {
+  const isPositive = Number(trend) >= 0;
+  return (
+    <button type="button" className="splynx-stat-card" onClick={onClick}>
+      <span className="splynx-stat-card-icon" style={{ background: color }}>
+        <Icon aria-hidden="true" />
+      </span>
+      <span className="splynx-stat-card-body">
+        <span className="splynx-stat-card-label">{label}</span>
+        <span className="splynx-stat-card-value">{prefix}{(Number(value) || 0).toLocaleString()}</span>
+        <span className="splynx-stat-card-footer">
+          {trend !== undefined && (
+            <span className="splynx-stat-card-trend">
+              {isPositive ? <ArrowUpRight aria-hidden="true" /> : <ArrowDownRight aria-hidden="true" />}
+              {Math.abs(Number(trend))}%
+            </span>
+          )}
+          {trendLabel && <span className="splynx-stat-card-trend-label">{trendLabel}</span>}
+        </span>
+      </span>
+    </button>
+  );
+}
 
+// ─── Splynx-style Customer Status Bar ─────────────────────────────────────────
+function CustomerStatusBar({ stats, currencySymbol }) {
+  const items = [
+    { key: "active", label: "Active customers", value: stats?.activeCustomers || 0, tone: "green" },
+    { key: "sessions", label: "Active sessions", value: stats?.activeRadiusSessions || 0, tone: "blue" },
+    { key: "suspended", label: "Suspended", value: stats?.suspendedCustomers || 0, tone: "red" },
+    { key: "overdue", label: "Overdue invoices", value: stats?.overdueInvoices || 0, tone: "amber" },
+  ];
+  return (
+    <section className="splynx-status-bar" aria-label="Customer status overview">
+      {items.map((item) => (
+        <div key={item.key} className={`splynx-status-bar-item tone-${item.tone}`}>
+          <span className="splynx-status-bar-dot" />
+          <span className="splynx-status-bar-info">
+            <span className="splynx-status-bar-label">{item.label}</span>
+            <span className="splynx-status-bar-value">{item.value.toLocaleString()}</span>
+          </span>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+// ─── Splynx-style Activity Feed ───────────────────────────────────────────────
+function ActivityFeed({ customers = [], payments = [], navigate, currencySymbol }) {
+  const customerList = Array.isArray(customers) ? customers : [];
+  const paymentList = Array.isArray(payments) ? payments : [];
+  const items = [
+    ...customerList.slice(0, 4).map((c) => ({
+      id: `c-${c.id}`,
+      icon: User,
+      tone: "blue",
+      title: c.name || "New customer",
+      detail: c.subscription?.plan?.name || c.account_number || "Newly registered",
+      time: c.created_at ? new Date(c.created_at).toLocaleDateString() : "",
+      onClick: () => navigate(`/billing-customers/${c.id}`),
+    })),
+    ...paymentList.slice(0, 4).map((p) => ({
+      id: `p-${p.id}`,
+      icon: CreditCard,
+      tone: "green",
+      title: p.customer_name || "Payment received",
+      detail: `${currencySymbol} ${(Number(p.amount) || 0).toLocaleString()} · ${p.method || "payment"}`,
+      time: p.received_at ? new Date(p.received_at).toLocaleDateString() : "",
+      onClick: () => navigate("/billing-payments"),
+    })),
+  ];
+  return (
+    <section className="splynx-activity" aria-label="Recent activity">
+      <div className="splynx-activity-head">
+        <div>
+          <h2>Recent activity</h2>
+          <p>Latest customers and payments</p>
+        </div>
+        <Clock aria-hidden="true" />
+      </div>
+      <div className="splynx-activity-list">
+        {items.length === 0 ? (
+          <div className="splynx-activity-empty">
+            <TrendingUp aria-hidden="true" />
+            <p>No recent activity yet</p>
+          </div>
+        ) : (
+          items.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button key={item.id} type="button" className="splynx-activity-item" onClick={item.onClick}>
+                <span className={`splynx-activity-icon tone-${item.tone}`}><Icon aria-hidden="true" /></span>
+                <span className="splynx-activity-text">
+                  <span className="splynx-activity-title">{item.title}</span>
+                  <span className="splynx-activity-detail">{item.detail}</span>
+                </span>
+                <span className="splynx-activity-time">{item.time}</span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ─── Welcome Note ─────────────────────────────────────────────────────────────
+function WelcomeNote({ userName }) {
+  const navigate = useNavigate();
+  const greetings = [
+    "Welcome back",
+    "Good to see you",
+    "Welcome",
+    "Hello there",
+  ];
+  const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+  const tips = [
+    "Add a new customer to get started with billing.",
+    "Check overdue invoices to keep collections on track.",
+    "Monitor active sessions from the RADIUS tab.",
+    "Send payment reminders to customers with outstanding balances.",
+  ];
+  const tip = tips[Math.floor(Math.random() * tips.length)];
+
+  return (
+    <section className="dashboard-welcome" aria-label="Welcome note">
+      <div className="dashboard-welcome-card">
+        <div className="dashboard-welcome-avatar">
+          <UserPlus aria-hidden="true" />
+        </div>
+        <div className="dashboard-welcome-text">
+          <span className="dashboard-welcome-greeting">{greeting}, {userName}</span>
+          <h2 className="dashboard-welcome-title">Welcome to MikroTik Billing</h2>
+          <p className="dashboard-welcome-tip">{tip}</p>
+        </div>
+        <div className="dashboard-welcome-actions">
+          <button type="button" className="dashboard-welcome-btn dashboard-welcome-btn-primary" onClick={() => navigate("/billing-customers")}>
+            <Plus aria-hidden="true" /> Add customer
+          </button>
+          <button type="button" className="dashboard-welcome-btn dashboard-welcome-btn-secondary" onClick={() => navigate("/billing")}>
+            <ChevronRight aria-hidden="true" /> View billing
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 export function Dashboard() {
   const { fetchProjects } = useStore();
+  const user = getUser();
+  const userName = user?.name || user?.email?.split("@")[0] || "Administrator";
   const [stats, setStats] = useState(null);
   const [quickActions, setQuickActions] = useState([]);
   const [churnData, setChurnData] = useState(null);
@@ -246,6 +402,55 @@ export function Dashboard() {
         </div>
       </header>
 
+      <WelcomeNote userName={userName} />
+
+      {stats && (
+        <>
+          <section className="splynx-stats-grid" aria-label="Key metrics">
+            <SplynxStatCard
+              icon={DollarSign}
+              label="Today's Revenue"
+              value={stats.todayRevenue || 0}
+              prefix={`${currencySymbol} `}
+              color="var(--accent-emerald)"
+              onClick={() => navigate("/billing-reports")}
+              trend={stats.revenueChange || 0}
+              trendLabel={`${stats.todayPayments || 0} payments today`}
+            />
+            <SplynxStatCard
+              icon={Users}
+              label="Active Customers"
+              value={stats.activeCustomers || 0}
+              color="var(--accent-blue)"
+              onClick={() => navigate("/billing-customers")}
+              trend={stats.customerGrowth || 0}
+              trendLabel={`${stats.activeSubscriptions || 0} subscriptions`}
+            />
+            <SplynxStatCard
+              icon={Receipt}
+              label="Outstanding"
+              value={stats.outstandingBalance || 0}
+              prefix={`${currencySymbol} `}
+              color="var(--accent-amber)"
+              onClick={() => navigate("/billing-invoices")}
+              trendLabel={`${stats.overdueInvoices || 0} overdue invoices`}
+            />
+            <SplynxStatCard
+              icon={Activity}
+              label="Month Revenue"
+              value={stats.monthRevenue || 0}
+              prefix={`${currencySymbol} `}
+              color="var(--accent-violet)"
+              onClick={() => navigate("/billing-reports")}
+              trend={stats.revenueChange || 0}
+              trendLabel="vs last month"
+            />
+          </section>
+
+          <CustomerStatusBar stats={stats} currencySymbol={currencySymbol} />
+        </>
+      )}
+
       <div className="dashboard-content">
         {loadError && (
           <div className="dashboard-error" role="alert">
@@ -346,7 +551,7 @@ export function Dashboard() {
                 </button>
               </div>
               <div className="dashboard-payment-list">
-                {stats.recentPayments?.length > 0 ? (
+                {Array.isArray(stats.recentPayments) && stats.recentPayments.length > 0 ? (
                   stats.recentPayments.slice(0, 6).map((payment, index) => (
                     <ActivityItem
                       key={payment.id || index}
@@ -366,6 +571,15 @@ export function Dashboard() {
               </div>
             </section>
           </div>
+        )}
+
+        {stats && (
+          <ActivityFeed
+            customers={stats.recentCustomers || []}
+            payments={stats.recentPayments || []}
+            navigate={navigate}
+            currencySymbol={currencySymbol}
+          />
         )}
 
         {!stats && !loadError && (

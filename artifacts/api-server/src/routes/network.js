@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const routerConnectionManager = require('../services/routerConnectionManager');
+const mikrotikProvisioning = require('../services/mikrotikProvisioning');
 
 // Helper: get MikroTik connection
 async function getMikrotikConnection(connectionId) {
@@ -59,8 +60,8 @@ router.post('/pppoe/secrets', async (req, res) => {
 
     const device = await getMikrotikConnection(connection_id);
     const args = { name, password, service: service || 'pppoe' };
-    if (profile) {args.profile = profile;}
-    if (rate_limit) {args['rate-limit'] = rate_limit;}
+    if (rate_limit) {args.profile = await mikrotikProvisioning.ensureRateLimitProfile(device, rate_limit, profile);}
+    else if (profile) {args.profile = profile;}
     if (comment) {args.comment = comment;}
 
     await executeCommand(device, '/ppp/secret/add', args);

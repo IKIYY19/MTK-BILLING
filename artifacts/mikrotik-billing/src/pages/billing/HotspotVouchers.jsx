@@ -196,7 +196,7 @@ export function HotspotVouchers() {
     try {
       const [connRes, profilesRes] = await Promise.all([
         axios.get(`${API}/mikrotik`).catch(() => ({ data: [] })),
-        selectedConnection ? axios.get(`${API}/hotspot/profiles?connection_id=${selectedConnection}`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+        selectedConnection ? axios.get(`${API}/network/hotspot/profiles?connection_id=${selectedConnection}`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
       ]);
       setConnections(connRes.data);
       setProfiles(profilesRes.data);
@@ -205,8 +205,8 @@ export function HotspotVouchers() {
 
   const fetchVouchers = async () => {
     try {
-      console.log('Fetching vouchers from:', `${API}/hotspot/vouchers`);
-      const { data } = await axios.get(`${API}/hotspot/vouchers`).catch(() => ({ data: [] }));
+      console.log('Fetching vouchers from:', `${API}/network/vouchers`);
+      const { data } = await axios.get(`${API}/network/vouchers`).catch(() => ({ data: [] }));
       console.log('Fetched vouchers:', data);
       setVouchers(Array.isArray(data) ? data : []);
     } catch (e) {
@@ -251,7 +251,7 @@ export function HotspotVouchers() {
 
     try {
       console.log('Generating vouchers:', newVouchers);
-      const response = await axios.post(`${API}/hotspot/vouchers`, { vouchers: newVouchers, connection_id: selectedConnection });
+      const response = await axios.post(`${API}/network/vouchers`, { vouchers: newVouchers, connection_id: selectedConnection });
       console.log('Voucher generation response:', response.data);
       await fetchVouchers();
     } catch (e) {
@@ -265,7 +265,7 @@ export function HotspotVouchers() {
   const handleDelete = async (id) => {
     if (!confirm('Delete this voucher?')) {return;}
     try {
-      await axios.delete(`${API}/hotspot/vouchers/${id}`);
+      await axios.delete(`${API}/network/vouchers/${id}`);
       fetchVouchers();
     } catch (e) { alert('Failed to delete'); }
   };
@@ -506,3 +506,5 @@ export function HotspotVouchers() {
     </div>
   );
 }
+
+

@@ -98,7 +98,7 @@ export function SMSPage() {
     setBulkResult(null);
 
     try {
-      const result = await axios.post(`${API}/sms/send-bulk`, {
+      const result = await axios.post(`${API}/sms/bulk-send`, {
         message: bulkMessage,
         provider: selectedProvider,
         filter: bulkFilter,
@@ -462,3 +462,4 @@ export function SMSPage() {
     </div>
   );
 }
+

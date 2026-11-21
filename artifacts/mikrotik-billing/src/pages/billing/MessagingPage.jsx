@@ -123,7 +123,7 @@ export default function MessagingPage() {
     if (!message) {return toast.error("Message required");}
     setSending(true);
     try {
-      const { data } = await axios.post(`${API}/sms/send-bulk`, { message, filter: bulkFilter, provider });
+      const { data } = await axios.post(`${API}/sms/bulk-send`, { message, filter: bulkFilter, provider });
       toast.success(`Bulk sent: ${data.successCount} success, ${data.failCount} failed`);
       fetchLogs();
     } catch (e) {
@@ -491,3 +491,4 @@ export default function MessagingPage() {
     </div>
   );
 }
+

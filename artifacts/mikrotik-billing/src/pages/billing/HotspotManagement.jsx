@@ -240,9 +240,9 @@ export function HotspotManagement() {
     setLoading(true);
     try {
       const [usersRes, profilesRes, activeRes, connRes] = await Promise.all([
-        axios.get(`${API}/hotspot/users${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`).catch(() => ({ data: [] })),
-        axios.get(`${API}/hotspot/profiles${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`).catch(() => ({ data: [] })),
-        axios.get(`${API}/hotspot/active${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`).catch(() => ({ data: [] })),
+        axios.get(`${API}/network/hotspot/users${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`).catch(() => ({ data: [] })),
+        axios.get(`${API}/network/hotspot/profiles${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`).catch(() => ({ data: [] })),
+        axios.get(`${API}/network/hotspot/active${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`).catch(() => ({ data: [] })),
         axios.get(`${API}/mikrotik`).catch(() => ({ data: [] })),
       ]);
       setUsers(Array.isArray(usersRes.data) ? usersRes.data : []);
@@ -257,7 +257,7 @@ export function HotspotManagement() {
 
   const handleCreateUser = async (form) => {
     try {
-      await axios.post(`${API}/hotspot/users`, { ...form, connection_id: selectedConnection });
+      await axios.post(`${API}/network/hotspot/users`, { ...form, connection_id: selectedConnection });
       setShowUserForm(false); setEditingUser(null); fetchData();
     } catch (e) { alert(e.response?.data?.error || 'Failed to create user'); }
   };
@@ -265,28 +265,28 @@ export function HotspotManagement() {
   const handleDeleteUser = async (name) => {
     if (!confirm(`Delete hotspot user "${name}"?`)) {return;}
     try {
-      await axios.delete(`${API}/hotspot/users/${encodeURIComponent(name)}${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`);
+      await axios.delete(`${API}/network/hotspot/users/${encodeURIComponent(name)}${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`);
       fetchData();
     } catch (e) { alert('Failed to delete user'); }
   };
 
   const handleToggleUser = async (name) => {
     try {
-      await axios.post(`${API}/hotspot/users/${encodeURIComponent(name)}/toggle${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`);
+      await axios.post(`${API}/network/hotspot/users/${encodeURIComponent(name)}/toggle${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`);
       fetchData();
     } catch (e) { alert('Failed to toggle user'); }
   };
 
   const handleKickUser = async (address) => {
     try {
-      await axios.post(`${API}/hotspot/active/${encodeURIComponent(address)}/kick${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`);
+      await axios.post(`${API}/network/hotspot/active/${encodeURIComponent(address)}/kick${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`);
       fetchData();
     } catch (e) { alert('Failed to kick user'); }
   };
 
   const handleCreateProfile = async (form) => {
     try {
-      await axios.post(`${API}/hotspot/profiles`, { ...form, connection_id: selectedConnection });
+      await axios.post(`${API}/network/hotspot/profiles`, { ...form, connection_id: selectedConnection });
       setShowProfileForm(false); setEditingProfile(null); fetchData();
     } catch (e) { alert('Failed to create profile'); }
   };
@@ -294,7 +294,7 @@ export function HotspotManagement() {
   const handleDeleteProfile = async (name) => {
     if (!confirm(`Delete profile "${name}"?`)) {return;}
     try {
-      await axios.delete(`${API}/hotspot/profiles/${encodeURIComponent(name)}${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`);
+      await axios.delete(`${API}/network/hotspot/profiles/${encodeURIComponent(name)}${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`);
       fetchData();
     } catch (e) { alert('Failed to delete profile'); }
   };
@@ -582,3 +582,4 @@ export function HotspotManagement() {
     </div>
   );
 }
+

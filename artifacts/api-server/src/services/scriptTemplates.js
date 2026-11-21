@@ -115,6 +115,7 @@ function interfaceDetectionLines() {
 }
 
 
+function configurationLines({ routerIdentity, radiusServer, radiusSecret }) {
   return [
     ...interfaceDetectionLines(),
     "# ── System Identity ──",

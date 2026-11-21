@@ -346,48 +346,112 @@ router.put("/bank-paybills", (req, res) => {
   res.json(bankPaybillStore);
 });
 
-// Get WireGuard settings
-router.get("/wireguard", (req, res) => {
-  res.json(wireguardStore);
+// Generate a real WireGuard (Curve25519/X25519) key pair
+router.post("/wireguard/generate-keys", (req, res) => {
+  try {
+    const cgnatTunnelService = require("../services/cgnatTunnelService");
+    const pair = cgnatTunnelService.generateKeyPair();
+    if (!pair?.privateKey || !pair?.publicKey) {
+      return res.status(500).json({ error: "Key generation failed" });
+    }
+    res.json({ private_key: pair.privateKey, public_key: pair.publicKey });
+  } catch (error) {
+    console.error("WireGuard key generation error:", error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
+// Get WireGuard settings
+router.get("/wireguard", async (req, res) => {
+  try {
+    const stored = await getSetting("wireguard_settings", "");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      wireguardStore.enabled = parsed.enabled ?? wireguardStore.enabled;
+      wireguardStore.server_port = parsed.server_port ?? wireguardStore.server_port;
+      wireguardStore.server_private_key = parsed.server_private_key ?? "";
+      wireguardStore.server_public_key = parsed.server_public_key ?? "";
+      wireguardStore.server_address = parsed.server_address ?? wireguardStore.server_address;
+      wireguardStore.server_dns = parsed.server_dns ?? wireguardStore.server_dns;
+      wireguardStore.peers = Array.isArray(parsed.peers) ? parsed.peers : [];
+    }
+    // Generate a real server keypair on first run if none exists
+    if (!wireguardStore.server_private_key || !wireguardStore.server_public_key) {
+      const cgnatTunnelService = require("../services/cgnatTunnelService");
+      const pair = cgnatTunnelService.generateKeyPair();
+      wireguardStore.server_private_key = pair.privateKey;
+      wireguardStore.server_public_key = pair.publicKey;
+      await setSetting("wireguard_settings", JSON.stringify({
+        enabled: wireguardStore.enabled,
+        server_port: wireguardStore.server_port,
+        server_private_key: wireguardStore.server_private_key,
+        server_public_key: wireguardStore.server_public_key,
+        server_address: wireguardStore.server_address,
+        server_dns: wireguardStore.server_dns,
+        peers: wireguardStore.peers,
+      }));
+    }
+    res.json(wireguardStore);
+  } catch (error) {
+    res.json(wireguardStore);
+  }
+});
+
+// Persist the current WireGuard store to the database
+async function persistWireguard() {
+  await setSetting("wireguard_settings", JSON.stringify({
+    enabled: wireguardStore.enabled,
+    server_port: wireguardStore.server_port,
+    server_private_key: wireguardStore.server_private_key,
+    server_public_key: wireguardStore.server_public_key,
+    server_address: wireguardStore.server_address,
+    server_dns: wireguardStore.server_dns,
+    peers: wireguardStore.peers,
+  }));
+}
+
 // Update WireGuard settings
-router.put("/wireguard", (req, res) => {
+router.put("/wireguard", async (req, res) => {
   Object.assign(wireguardStore, req.body);
+  await persistWireguard();
   res.json(wireguardStore);
 });
 
 // Add WireGuard peer
-router.post("/wireguard/peers", (req, res) => {
-  const { name, public_key, allowed_ips, preshared_key } = req.body;
+router.post("/wireguard/peers", async (req, res) => {
+  const { name, public_key, allowed_ips, preshared_key, private_key } = req.body;
   const peer = {
     id: Date.now().toString(),
     name,
     public_key,
+    private_key: private_key || "",
     allowed_ips,
     preshared_key,
     enabled: true,
     created_at: new Date().toISOString(),
   };
   wireguardStore.peers.push(peer);
+  await persistWireguard();
   res.json(peer);
 });
 
 // Update WireGuard peer
-router.put("/wireguard/peers/:id", (req, res) => {
+router.put("/wireguard/peers/:id", async (req, res) => {
   const { id } = req.params;
   const peerIndex = wireguardStore.peers.findIndex((p) => p.id === id);
   if (peerIndex === -1) {
     return res.status(404).json({ error: "Peer not found" });
   }
   Object.assign(wireguardStore.peers[peerIndex], req.body);
+  await persistWireguard();
   res.json(wireguardStore.peers[peerIndex]);
 });
 
 // Delete WireGuard peer
-router.delete("/wireguard/peers/:id", (req, res) => {
+router.delete("/wireguard/peers/:id", async (req, res) => {
   const { id } = req.params;
   wireguardStore.peers = wireguardStore.peers.filter((p) => p.id !== id);
+  await persistWireguard();
   res.json({ success: true });
 });
 

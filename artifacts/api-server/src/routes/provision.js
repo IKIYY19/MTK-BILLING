@@ -2059,6 +2059,7 @@ router.get("/v1/:slug/install", async (req, res) => {
 
     res.type("text/plain").send(script);
   } catch (error) {
+    console.error("[install] error:", error);
     res.status(500).type("text/plain").send("# ERROR: Internal server error");
   }
 });

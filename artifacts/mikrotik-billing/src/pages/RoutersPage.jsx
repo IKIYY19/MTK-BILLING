@@ -38,7 +38,7 @@ export default function RoutersPage() {
   const [tenantId, setTenantId] = useState("");
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [appUrl, setAppUrl] = useState(() => localStorage.getItem("router_link_app_url") || window.location.origin);
+  const [appUrl, setAppUrl] = useState(() => import.meta.env.VITE_PUBLIC_APP_URL || localStorage.getItem("router_link_app_url") || window.location.origin);
   const [mgmtUser, setMgmtUser] = useState(() => localStorage.getItem("router_link_mgmt_user") || "admin");
   const [mgmtPass, setMgmtPass] = useState("");
   const [mgmtPort, setMgmtPort] = useState("8728");

@@ -39,51 +39,34 @@ const API = import.meta.env.VITE_API_URL || "/api";
 const GMAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || "";
 
 /* ─── Online Status Badge ─── */
-function OnlineStatus({
-  customer,
-  connections,
-  selectedConnection,
-  onConnectionChange,
-}) {
-  const [status, setStatus] = useState(null); // null = unknown, 'online' = online, 'offline' = offline
+// Formats a timestamp into a local "HH:MM:SS" clock string.
+function formatClock(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
 
-  useEffect(() => {
-    if (!selectedConnection || !customer) {
-      setStatus(null);
-      return;
-    }
-    const check = async () => {
-      try {
-        const { data } = await axios.get(
-          `${API}/billing/customers/online-status?connection_id=${selectedConnection}`,
-        );
-        if (data.online?.[customer.id]) {
-          setStatus(data.online[customer.id]);
-        } else {
-          setStatus("offline");
-        }
-      } catch (e) {
-        setStatus(null);
-      }
-    };
-    check();
-    const interval = setInterval(check, 10000); // Poll every 10s
-    return () => clearInterval(interval);
-  }, [customer?.id, selectedConnection]);
-
-  if (!selectedConnection) {return null;}
-  if (status === null) {return <span className="text-xs text-zinc-600">—</span>;}
-  if (status === "offline")
-    {return <span className="text-xs text-zinc-600">Offline</span>;}
-
+// Live presence badge backed by real RADIUS accounting data (no demo values).
+function PresenceBadge({ presence, now }) {
+  if (!presence) {
+    return <span className="customer-session-offline" title="No accounting data">—</span>;
+  }
+  if (presence.is_online) {
+    const since = presence.session_started_at ? ` since ${formatClock(presence.session_started_at)}` : "";
+    return (
+      <span className="customer-session-online" title={`Online${since}`}>
+        <span className="presence-dot presence-dot-online" aria-hidden="true" />
+        Online
+      </span>
+    );
+  }
+  const offlineAt = presence.last_offline_at ? formatClock(presence.last_offline_at) : "";
   return (
-    <div className="flex items-center gap-2">
-      <div className="w-2 h-2 rounded-full bg-emerald-400 status-dot" />
-      <span className="text-xs text-emerald-400 font-medium">Online</span>
-      <span className="text-[10px] text-zinc-500">{status.uptime || "—"}</span>
-      {status.type === "pppoe" && <Wifi className="w-3 h-3 text-blue-400" />}
-      {status.type === "hotspot" && <Zap className="w-3 h-3 text-amber-400" />}
-    </div>
+    <span className="customer-session-offline" title={offlineAt ? `Offline at ${offlineAt}` : "No session recorded"}>
+      <span className="presence-dot presence-dot-offline" aria-hidden="true" />
+      Offline{offlineAt ? ` · ${offlineAt}` : ""}
+    </span>
   );
 }
 
@@ -115,6 +98,8 @@ export function BillingCustomers() {
   const [selectedConnection, setSelectedConnection] = useState("");
   const [onlineData, setOnlineData] = useState({});
   const [onlineLoading, setOnlineLoading] = useState(false);
+  const [presence, setPresence] = useState({});
+  const [presenceNow, setPresenceNow] = useState(Date.now());
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [selectAll, setSelectAll] = useState(false);
   const [bulkPlanId, setBulkPlanId] = useState("");
@@ -175,6 +160,25 @@ export function BillingCustomers() {
   useEffect(() => {
     if (selectedConnection) {fetchOnlineStatus();}
   }, [selectedConnection]);
+
+  // Poll real RADIUS presence every second for live online/offline state.
+  useEffect(() => {
+    let mounted = true;
+    const fetchPresence = async () => {
+      try {
+        const { data } = await axios.get(`${API}/radius/presence`);
+        if (mounted) {
+          setPresence(data?.presence || {});
+          setPresenceNow(Date.now());
+        }
+      } catch {
+        // keep last known state on transient errors
+      }
+    };
+    fetchPresence();
+    const interval = setInterval(fetchPresence, 1000);
+    return () => { mounted = false; clearInterval(interval); };
+  }, []);
 
   const fetchCustomers = async () => {
     setLoading(true);
@@ -630,7 +634,7 @@ export function BillingCustomers() {
                 <th scope="col">Service</th>
                 <th scope="col">Status</th>
                 <th scope="col">Balance</th>
-                {selectedConnection && <th scope="col">Session</th>}
+                <th scope="col">Session</th>
                 <th scope="col" className="customers-actions-column">Actions</th>
               </tr>
             </thead>
@@ -658,13 +662,7 @@ export function BillingCustomers() {
                     </td>
                     <td><span className={`customer-status-badge ${c.status === "active" ? "is-active" : c.status === "suspended" ? "is-suspended" : "is-inactive"}`}>{c.status || "unknown"}</span></td>
                     <td><span className={`customer-balance ${balance > 0 ? "has-balance" : "clear-balance"}`}>{settings.currency_symbol || settings.currency || "KES"} {balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></td>
-                    {selectedConnection && (
-                      <td>
-                        {onlineData[c.id] ? (
-                          <span className="customer-session-online"><span aria-hidden="true" />Online</span>
-                        ) : <span className="customer-session-offline">Offline</span>}
-                      </td>
-                    )}
+                    <td><PresenceBadge presence={presence[c.id]} now={presenceNow} /></td>
                     <td className="customers-actions-column">
                       <div className="customer-row-actions">
                         <Button variant="outline" size="sm" onClick={() => navigate(`/portal/${c.id}`)} title="Open customer portal" aria-label={`Open ${c.name} portal`}><ExternalLink className="w-3.5 h-3.5" /></Button>

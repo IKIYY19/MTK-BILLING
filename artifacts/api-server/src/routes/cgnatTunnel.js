@@ -273,12 +273,12 @@ router.post("/new-router-script", async (req, res) => {
         error: "Could not initialize CGNAT tunnel storage. Check the database connection.",
       });
     }
-    const readiness = cgnatTunnelService.getReadiness();
-    if (!readiness.ready) {
+    const endpoint = cgnatTunnelService.getServerEndpoint();
+    if (!endpoint || !cgnatTunnelService.isValidServerEndpoint(endpoint)) {
       return res.status(503).json({
         success: false,
-        error: `WireGuard tunnel server is not ready: ${readiness.blockers.join(" ")}`,
-        readiness,
+        error: "Set WG_SERVER_ENDPOINT to the public IP/DNS of the WireGuard server before generating router scripts.",
+        readiness: cgnatTunnelService.getReadiness(),
       });
     }
 

@@ -175,7 +175,9 @@ function buildSubscriptionDrift(subscription, secret) {
   const expectedRateLimit = mikrotikProvisioning.buildRateLimit(
     subscription.plan,
   );
-  const expectedProfile = subscription.pppoe_profile || "";
+  const expectedProfile = expectedRateLimit
+    ? mikrotikProvisioning.buildRateLimitProfileName(expectedRateLimit)
+    : subscription.pppoe_profile || "";
   const expectedDisabled = subscription.status !== "active";
 
   if (!secret) {
@@ -187,7 +189,6 @@ function buildSubscriptionDrift(subscription, secret) {
   } else {
     const actualProfile = secret.profile || "";
     const actualDisabled = normalizeDisabledFlag(secret.disabled);
-    const actualRateLimit = secret["rate-limit"] || secret.rate_limit || "";
 
     if (
       (expectedProfile || actualProfile) &&
@@ -196,16 +197,6 @@ function buildSubscriptionDrift(subscription, secret) {
       issues.push({
         code: "profile_mismatch",
         message: `Router profile is "${actualProfile || "default"}" but billing expects "${expectedProfile || "default"}"`,
-      });
-    }
-
-    if (
-      (expectedRateLimit || actualRateLimit) &&
-      expectedRateLimit !== actualRateLimit
-    ) {
-      issues.push({
-        code: "rate_limit_mismatch",
-        message: `Router rate limit is "${actualRateLimit || "unset"}" but billing expects "${expectedRateLimit || "unset"}"`,
       });
     }
 
@@ -1915,6 +1906,379 @@ router.post("/customers/merge", async (req, res) => {
     });
   } catch (e) {
     console.error("Customer merge error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Accounts Receivable Aging ────────────────────────────────────────────────
+// Buckets unpaid invoice balances by how many days past the due date.
+function daysPastDue(dueDate) {
+  if (!dueDate) return 0;
+  const due = new Date(dueDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  due.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.floor((today - due) / 86400000));
+}
+
+router.get("/reports/aging", async (req, res) => {
+  try {
+    const database = global.dbAvailable ? global.db : db;
+    const { rows: invoices } = await database.query(`
+      SELECT i.id, i.customer_id, i.invoice_number, i.total, i.due_date,
+             COALESCE(SUM(p.amount), 0) AS paid
+      FROM invoices i
+      LEFT JOIN payments p ON p.invoice_id = i.id
+      WHERE i.status NOT IN ('paid', 'cancelled', 'void')
+      GROUP BY i.id
+    `);
+
+    const byCustomer = new Map();
+    for (const inv of invoices) {
+      const outstanding = Number(inv.total || 0) - Number(inv.paid || 0);
+      if (outstanding <= 0.009) continue;
+      const overdueDays = daysPastDue(inv.due_date);
+      let customer = byCustomer.get(inv.customer_id);
+      if (!customer) {
+        customer = {
+          customer_id: inv.customer_id,
+          customer_name: "",
+          email: "",
+          phone: "",
+          days_0_30: 0,
+          days_31_60: 0,
+          days_61_90: 0,
+          days_over_90: 0,
+          total_outstanding: 0,
+          invoice_count: 0,
+        };
+        byCustomer.set(inv.customer_id, customer);
+      }
+      if (overdueDays <= 30) customer.days_0_30 += outstanding;
+      else if (overdueDays <= 60) customer.days_31_60 += outstanding;
+      else if (overdueDays <= 90) customer.days_61_90 += outstanding;
+      else customer.days_over_90 += outstanding;
+      customer.total_outstanding += outstanding;
+      customer.invoice_count += 1;
+    }
+
+    if (byCustomer.size > 0) {
+      const ids = [...byCustomer.keys()];
+      const { rows: customers } = await database.query(
+        `SELECT id, name, email, phone FROM customers WHERE id = ANY($1::uuid[])`,
+        [ids],
+      );
+      for (const c of customers) {
+        const entry = byCustomer.get(c.id);
+        if (entry) {
+          entry.customer_name = c.name || "";
+          entry.email = c.email || "";
+          entry.phone = c.phone || "";
+        }
+      }
+    }
+
+    const customers = [...byCustomer.values()]
+      .filter((c) => c.total_outstanding > 0.009)
+      .sort((a, b) => b.total_outstanding - a.total_outstanding)
+      .map((c) => ({
+        ...c,
+        days_0_30: c.days_0_30.toFixed(2),
+        days_31_60: c.days_31_60.toFixed(2),
+        days_61_90: c.days_61_90.toFixed(2),
+        days_over_90: c.days_over_90.toFixed(2),
+        total_outstanding: c.total_outstanding.toFixed(2),
+      }));
+
+    const sum = (key) =>
+      customers.reduce((total, c) => total + Number(c[key] || 0), 0).toFixed(2);
+    const summary = {
+      total_0_30: sum("days_0_30"),
+      total_31_60: sum("days_31_60"),
+      total_61_90: sum("days_61_90"),
+      total_over_90: sum("days_over_90"),
+      grand_total: customers
+        .reduce((total, c) => total + Number(c.total_outstanding || 0), 0)
+        .toFixed(2),
+    };
+
+    res.json({ success: true, summary, customers });
+  } catch (e) {
+    console.error("Aging report error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post("/reports/apply-late-penalties", async (req, res) => {
+  try {
+    const database = global.dbAvailable ? global.db : db;
+    const penaltyPercent = Math.min(
+      100,
+      Math.max(0, Number(process.env.LATE_PENALTY_PERCENT) || 5),
+    );
+    let graceDays = 30;
+    try {
+      const { rows } = await database.query(
+        "SELECT suspend_days FROM grace_period_config ORDER BY id DESC LIMIT 1",
+      );
+      if (rows.length && Number(rows[0].suspend_days) > 0) {
+        graceDays = Number(rows[0].suspend_days);
+      }
+    } catch {
+      // keep default
+    }
+
+    const { rows: invoices } = await database.query(`
+      SELECT i.id, i.customer_id, i.invoice_number, i.total, i.due_date,
+             COALESCE(SUM(p.amount), 0) AS paid
+      FROM invoices i
+      LEFT JOIN payments p ON p.invoice_id = i.id
+      WHERE i.status NOT IN ('paid', 'cancelled', 'void')
+      GROUP BY i.id
+    `);
+
+    const applied = [];
+    for (const inv of invoices) {
+      const outstanding = Number(inv.total || 0) - Number(inv.paid || 0);
+      if (outstanding <= 0.009) continue;
+      if (daysPastDue(inv.due_date) <= graceDays) continue;
+
+      const penalty = Math.round(outstanding * penaltyPercent) / 100;
+      if (penalty <= 0) continue;
+
+      const due = new Date();
+      due.setDate(due.getDate() + 7);
+      await database.query(
+        `INSERT INTO invoices
+           (id, invoice_number, customer_id, amount, tax, total, due_date, status, notes, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, 0, $3, $4, 'pending', $5, NOW(), NOW())`,
+        [
+          `PEN-${inv.invoice_number}-${Date.now()}`.slice(0, 50),
+          inv.customer_id,
+          penalty,
+          due.toISOString().slice(0, 10),
+          `Late payment penalty (${penaltyPercent}%) for invoice ${inv.invoice_number}`,
+        ],
+      );
+      applied.push({
+        invoice_number: inv.invoice_number,
+        customer_id: inv.customer_id,
+        penalty,
+      });
+    }
+
+    await audit
+      .custom({
+        action: "LATE_PENALTIES_APPLIED",
+        entityType: "invoice",
+        userId: req.user?.id || null,
+        details: {
+          penalty_percent: penaltyPercent,
+          grace_days: graceDays,
+          count: applied.length,
+        },
+      })
+      .catch(() => {});
+
+    res.json({ success: true, applied, penalty_percent: penaltyPercent });
+  } catch (e) {
+    console.error("Apply late penalties error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get("/customers/:id/statement", async (req, res) => {
+  try {
+    const database = global.dbAvailable ? global.db : db;
+    const id = req.params.id;
+    const { rows: customerRows } = await database.query(
+      "SELECT id, name, email, phone, address FROM customers WHERE id = $1",
+      [id],
+    );
+    if (!customerRows.length) return res.status(404).send("Customer not found");
+    const customer = customerRows[0];
+
+    const { rows: invoices } = await database.query(
+      `SELECT invoice_number, total, due_date, status, created_at,
+              COALESCE((SELECT SUM(amount) FROM payments p WHERE p.invoice_id = i.id), 0) AS paid
+       FROM invoices i WHERE i.customer_id = $1 ORDER BY created_at DESC`,
+      [id],
+    );
+    const { rows: payments } = await database.query(
+      `SELECT amount, method, reference, received_at FROM payments
+       WHERE customer_id = $1 ORDER BY received_at DESC`,
+      [id],
+    );
+
+    const esc = (s) =>
+      String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+      );
+    const rows = invoices
+      .map(
+        (i) =>
+          `<tr><td>${esc(i.invoice_number)}</td><td>${esc(new Date(i.created_at).toLocaleDateString())}</td><td>${esc(new Date(i.due_date).toLocaleDateString())}</td><td>${Number(i.total || 0).toFixed(2)}</td><td>${Number(i.paid || 0).toFixed(2)}</td><td>${(Number(i.total || 0) - Number(i.paid || 0)).toFixed(2)}</td><td>${esc(i.status)}</td></tr>`,
+      )
+      .join("");
+    const paymentRows = payments
+      .map(
+        (p) =>
+          `<tr><td>${esc(new Date(p.received_at).toLocaleDateString())}</td><td>${esc(p.method)}</td><td>${esc(p.reference || "")}</td><td>${Number(p.amount || 0).toFixed(2)}</td></tr>`,
+      )
+      .join("");
+    const balance = invoices.reduce(
+      (t, i) => t + Number(i.total || 0) - Number(i.paid || 0),
+      0,
+    );
+
+    res.type("html").send(`<!doctype html><html><head><meta charset="utf-8">
+      <title>Statement — ${esc(customer.name)}</title>
+      <style>
+        body{font-family:Arial,sans-serif;margin:32px;color:#17282e}
+        h1{margin-bottom:4px}h2{margin-top:32px;font-size:16px}
+        table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+        th,td{border:1px solid #c4d0cc;padding:8px;text-align:left}
+        th{background:#edf2f0}.r{text-align:right;font-weight:bold}
+      </style></head><body>
+      <h1>Account Statement</h1>
+      <p>${esc(customer.name)}<br>${esc(customer.phone || "")} · ${esc(customer.email || "")}</p>
+      <h2>Invoices</h2>
+      <table><thead><tr><th>Invoice</th><th>Date</th><th>Due</th><th>Amount</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7">No invoices</td></tr>'}</tbody></table>
+      <p class="r">Total balance: ${balance.toFixed(2)}</p>
+      <h2>Payments</h2>
+      <table><thead><tr><th>Date</th><th>Method</th><th>Reference</th><th>Amount</th></tr></thead>
+      <tbody>${paymentRows || '<tr><td colspan="4">No payments</td></tr>'}</tbody></table>
+      </body></html>`);
+  } catch (e) {
+    console.error("Statement error:", e);
+    res.status(500).send("Failed to generate statement");
+  }
+});
+
+// ─── Invoice by-id / deletion / bulk generation ───────────────────────────────
+router.get("/invoices/:id", async (req, res) => {
+  try {
+    const invoice = await billing.getInvoiceById(req.params.id);
+    if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+    res.json(invoice);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete("/invoices/:id", async (req, res) => {
+  try {
+    const database = global.dbAvailable ? global.db : db;
+    const result = await database.query(
+      "DELETE FROM invoices WHERE id = $1 RETURNING id",
+      [req.params.id],
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Invoice not found" });
+    }
+    res.json({ success: true, id: req.params.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post("/invoices/generate-recurring", async (req, res) => {
+  try {
+    const database = global.dbAvailable ? global.db : db;
+    const now = new Date();
+    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const dueDate = new Date(now.getFullYear(), now.getMonth(), 14);
+
+    const { rows: subs } = await database.query(`
+      SELECT s.customer_id, s.plan_id, sp.price, sp.name AS plan_name
+      FROM subscriptions s
+      JOIN service_plans sp ON sp.id = s.plan_id
+      WHERE s.status = 'active'
+    `);
+
+    let total_generated = 0;
+    let total_skipped = 0;
+    for (const sub of subs) {
+      const existing = await database.query(
+        `SELECT 1 FROM invoices
+         WHERE customer_id = $1 AND created_at >= $2 AND created_at < $3
+         AND notes LIKE 'Recurring%' LIMIT 1`,
+        [sub.customer_id, periodStart, periodEnd],
+      );
+      if (existing.rowCount > 0) {
+        total_skipped++;
+        continue;
+      }
+      const numRes = await database.query(
+        `SELECT COUNT(*)::int AS n FROM invoices
+         WHERE invoice_number LIKE $1`,
+        [`INV-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}%`],
+      );
+      const num = `INV-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}-${String((numRes.rows[0]?.n || 0) + 1).padStart(4, "0")}`;
+      const amount = Number(sub.price) || 0;
+      await database.query(
+        `INSERT INTO invoices
+           (id, invoice_number, customer_id, amount, tax, total, due_date, status, notes, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, 0, $3, $4, 'pending', $5, NOW(), NOW())`,
+        [num, sub.customer_id, amount, dueDate.toISOString().slice(0, 10),
+         `Recurring - ${sub.plan_name || "Service plan"}`],
+      );
+      total_generated++;
+    }
+    res.json({ success: true, total_generated, total_skipped });
+  } catch (e) {
+    console.error("Generate recurring error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post("/invoices/bulk-generate", async (req, res) => {
+  try {
+    const database = global.dbAvailable ? global.db : db;
+    const customerIds = Array.isArray(req.body?.customer_ids)
+      ? req.body.customer_ids
+      : [];
+    if (customerIds.length === 0) {
+      return res.status(400).json({ error: "customer_ids required" });
+    }
+    const now = new Date();
+    const dueDate = new Date(now.getFullYear(), now.getMonth(), 14);
+    let total_created = 0;
+    let total_skipped = 0;
+
+    for (const customerId of customerIds) {
+      const { rows: subs } = await database.query(`
+        SELECT s.plan_id, sp.price, sp.name AS plan_name
+        FROM subscriptions s
+        JOIN service_plans sp ON sp.id = s.plan_id
+        WHERE s.customer_id = $1 AND s.status = 'active' LIMIT 1`,
+        [customerId],
+      );
+      if (subs.length === 0) {
+        total_skipped++;
+        continue;
+      }
+      const numRes = await database.query(
+        `SELECT COUNT(*)::int AS n FROM invoices
+         WHERE invoice_number LIKE $1`,
+        [`INV-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}%`],
+      );
+      const num = `INV-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}-${String((numRes.rows[0]?.n || 0) + 1).padStart(4, "0")}`;
+      const amount = Number(subs[0].price) || 0;
+      await database.query(
+        `INSERT INTO invoices
+           (id, invoice_number, customer_id, amount, tax, total, due_date, status, notes, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, 0, $3, $4, 'pending', $5, NOW(), NOW())`,
+        [num, customerId, amount, dueDate.toISOString().slice(0, 10),
+         `Bulk - ${subs[0].plan_name || "Service plan"}`],
+      );
+      total_created++;
+    }
+    res.json({ success: true, total_created, total_skipped });
+  } catch (e) {
+    console.error("Bulk generate error:", e);
     res.status(500).json({ error: e.message });
   }
 });

@@ -372,6 +372,56 @@ router.get("/accounting/customer/:customerId", async (req, res) => {
   }
 });
 
+// Real-time presence for all customers, derived from RADIUS accounting.
+// Online  = a session with acctstoptime IS NULL (and a recent update).
+// Offline = acctstoptime of the most recently ended session.
+router.get("/presence", async (req, res) => {
+  try {
+    if (!global.dbAvailable) {
+      return res.json({ source: "radius", presence: {}, staleAfterSeconds: 300 });
+    }
+    const STALE_SECONDS = 300; // a session with no update for 5 min is treated as stale
+    const result = await getDb().query(`
+      SELECT c.id AS customer_id,
+             COALESCE(
+               EXISTS (
+                 SELECT 1 FROM radacct r
+                 WHERE r.customer_id = c.id
+                   AND r.acctstoptime IS NULL
+                   AND GREATEST(r.acctupdatetime, r.acctstarttime) > NOW() - ($1 * INTERVAL '1 second')
+               ), false) AS is_online,
+             (SELECT r2.acctstarttime FROM radacct r2
+              WHERE r2.customer_id = c.id AND r2.acctstoptime IS NULL
+              ORDER BY r2.acctstarttime DESC LIMIT 1) AS session_started_at,
+             (SELECT r3.acctstoptime FROM radacct r3
+              WHERE r3.customer_id = c.id AND r3.acctstoptime IS NOT NULL
+              ORDER BY r3.acctstoptime DESC LIMIT 1) AS last_offline_at,
+             (SELECT r4.framedipaddress FROM radacct r4
+              WHERE r4.customer_id = c.id AND r4.acctstoptime IS NULL
+              ORDER BY r4.acctstarttime DESC LIMIT 1) AS ip_address,
+             (SELECT r5.callingstationid FROM radacct r5
+              WHERE r5.customer_id = c.id AND r5.acctstoptime IS NULL
+              ORDER BY r5.acctstarttime DESC LIMIT 1) AS mac
+      FROM customers c
+    `, [STALE_SECONDS]);
+
+    const presence = {};
+    for (const row of result.rows) {
+      presence[row.customer_id] = {
+        is_online: Boolean(row.is_online),
+        session_started_at: row.session_started_at || null,
+        last_offline_at: row.last_offline_at || null,
+        ip_address: row.ip_address || null,
+        mac: row.mac || null,
+      };
+    }
+    res.json({ source: "radius", presence, staleAfterSeconds: STALE_SECONDS });
+  } catch (e) {
+    console.error("Presence query error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ═══════════════════════════════════════
 // USAGE REPORTS
 // ═══════════════════════════════════════

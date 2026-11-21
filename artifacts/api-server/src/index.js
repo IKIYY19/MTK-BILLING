@@ -4,6 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const { loadEnv } = require("./config/loadEnv");
 loadEnv();
+require("./utils/routerosEmptyReplyCompat");
 const logger = require("./utils/logger");
 const { validateSecrets } = require("./utils/security");
 const { initSentry, sentryErrorHandler } = require("./services/sentry");
@@ -826,6 +827,20 @@ const startServer = async () => {
         logger.warn("Could not start usage alerts cron", {
           error: e.message,
         });
+      }
+
+      // Start WireGuard tunnel health-sync cron (refreshes handshake status)
+      try {
+        const cgnatTunnelService = require("./services/cgnatTunnelService");
+        cgnatTunnelService.initialize().catch((e) =>
+          logger.warn("WireGuard tunnel service init failed", { error: e.message })
+        );
+        setInterval(() => {
+          cgnatTunnelService.syncTunnelHealth().catch(() => {});
+        }, 5 * 60 * 1000);
+        logger.info("WireGuard tunnel health-sync cron started (every 5 min)");
+      } catch (e) {
+        logger.warn("Could not start WireGuard health-sync cron", { error: e.message });
       }
 
       serverInstance = app.listen(PORT, "0.0.0.0", async () => {

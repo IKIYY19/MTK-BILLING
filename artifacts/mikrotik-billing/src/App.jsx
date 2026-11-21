@@ -5,6 +5,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { Menu } from "lucide-react";
 import axios from "axios";
 import { Sidebar } from "./components/Sidebar";
+import { TopBar } from "./components/TopBar";
 import { Toast } from "./components/Toast";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { GlobalSearch } from "./components/GlobalSearch";
@@ -84,6 +85,11 @@ const TR069Devices = lazy(() => import("./pages/network/TR069Devices").then(m =>
 const SpeedTest = lazy(() => import("./pages/network/SpeedTest").then(m => ({ default: m.SpeedTest })));
 const NetworkManagementDashboard = lazy(() => import("./pages/network/NetworkManagementDashboard").then(m => ({ default: m.NetworkManagementDashboard })));
 const DNSAdblockPage = lazy(() => import("./pages/DNSAdblockPage").then(m => ({ default: m.DNSAdblockPage })));
+
+// Previously unrouted pages (verified working endpoints only)
+const Alerts = lazy(() => import("./pages/network/Alerts").then(m => ({ default: m.Alerts })));
+const Monitoring = lazy(() => import("./pages/network/Monitoring").then(m => ({ default: m.Monitoring })));
+const HotspotSessionsPanel = lazy(() => import("./pages/billing/HotspotSessionsPanel"));
 
 const SignupPage = lazy(() => import("./pages/public/SignupPage").then(m => ({ default: m.SignupPage })));
 const PlansPage = lazy(() => import("./pages/public/PlansPage").then(m => ({ default: m.PlansPage })));
@@ -207,6 +213,9 @@ function App() {
 
                   {/* Main content */}
                   <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                    {/* Top Bar (desktop + tablet) */}
+                    <TopBar />
+
                     {/* Mobile header bar */}
                     <div className="app-mobile-header lg:hidden flex items-center justify-between p-4">
                       <button
@@ -310,6 +319,7 @@ function App() {
                           path="/hotspot-vouchers"
                           element={<HotspotVouchers />}
                         />
+                        <Route path="/hotspot-sessions" element={<HotspotSessionsPanel />} />
                         <Route
                           path="/network-services"
                           element={<NetworkServices />}
@@ -322,6 +332,8 @@ function App() {
                         <Route path="/ipam" element={<IPAMPage />} />
                         <Route path="/network-dashboard" element={<NetworkManagementDashboard />} />
                         <Route path="/dns-adblock" element={<DNSAdblockPage />} />
+                        <Route path="/monitoring" element={<Monitoring />} />
+                        <Route path="/alerts" element={<Alerts />} />
                         <Route path="/billing-monitoring" element={<MonitoringDashboard />} />
                         <Route path="/radius" element={<RadiusManagement />} />
                         <Route path="/radius-import" element={<RadiusImport />} />

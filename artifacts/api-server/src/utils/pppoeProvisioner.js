@@ -4,24 +4,25 @@
  */
 
 class PPPoEProvisioner {
+  static buildRateProfileCommand(rateProfile, rateLimit) {
+    return `:if ([:len [/ppp profile find name=${rateProfile}]] = 0) do={ /ppp profile add name=${rateProfile} rate-limit=${rateLimit} comment="Billing rate profile" } else={ /ppp profile set [find name=${rateProfile}] rate-limit=${rateLimit} }`;
+  }
+
   /**
    * Generate MikroTik command to create/update a PPPoE secret
    * @param {Object} sub - Subscription object with customer, plan, PPPoE credentials
    * @returns {Object} { command: string, description: string }
    */
   static generateCreateCommand(sub) {
-    const { customer, plan, pppoe_username, pppoe_password, pppoe_profile } = sub;
+    const { customer, plan, pppoe_username, pppoe_password } = sub;
     const rateLimit = plan ? `${plan.speed_down}/${plan.speed_up}` : '1M/1M';
-    const profile = pppoe_profile || 'default';
+    const rateProfile = `billing_${rateLimit.replace(/[^A-Za-z0-9]/g, '_')}`;
 
     const commands = [];
     commands.push(`# Auto-provision: ${customer?.name || 'Unknown'} (${pppoe_username})`);
-    commands.push(`/ppp secret add name=${pppoe_username} password=${pppoe_password} service=pppoe profile=${profile} rate-limit=${rateLimit} comment="Customer: ${customer?.name} | Plan: ${plan?.name || 'N/A'} | Auto-provisioned"`);
+    commands.push(PPPoEProvisioner.buildRateProfileCommand(rateProfile, rateLimit));
+    commands.push(`/ppp secret add name=${pppoe_username} password=${pppoe_password} service=pppoe profile=${rateProfile} comment="Customer: ${customer?.name || 'Unknown'} | Plan: ${plan?.name || 'N/A'} | Auto-provisioned"`);
 
-    // If plan has specific rate limit format, also create queue
-    if (plan && plan.priority) {
-      commands.push(`/queue simple add name="queue_${pppoe_username}" target=${pppoe_username} max-limit=${rateLimit} priority=${plan.priority} comment="Auto-queue for ${pppoe_username}"`);
-    }
 
     return {
       command: commands.join('\n'),
@@ -64,8 +65,9 @@ class PPPoEProvisioner {
    */
   static generateUpdateRateLimit(username, newPlan) {
     const rateLimit = `${newPlan.speed_down}/${newPlan.speed_up}`;
+    const rateProfile = `billing_${rateLimit.replace(/[^A-Za-z0-9]/g, '_')}`;
     return {
-      command: `# Auto-update rate limit: ${username}\n/ppp secret set [find name=${username}] rate-limit=${rateLimit}\n/queue simple set [find name="queue_${username}"] max-limit=${rateLimit}`,
+      command: `# Auto-update rate limit: ${username}\n${PPPoEProvisioner.buildRateProfileCommand(rateProfile, rateLimit)}\n/ppp secret set [find name=${username}] profile=${rateProfile}`,
       description: `Updated ${username} rate limit to ${rateLimit}`,
     };
   }

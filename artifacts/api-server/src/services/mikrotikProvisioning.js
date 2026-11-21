@@ -41,6 +41,58 @@ function buildRateLimit(plan) {
   return `${plan.speed_down}/${plan.speed_up}`;
 }
 
+function buildRateLimitProfileName(rateLimit) {
+  return `billing_${String(rateLimit).replace(/[^A-Za-z0-9]/g, "_")}`;
+}
+
+async function ensureRateLimitProfile(connectionId, rateLimit, baseProfileName) {
+  const name = buildRateLimitProfileName(rateLimit);
+  const profiles = await print(
+    connectionId,
+    "/ppp/profile",
+    ".id,name,rate-limit,local-address,remote-address,dns-server,only-one,change-tcp-mss,use-encryption,use-compression,session-timeout,idle-timeout,parent-queue,queue-type,insert-queue-before",
+  );
+  const existing = profiles.find((profile) => profile.name === name);
+  const args = { name, "rate-limit": rateLimit };
+  const inherited = [
+    "local-address",
+    "remote-address",
+    "dns-server",
+    "only-one",
+    "change-tcp-mss",
+    "use-encryption",
+    "use-compression",
+    "session-timeout",
+    "idle-timeout",
+    "parent-queue",
+    "queue-type",
+    "insert-queue-before",
+  ];
+
+  if (baseProfileName && baseProfileName !== name) {
+    const base = profiles.find((profile) => profile.name === baseProfileName);
+    if (base) {
+      for (const key of inherited) {
+        const value = base[key];
+        if (value !== undefined && value !== "" && value !== "default") {
+          args[key] = value;
+        }
+      }
+    }
+  }
+
+  if (existing) {
+    await execute(connectionId, "/ppp/profile/set", {
+      numbers: existing[".id"] || existing.name,
+      ...args,
+    });
+  } else {
+    await execute(connectionId, "/ppp/profile/add", args);
+  }
+
+  return name;
+}
+
 function buildComment(subscription) {
   const customerName = subscription.customer?.name || "Unknown";
   const planName = subscription.plan?.name || "N/A";
@@ -84,17 +136,19 @@ async function executeUpsertSecretDirectly(subscription) {
     comment: buildComment(subscription),
   };
 
-  if (subscription.pppoe_profile) {
+  const rateLimit = buildRateLimit(subscription.plan);
+  if (rateLimit) {
+    args.profile = await ensureRateLimitProfile(
+      subscription.mikrotik_connection_id,
+      rateLimit,
+      subscription.pppoe_profile,
+    );
+  } else if (subscription.pppoe_profile) {
     args.profile = subscription.pppoe_profile;
   }
 
   if (subscription.mac_binding_enabled && subscription.mac_address) {
     args["caller-id"] = subscription.mac_address;
-  }
-
-  const rateLimit = buildRateLimit(subscription.plan);
-  if (rateLimit) {
-    args["rate-limit"] = rateLimit;
   }
 
   if (existing) {
@@ -266,6 +320,8 @@ module.exports = {
   execute,
   findSecret,
   buildRateLimit,
+  buildRateLimitProfileName,
+  ensureRateLimitProfile,
   upsertSubscriptionSecret,
   suspendSubscriptionSecret,
   deleteSubscriptionSecret,

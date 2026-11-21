@@ -100,9 +100,12 @@ const navGroups = [
     items: [
       { to: "/network-management", icon: Monitor, label: "Overview", feature: "network" },
       { to: "/network-dashboard", icon: LayoutGrid, label: "Net Dashboard", feature: "monitoring" },
+      { to: "/monitoring", icon: Activity, label: "Monitoring", feature: "monitoring" },
+      { to: "/alerts", icon: AlertTriangle, label: "Alerts", feature: "monitoring" },
       { to: "/pppoe", icon: Network, label: "PPPoE", feature: "pppoe" },
       { to: "/hotspot-management", icon: Wifi, label: "Hotspot Management", feature: "hotspot" },
       { to: "/hotspot-vouchers", icon: Ticket, label: "Vouchers", feature: "vouchers" },
+      { to: "/hotspot-sessions", icon: Activity, label: "Hotspot Sessions", feature: "hotspot" },
       { to: "/captive-portal", icon: Palette, label: "Captive Portal", feature: "captive-portal" },
       { to: "/ipam", icon: Globe, label: "IPAM", feature: "ipam" },
       { to: "/network-services", icon: Server, label: "Network Services", feature: "network-services" },
@@ -122,7 +125,8 @@ const navGroups = [
     icon: MessageSquare,
     color: "violet",
     items: [
-      { to: "/billing-messaging", icon: MessageSquare, label: "SMS", feature: "sms" },
+      { to: "/billing-sms", icon: MessageSquare, label: "SMS", feature: "sms" },
+      { to: "/billing-messaging", icon: MessageCircle, label: "Messaging Center", feature: "sms" },
       { to: "/billing-whatsapp", icon: MessageCircle, label: "WhatsApp", feature: "whatsapp" },
       { to: "/captive-portal", icon: Palette, label: "Portal Builder", feature: "captive-portal" },
     ],

@@ -305,9 +305,13 @@ class CGNATTunnelService {
     if (!initialized) {
       throw new Error("Could not initialize CGNAT tunnel storage. Check the database connection.");
     }
-    const readiness = this.getReadiness();
-    if (!readiness.ready) {
-      throw new Error(`WireGuard tunnel server is not ready: ${readiness.blockers.join(" ")}`);
+    // The WireGuard interface itself can live on a separate Linux VPS. Key
+    // generation and script creation only need a configured public endpoint
+    // and working storage; the operator applies the generated server-setup
+    // script on the VPS. Keep full readiness for UI display only.
+    const endpoint = this.getServerEndpoint();
+    if (!endpoint || !this.isValidServerEndpoint(endpoint)) {
+      throw new Error("Set WG_SERVER_ENDPOINT to the public IP/DNS of the WireGuard server before creating tunnels.");
     }
 
     const db = this.getDb();
@@ -506,8 +510,6 @@ SaveConfig = false
 ${peerConfigs}
 WGEOF
 
-# Replace shell variable placeholders in the heredoc output
-sed -i "s|\\${WG_TUNNEL_SUBNET}|${WG_TUNNEL_SUBNET}|g; s|\\${WG_TUNNEL_PORT}|${WG_TUNNEL_PORT}|g; s|\\${serverPrivateKey}|${serverPrivateKey}|g" ${WG_CONFIG_PATH}
 chmod 600 ${WG_CONFIG_PATH}
 echo "Config written to ${WG_CONFIG_PATH}"
 
@@ -685,7 +687,7 @@ ${peers.join("\n")}
 :do { /interface wireguard remove [find name=$wgIface] } on-error={}
 :delay 500ms
 /interface wireguard add name=$wgIface private-key="${routerPrivateKey}" listen-port=13231 comment="billing-mgmt"
-/interface wireguard peers add interface=$wgIface public-key="${serverPublicKey}" endpoint-address=${serverEndpoint} endpoint-port=${serverWgPort} allowed-address=${serverWgIp}/32 persistent-keepalive=25s comment="billing-server"
+/interface wireguard peers add interface=$wgIface public-key="${serverPublicKey}" endpoint-address=${serverEndpoint} endpoint-port=${serverWgPort} allowed-address=${serverWgIp}/32 persistent-keepalive=${WG_PERSISTENT_KEEPALIVE}s comment="billing-server"
 :do { /ip address remove [find comment="billing-tunnel-ip"] } on-error={}
 /ip address add address=${routerTunnelIp} interface=$wgIface comment="billing-tunnel-ip"
 :do { /ip firewall filter remove [find comment="billing-wg-in"] } on-error={}
@@ -765,7 +767,7 @@ ${peers.join("\n")}
 /interface wireguard add name="${interfaceName}" private-key="${routerPrivateKey}" listen-port=13231 comment="Billing management tunnel"
 
 # --- Add Server Peer ---
-/interface wireguard peers add interface=${interfaceName} public-key="${serverPublicKey}" endpoint-address=${serverEndpoint} endpoint-port=${serverWgPort} allowed-address=${allowedAddresses} persistent-keepalive=25s comment="Billing server"
+/interface wireguard peers add interface=${interfaceName} public-key="${serverPublicKey}" endpoint-address=${serverEndpoint} endpoint-port=${serverWgPort} allowed-address=${allowedAddresses} persistent-keepalive=${WG_PERSISTENT_KEEPALIVE}s comment="Billing server"
 
 # --- Assign Tunnel IP Address ---
 /ip address add address=${routerTunnelIp} interface=${interfaceName} comment="Billing tunnel IP"
@@ -1054,3 +1056,4 @@ ${peers.join("\n")}
 const cgnatTunnelService = new CGNATTunnelService();
 
 module.exports = cgnatTunnelService;
+

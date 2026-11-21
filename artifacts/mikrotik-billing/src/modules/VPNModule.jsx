@@ -25,33 +25,18 @@ export function VPNModule({ config, onUpdate }) {
     } catch (e) { console.error(e); }
   };
 
-  // WireGuard key generation (using simple base64 random for demo - in production use proper crypto)
-  const generateWireGuardKeys = () => {
-    console.log('Generate button clicked');
+  // Generate a real WireGuard (Curve25519/X25519) key pair via the backend
+  const generateWireGuardKeys = async () => {
     try {
-      // Generate 32 random bytes for private key
-      const randomBytes = new Uint8Array(32);
-      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-        crypto.getRandomValues(randomBytes);
-      } else {
-        // Fallback for environments without crypto API
-        for (let i = 0; i < 32; i++) {
-          randomBytes[i] = Math.floor(Math.random() * 256);
-        }
+      const { data } = await axios.post(`${API}/settings/wireguard/generate-keys`);
+      if (!data?.private_key || !data?.public_key) {
+        throw new Error('Invalid key pair returned by server');
       }
-      const privateKey = btoa(String.fromCharCode(...randomBytes));
-      // For demo purposes, public key is derived (in production use proper curve25519)
-      // This is a simplified version - real WireGuard uses curve25519
-      const publicKey = btoa(privateKey.split('').reverse().join(''));
-
-      console.log('Generated private key:', privateKey);
-      console.log('Generated public key:', publicKey);
-
-      updateWGInterface('private-key', privateKey);
-      setGeneratedPublicKey(publicKey);
+      updateWGInterface('private-key', data.private_key);
+      setGeneratedPublicKey(data.public_key);
     } catch (e) {
       console.error('Key generation failed:', e);
-      alert('Failed to generate keys. Please try again.');
+      alert('Failed to generate keys: ' + (e.response?.data?.error || e.message));
     }
   };
 

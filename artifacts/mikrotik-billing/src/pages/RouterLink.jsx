@@ -45,7 +45,7 @@ export default function RouterLink() {
   const [tenantId, setTenantId] = useState("");
   const [tenantSlug, setTenantSlug] = useState("");
   const [appUrl, setAppUrl] = useState(
-    () => localStorage.getItem("router_link_app_url") || window.location.origin
+    () => import.meta.env.VITE_PUBLIC_APP_URL || localStorage.getItem("router_link_app_url") || window.location.origin
   );
   const [mgmtUser, setMgmtUser] = useState(
     () => localStorage.getItem("router_link_mgmt_user") || "admin"

@@ -367,6 +367,14 @@ const coreMigrations = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_monitoring_rules_connection ON monitoring_rules(connection_id)`,
   `CREATE INDEX IF NOT EXISTS idx_monitoring_rules_type ON monitoring_rules(rule_type)`,
+
+  // WireGuard / CGNAT tunnel server keys (used by cgnatTunnelService)
+  `CREATE TABLE IF NOT EXISTS system_keys (
+     key_name VARCHAR(100) PRIMARY KEY,
+     key_value TEXT NOT NULL,
+     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+   )`,
 ];
 
 async function runMigrations() {

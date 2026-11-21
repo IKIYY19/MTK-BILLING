@@ -154,8 +154,8 @@ export const useStore = create((set, get) => ({
     set({ loading: true });
     try {
       const url = category
-        ? `${API_URL}/templates?category=${category}`
-        : `${API_URL}/templates`;
+        ? `/templates?category=${category}`
+        : `/templates`;
       const { data } = await api.get(url);
       set({ templates: data, loading: false });
     } catch (error) {
