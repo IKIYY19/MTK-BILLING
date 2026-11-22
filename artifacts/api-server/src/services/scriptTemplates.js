@@ -152,9 +152,21 @@ function configurationLines({ routerIdentity, radiusServer, radiusSecret }) {
   ];
 }
 
-function firewallLines() {
+function firewallLines({ baseUrl = "", radiusServer = "" } = {}) {
+  let billingHost = "";
+  try {billingHost = new URL(baseUrl).hostname;} catch {billingHost = "";}
+  const isIp = (value) => /^\d{1,3}(\.\d{1,3}){3}$/.test(value);
+  const billingIp = isIp(billingHost) ? billingHost : "";
+  const radiusIp = isIp(radiusServer) ? radiusServer : "";
+  const mgmtRule = billingIp ? " src-address-list=MGMT" : "";
+  const mgmtList = billingIp
+    ? `:do { /ip firewall address-list remove [find list=MGMT]; /ip firewall address-list add list=MGMT address=${billingIp}/32 comment="Billing server" } on-error={}`
+    : ':put "[Setup] WARNING: APP_URL is not an IP; management ports remain unrestricted"';
+
   return [
     "# ── Firewall ──",
+    mgmtList,
+    ':do { /ip firewall address-list remove [find list=BOGONS]; /ip firewall address-list add list=BOGONS address=0.0.0.0/8; /ip firewall address-list add list=BOGONS address=127.0.0.0/8; /ip firewall address-list add list=BOGONS address=169.254.0.0/16; /ip firewall address-list add list=BOGONS address=172.16.0.0/12; /ip firewall address-list add list=BOGONS address=192.168.0.0/16; /ip firewall address-list add list=BOGONS address=224.0.0.0/4 } on-error={}',
     ":do {",
     '  /ip firewall filter remove [find comment="ISP Established"]',
     '  /ip firewall filter remove [find comment="ISP Invalid"]',
@@ -170,23 +182,40 @@ function firewallLines() {
     '  /ip firewall filter remove [find comment="ISP Forward Drop"]',
     '  /ip firewall filter remove [find comment="ISP FastTrack"]',
     '  /ip firewall filter remove [find comment="ISP LAN to WAN"]',
+    '  /ip firewall filter remove [find comment="ISP Brute Detect"]',
+    '  /ip firewall filter remove [find comment="ISP Brute Drop"]',
+    '  /ip firewall filter remove [find comment="ISP Bogon WAN"]',
+    '  /ip firewall filter remove [find comment="ISP Port Scan"]',
+    '  /ip firewall filter remove [find comment="ISP RADIUS"]',
+    '  /ip firewall filter remove [find comment="ISP SNMP"]',
     "",
     '  /ip firewall filter add chain=input action=accept connection-state=established,related,untracked comment="ISP Established" place-before=0',
     '  /ip firewall filter add chain=input action=drop connection-state=invalid comment="ISP Invalid"',
-    '  /ip firewall filter add chain=input protocol=icmp action=accept comment="ISP ICMP"',
+    '  /ip firewall filter add chain=input protocol=icmp action=accept limit=50/5s,2:packet comment="ISP ICMP"',
     '  /ip firewall filter add chain=input protocol=udp port=123 action=accept comment="ISP NTP"',
-    '  /ip firewall filter add chain=input protocol=tcp dst-port=22 action=accept comment="ISP SSH"',
-    '  /ip firewall filter add chain=input protocol=tcp dst-port=8291 action=accept comment="ISP WinBox"',
-    '  /ip firewall filter add chain=input protocol=tcp dst-port=8728 action=accept comment="ISP API"',
-    '  /ip firewall filter add chain=input protocol=tcp dst-port=443 action=accept comment="ISP HTTPS"',
+    `  /ip firewall filter add chain=input protocol=tcp dst-port=22${mgmtRule} action=accept comment="ISP SSH"`,
+    `  /ip firewall filter add chain=input protocol=tcp dst-port=8291${mgmtRule} action=accept comment="ISP WinBox"`,
+    `  /ip firewall filter add chain=input protocol=tcp dst-port=8728${mgmtRule} action=accept comment="ISP API"`,
+    `  /ip firewall filter add chain=input protocol=tcp dst-port=443${mgmtRule} action=accept comment="ISP HTTPS"`,
+    ...(radiusIp
+      ? [`  /ip firewall filter add chain=input protocol=udp dst-port=1812,1813 src-address=${radiusIp} action=accept comment="ISP RADIUS"`]
+      : []),
+    ...(billingIp
+      ? [`  /ip firewall filter add chain=input protocol=udp dst-port=161 src-address=${billingIp} action=accept comment="ISP SNMP"`,
+         `:do { /ip snmp community remove [find name=public]; /ip snmp community add name=public addresses=${billingIp}/32 read-access=yes write-access=no } on-error={}`]
+      : []),
+    '  /ip firewall filter add chain=input protocol=tcp dst-port=22,8291,8728,443 connection-state=new action=add-src-to-address-list address-list=BRUTEFORCE address-list-timeout=1h comment="ISP Brute Detect"',
+    '  /ip firewall filter add chain=input src-address-list=BRUTEFORCE action=drop comment="ISP Brute Drop"',
     '  /ip firewall filter add chain=input action=drop comment="ISP Input Drop"',
-    "",
+    '',
     '  /ip firewall filter add chain=forward action=accept connection-state=established,related,untracked comment="ISP Forward Established" place-before=0',
     '  /ip firewall filter add chain=forward action=drop connection-state=invalid comment="ISP Forward Invalid"',
     '  /ip firewall filter add chain=forward action=fasttrack-connection connection-state=established,related comment="ISP FastTrack"',
+    '  /ip firewall filter add chain=forward in-interface=$wanPort src-address-list=BOGONS action=drop comment="ISP Bogon WAN"',
+    '  /ip firewall filter add chain=forward protocol=tcp psd=21,3s,3,1 action=drop comment="ISP Port Scan"',
     '  /ip firewall filter add chain=forward action=accept in-interface=$lanPort comment="ISP LAN to WAN"',
-
     '  /ip firewall filter add chain=forward action=drop comment="ISP Forward Drop"',
+
     "} on-error={}",
     ':put "[Setup] Firewall configured"',
     "",
@@ -327,7 +356,7 @@ function buildInstallScript(config) {
   lines.push("");
 
   // Firewall
-  lines.push(...firewallLines());
+  lines.push(...firewallLines({ baseUrl, radiusServer }));
   lines.push("");
 
   // VPN Client setup
@@ -336,8 +365,6 @@ function buildInstallScript(config) {
     const user = esc(vpnUsername);
     const pass = esc(vpnPassword);
     const port = vpnServerPort || "443";
-    const mode = fetchMode === "https" ? "https" : "http";
-    const enableCert = mode === "https" ? "verify-server-certificate=no" : "";
 
     lines.push("# ── SSTP VPN Client (Auto Link) ──");
     lines.push(":do {");
@@ -347,11 +374,12 @@ function buildInstallScript(config) {
     lines.push(":do {");
     lines.push("  /interface sstp-client add \\");
     lines.push(`    name="sstp-isp" \\`);
-    lines.push(`    connect-to=${host}:${port} \\`);
+    lines.push(`    connect-to=${host} \\`);
+    lines.push(`    port=${port} \\`);
     lines.push(`    user="${user}" \\`);
     lines.push(`    password="${pass}" \\`);
     lines.push("    profile=default-encryption \\");
-    lines.push(`    ${enableCert} \\`);
+    lines.push("    verify-server-certificate=no \\");
     lines.push('    comment="ISP Remote Access" \\');
     lines.push("    disabled=no");
     lines.push(`} on-error={ :put "[VPN] SSTP client add failed" }`);
@@ -376,10 +404,6 @@ function buildVpnScript({ serverAddress, serverPort, username, password, routerI
   const user = esc(username);
   const pass = esc(password);
   const port = serverPort || "443";
-  const name = (routerIdentity || "mikrotik-router").replace(/\s+/g, "-").toLowerCase();
-  const mode = fetchMode === "https" ? "https" : "http";
-  const certFlag = mode === "https" ? "check-certificate=no" : "";
-  const enableCert = mode === "https" ? "verify-server-certificate=no" : "";
 
   return [
     "#############################################",
@@ -395,11 +419,12 @@ function buildVpnScript({ serverAddress, serverPort, username, password, routerI
     ":do {",
     `  /interface sstp-client add \\`,
     `    name="sstp-isp" \\`,
-    `    connect-to=${host}:${port} \\`,
+    `    connect-to=${host} \\`,
+    `    port=${port} \\`,
     `    user="${user}" \\`,
     `    password="${pass}" \\`,
     `    profile=default-encryption \\`,
-    `    ${enableCert} \\`,
+    `    verify-server-certificate=no \\`,
     `    comment="ISP Remote Access" \\`,
     `    disabled=no`,
     "} on-error={ :put \"[VPN] SSTP client added or already exists\" }",
@@ -407,14 +432,18 @@ function buildVpnScript({ serverAddress, serverPort, username, password, routerI
     `:put "[VPN] Connecting to ${host}:${port} as ${user}..."`,
     ":delay 3s",
     "",
-    ":local vpnStatus [/interface sstp-client get [find name=sstp-isp] running]",
-    ':if ($vpnStatus) do={',
-    '  :put "[VPN] CONNECTED — SSTP tunnel active"',
-    `  :put "[VPN] Server: ${host}:${port}"`,
-    `  :put "[VPN] Router accessible via SSTP tunnel"`,
+    ":if ([:len [/interface sstp-client find name=sstp-isp]] = 0) do={",
+    '  :put "[VPN] FAILED — SSTP client was not created"',
     "} else={",
-    '  :put "[VPN] FAILED — Check server address and credentials"',
-    `  :put "[VPN] Verify: ${host}:${port} is reachable and ${user} has SSTP access"`,
+    "  :local vpnStatus [/interface sstp-client get [find name=sstp-isp] running]",
+    '  :if ($vpnStatus) do={',
+    '    :put "[VPN] CONNECTED — SSTP tunnel active"',
+    `    :put "[VPN] Server: ${host}:${port}"`,
+    `    :put "[VPN] Router accessible via SSTP tunnel"`,
+    "  } else={",
+    '    :put "[VPN] FAILED — Check server address and credentials"',
+    `    :put "[VPN] Verify: ${host}:${port} is reachable and ${user} has SSTP access"`,
+    "  }",
     "}",
     "",
     `:put ""`,

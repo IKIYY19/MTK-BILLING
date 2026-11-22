@@ -2,6 +2,15 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
   BarChart3,
   Activity,
   Gauge,
@@ -269,7 +278,9 @@ export function CustomerPortal() {
       const { data } = await axios.get(
         `${API}/billing/usage/history?customer_id=${customerId}`,
       );
-      setUsageHistory(Array.isArray(data) ? data : data?.usage || []);
+      setUsageHistory(
+        Array.isArray(data) ? data : data?.data || data?.usage || [],
+      );
     } catch (e) {
       console.error("Failed to fetch usage history:", e);
     }
@@ -953,6 +964,60 @@ export function CustomerPortal() {
               }
               return null;
             })()}
+
+            {/* Traffic Trend */}
+            <div className="bg-zinc-900/50 backdrop-blur border border-zinc-800/50 rounded-2xl p-6">
+              <h4 className="text-white font-semibold mb-1">Traffic Trend</h4>
+              <p className="text-zinc-500 text-xs mb-5">
+                Download and upload over time
+              </p>
+              {usageHistory.length === 0 ? (
+                <div className="text-zinc-500 text-center py-8">
+                  No traffic samples yet
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <AreaChart
+                    data={usageHistory.map((point) => ({
+                      ...point,
+                      timeLabel: new Date(point.time).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }),
+                      downloadMb: Number(point.download || 0) / 1048576,
+                      uploadMb: Number(point.upload || 0) / 1048576,
+                    }))}
+                  >
+                    <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
+                    <XAxis dataKey="timeLabel" stroke="#71717a" fontSize={11} />
+                    <YAxis stroke="#71717a" fontSize={11} unit=" MB" />
+                    <Tooltip
+                      contentStyle={{
+                        background: "#18181b",
+                        border: "1px solid #3f3f46",
+                        borderRadius: 12,
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="downloadMb"
+                      name="Download"
+                      stroke="#34d399"
+                      fill="#34d399"
+                      fillOpacity={0.2}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="uploadMb"
+                      name="Upload"
+                      stroke="#38bdf8"
+                      fill="#38bdf8"
+                      fillOpacity={0.2}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
 
             {/* Bar Chart */}
             <div className="bg-zinc-900/50 backdrop-blur border border-zinc-800/50 rounded-2xl p-6">

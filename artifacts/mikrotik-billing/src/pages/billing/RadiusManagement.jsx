@@ -131,9 +131,13 @@ export function RadiusManagement() {
   // NAS
   const handleNasSubmit = async (form) => {
     try {
-      await axios.post(`${API}/radius/nas`, form);
+      if (editingItem?.id) {
+        await axios.put(`${API}/radius/nas/${editingItem.id}`, form);
+      } else {
+        await axios.post(`${API}/radius/nas`, form);
+      }
       setShowNasForm(false); setEditingItem(null); fetchData();
-    } catch (e) { alert('Failed'); }
+    } catch (e) { alert(e.response?.data?.error || 'Failed to save NAS client'); }
   };
   const handleNasDelete = async (id) => {
     if (!confirm('Delete NAS client?')) {return;}
@@ -157,9 +161,13 @@ export function RadiusManagement() {
   // Users
   const handleUserSubmit = async (form) => {
     try {
-      await axios.post(`${API}/radius/users`, form);
+      if (editingItem?.username) {
+        await axios.put(`${API}/radius/users/${encodeURIComponent(editingItem.username)}`, form);
+      } else {
+        await axios.post(`${API}/radius/users`, form);
+      }
       setShowUserForm(false); setEditingItem(null); fetchData();
-    } catch (e) { alert('Failed'); }
+    } catch (e) { alert(e.response?.data?.error || 'Failed to save RADIUS user'); }
   };
   const handleUserDelete = async (username) => {
     if (!confirm(`Delete RADIUS user "${username}"?`)) {return;}
@@ -299,8 +307,9 @@ export function RadiusManagement() {
                     </td>
                     <td>
                       <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => handleUserToggle(u.username)} className="btn-ghost p-2">
-                          {parseInt(u.active_sessions || 0) > 0 ? <UserCheck className="w-4 h-4 text-emerald-400" /> : <UserX className="w-4 h-4 text-amber-400" />}
+                        <button onClick={() => { setEditingItem(u); setShowUserForm(true); }} className="btn-ghost p-2" title="Edit user"><Pencil className="w-3.5 h-3.5 text-zinc-400" /></button>
+                        <button onClick={() => handleUserToggle(u.username)} className="btn-ghost p-2" title={u.disabled ? 'Enable user' : 'Disable user'}>
+                          {u.disabled ? <UserX className="w-4 h-4 text-rose-400" /> : <UserCheck className="w-4 h-4 text-emerald-400" />}
                         </button>
                         <button onClick={() => handleUserDelete(u.username)} className="btn-ghost p-2 text-zinc-500 hover:text-rose-400"><Trash2 className="w-4 h-4" /></button>
                       </div>
@@ -406,6 +415,7 @@ export function RadiusManagement() {
                     <td className="text-sm text-zinc-400 max-w-[200px] truncate">{n.description || <span className="text-zinc-600">—</span>}</td>
                     <td>
                       <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => { setEditingItem(n); setShowNasForm(true); }} className="btn-ghost p-2" title="Edit NAS client"><Pencil className="w-4 h-4 text-zinc-400" /></button>
                         <button onClick={() => handleNasDelete(n.id)} className="btn-ghost p-2 text-zinc-500 hover:text-rose-400"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </td>
@@ -538,11 +548,17 @@ export function RadiusManagement() {
 }
 
 /* ─── NAS Form ─── */
-function NasForm({ onClose, onSubmit }) {
-  const [form, setForm] = useState({ nasname: '', shortname: '', secret: '', description: '', type: 'other' });
+function NasForm({ onClose, onSubmit, editing }) {
+  const [form, setForm] = useState({
+    nasname: editing?.nasname || '',
+    shortname: editing?.shortname || '',
+    secret: editing?.secret || '',
+    description: editing?.description || '',
+    type: editing?.type || 'other',
+  });
   return (
     <div className="glass-strong rounded-2xl w-full max-w-lg animate-fade-in-scale" onClick={e => e.stopPropagation()}>
-      <div className="p-6 border-b border-zinc-800/50"><h3 className="text-lg font-semibold text-white">New NAS Client</h3></div>
+      <div className="p-6 border-b border-zinc-800/50"><h3 className="text-lg font-semibold text-white">{editing ? 'Edit NAS Client' : 'New NAS Client'}</h3></div>
       <form onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="p-6 space-y-4">
         <div>
           <label className="block text-sm font-medium text-zinc-300 mb-1.5">NAS Name (IP or Hostname) *</label>
@@ -572,7 +588,7 @@ function NasForm({ onClose, onSubmit }) {
         </div>
         <div className="flex gap-3 pt-2 border-t border-zinc-800/50">
           <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
-          <button type="submit" className="btn-primary flex-1">Create NAS</button>
+          <button type="submit" className="btn-primary flex-1">{editing ? 'Save Changes' : 'Create NAS'}</button>
         </div>
       </form>
     </div>
@@ -626,8 +642,16 @@ function GroupForm({ onClose, onSubmit }) {
 }
 
 /* ─── RADIUS User Form ─── */
-function RadiusUserForm({ onClose, onSubmit, groups }) {
-  const [form, setForm] = useState({ username: '', password: '', customer_id: '', groups: [], attributes: [] });
+function RadiusUserForm({ onClose, onSubmit, groups, editing }) {
+  const [form, setForm] = useState({
+    username: editing?.username || '',
+    password: editing?.password || '',
+    customer_id: editing?.customer_id || '',
+    groups: editing?.groups ? String(editing.groups).split(', ').filter(Boolean) : [],
+    attributes: [],
+    rate_limit: editing?.rate_limit || '',
+    expiration: editing?.expiration || '',
+  });
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -640,7 +664,7 @@ function RadiusUserForm({ onClose, onSubmit, groups }) {
 
   return (
     <div className="glass-strong rounded-2xl w-full max-w-lg animate-fade-in-scale" onClick={e => e.stopPropagation()}>
-      <div className="p-6 border-b border-zinc-800/50"><h3 className="text-lg font-semibold text-white">New RADIUS User</h3></div>
+      <div className="p-6 border-b border-zinc-800/50"><h3 className="text-lg font-semibold text-white">{editing ? 'Edit RADIUS User' : 'New RADIUS User'}</h3></div>
       <form onSubmit={handleSubmit} className="p-6 space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -671,7 +695,7 @@ function RadiusUserForm({ onClose, onSubmit, groups }) {
         </div>
         <div className="flex gap-3 pt-2 border-t border-zinc-800/50">
           <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
-          <button type="submit" className="btn-primary flex-1">Create User</button>
+          <button type="submit" className="btn-primary flex-1">{editing ? 'Save Changes' : 'Create User'}</button>
         </div>
       </form>
     </div>

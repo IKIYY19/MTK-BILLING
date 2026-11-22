@@ -2,13 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import {
   AlertTriangle,
+  ArrowRight,
+  Check,
   CheckCircle2,
   Clock3,
   LoaderCircle,
   RefreshCw,
+  ShieldCheck,
   Signal,
+  Smartphone,
+  Sparkles,
   Wifi,
+  Zap,
 } from "lucide-react";
+import "../../hotspot-portal.css";
 
 const API = import.meta.env.VITE_API_URL || "/api";
 const SESSION_KEY = "captive_hotspot_session";
@@ -27,13 +34,30 @@ function getPortalContext() {
       gatewayIp = "";
     }
   }
+  let mac =
+    params.get("mac") ||
+    params.get("client_mac") ||
+    params.get("client-mac") ||
+    params.get("mac_address") ||
+    "";
+  if (!mac && linkLoginOnly) {
+    try {
+      mac = new URL(linkLoginOnly).searchParams.get("mac") || "";
+    } catch {
+      mac = "";
+    }
+  }
+
   return {
     routerId: params.get("router_id") || params.get("routerId") || "",
-    mac: params.get("mac") || "",
+    mac,
     ip: params.get("ip") || "",
     gatewayIp,
     linkLoginOnly,
     brand: params.get("brand") || "",
+    theme: params.get("theme") || localStorage.getItem("portal_theme") || "aurora",
+    welcome: params.get("welcome") || "",
+    support: params.get("support") || "",
     originalUrl:
       params.get("original_url") ||
       params.get("link-orig") ||
@@ -58,6 +82,78 @@ function formatExpiry(value) {
   });
 }
 
+function PortalMark() {
+  return (
+    <div className="hp-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+        <path d="M4.5 9.5a10 10 0 0 1 15 0" />
+        <path d="M7.5 12.8a6 6 0 0 1 9 0" />
+        <circle cx="12" cy="17" r="1.6" fill="currentColor" stroke="none" />
+      </svg>
+    </div>
+  );
+}
+
+function PortalShell({ brand, device, theme, support, children }) {
+  return (
+    <main className="hp-shell" data-theme={theme}>
+      <div className="hp-orb hp-orb-a" />
+      <div className="hp-orb hp-orb-b" />
+      <div className="hp-orb hp-orb-c" />
+      <div className="hp-grid" />
+      <div className="hp-wrap">
+        <header className="hp-top">
+          <div className="hp-brand">
+            <PortalMark />
+            <div className="min-w-0">
+              <div className="hp-brand-name">{brand}</div>
+              <div className="hp-brand-sub">Hotspot network</div>
+            </div>
+          </div>
+          <div className="hp-chip"><span className="hp-dot" /><Signal className="h-3.5 w-3.5" /> Wi-Fi ready</div>
+        </header>
+        {children}
+        <footer className="hp-foot">
+          <span>Powered by {brand}{support ? ` · Need help? ${support}` : ""}</span>
+          <span>{device ? `Device ${device}` : "Secure hotspot access"}</span>
+        </footer>
+      </div>
+    </main>
+  );
+}
+
+function StatusCard({ icon, tone = "success", eyebrow, title, children }) {
+  return (
+    <div className="hp-center">
+      <section className="hp-status">
+        {tone === "success" && <div className="hp-confetti" aria-hidden="true"><i /><i /><i /><i /></div>}
+        <div className={`hp-status-icon ${tone === "info" ? "is-info" : ""}`}>{icon}</div>
+        <div className="hp-brand-sub">{eyebrow}</div>
+        <h1>{title}</h1>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function PaymentSteps({ stage }) {
+  const labels = ["Approve on your phone", "Confirm your payment", "Activate this device"];
+  return (
+    <div className="hp-progress">
+      {labels.map((label, index) => (
+        <div
+          key={label}
+          className={`hp-progress-row ${index < stage ? "is-done" : index === stage ? "is-active" : ""}`}
+        >
+          <span className="hp-progress-dot" />
+          <span>{label}</span>
+          {index < stage && <Check className="ml-auto h-3.5 w-3.5" />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function CaptiveHotspotPage() {
   const context = useMemo(getPortalContext, []);
   const [plans, setPlans] = useState([]);
@@ -78,7 +174,7 @@ export default function CaptiveHotspotPage() {
 
   useEffect(() => {
     if (!context.routerId || !context.mac) {
-      setError("This page must be opened from your Wi-Fi sign-in screen.");
+      setError("Connect to the Wi-Fi network and let the sign-in page open automatically — we need your device details from the router.");
       setLoading(false);
       return;
     }
@@ -219,269 +315,235 @@ export default function CaptiveHotspotPage() {
   const waitingForPayment =
     sessionToken &&
     ["pending", "initiating"].includes(payment?.status);
+  const brand = routerName || context.brand || "Wi-Fi access";
+  const device = context.mac ? context.mac.toUpperCase().slice(-5) : "";
+  const stage = paymentConfirmed
+    ? payment.status === "payment_confirmed" ? 1 : 2
+    : 0;
+  const bestValueId = plans.length
+    ? plans.reduce((best, plan) =>
+        Number(plan.validity_days || 0) > Number(best.validity_days || 0) ? plan : best,
+      ).id
+    : "";
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-zinc-100 grid place-items-center px-5">
-        <div className="flex items-center gap-3 text-zinc-300" role="status">
-          <LoaderCircle className="h-5 w-5 animate-spin text-cyan-400" />
-          Loading internet packages…
+      <PortalShell brand={brand} device={device} theme={context.theme} support={context.support}>
+        <div className="hp-center">
+          <div className="hp-splash"><LoaderCircle className="h-5 w-5 animate-spin text-cyan-300" /> Finding your internet packages…</div>
         </div>
-      </main>
+      </PortalShell>
     );
   }
 
   if (authorized) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-zinc-100 grid place-items-center px-5 py-10">
-        <section className="w-full max-w-lg border border-emerald-400/25 bg-zinc-900 p-6 sm:p-9">
-          <CheckCircle2 className="mb-5 h-9 w-9 text-emerald-400" />
-          <h1 className="text-3xl font-semibold tracking-tight">Payment confirmed</h1>
-          <p className="mt-3 max-w-prose text-zinc-300">
-            Your package is ready. Connect now to finish signing in to the Wi-Fi.
-          </p>
-          <p className="mt-5 text-sm text-zinc-400">
-            {payment.planName} · access until {formatExpiry(payment.expiresAt)}
-          </p>
-          <form
-            action={payment.linkLoginOnly}
-            method="post"
-            className="mt-7"
-          >
+      <PortalShell brand={brand} device={device} theme={context.theme} support={context.support}>
+        <StatusCard
+          icon={<Wifi className="h-7 w-7" />}
+          eyebrow="All set"
+          title="You're connected"
+        >
+          <p>{payment.planName} · access until {formatExpiry(payment.expiresAt)}</p>
+          <form action={payment.linkLoginOnly} method="post">
+            <button type="submit" className="hp-btn">
+              Connect to Wi-Fi <ArrowRight className="h-4 w-4" />
+            </button>
             <input type="hidden" name="username" value={payment.username || ""} />
             <input type="hidden" name="password" value={payment.password || ""} />
             <input type="hidden" name="dst" value={payment.originalUrl || ""} />
-            <button
-              type="submit"
-              className="w-full bg-cyan-300 px-5 py-4 font-semibold text-black transition-colors hover:bg-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
-            >
-              Connect to Wi-Fi
-            </button>
           </form>
-          <p className="mt-4 text-xs text-zinc-500">
+          <p style={{ marginTop: 14, fontSize: ".74rem", color: "#52607a" }}>
             If the sign-in page does not close, reconnect to this network and try again.
           </p>
-        </section>
-      </main>
+        </StatusCard>
+      </PortalShell>
     );
   }
 
   if (activeSession) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-zinc-100 grid place-items-center px-5 py-10">
-        <section className="w-full max-w-lg border border-emerald-400/25 bg-zinc-900 p-6 sm:p-9">
-          <Wifi className="mb-5 h-9 w-9 text-emerald-400" />
-          <h1 className="text-3xl font-semibold tracking-tight">Your access is active</h1>
-          <p className="mt-3 text-zinc-300">
-            This device already has a paid package on this Wi-Fi network.
-          </p>
-          <p className="mt-5 text-sm text-zinc-400">
-            Access ends {formatExpiry(activeSession.expiresAt)}.
-          </p>
-        </section>
-      </main>
+      <PortalShell brand={brand} device={device} theme={context.theme} support={context.support}>
+        <StatusCard
+          icon={<CheckCircle2 className="h-7 w-7" />}
+          eyebrow="Already active"
+          title="Your access is ready"
+        >
+          <p>This device already has a paid package on this network. You can reconnect any time.</p>
+          <div className="hp-status-meta">Access ends {formatExpiry(activeSession.expiresAt)}</div>
+        </StatusCard>
+      </PortalShell>
+    );
+  }
+
+  if (error && plans.length === 0 && !payment) {
+    return (
+      <PortalShell brand={brand} device={device} theme={context.theme} support={context.support}>
+        <StatusCard
+          icon={<AlertTriangle className="h-7 w-7" />}
+          tone="info"
+          eyebrow="Connection"
+          title="We couldn't load packages"
+        >
+          <p>{error}</p>
+          <button type="button" className="hp-btn" onClick={() => window.location.reload()}>
+            Try again <RefreshCw className="h-4 w-4" />
+          </button>
+        </StatusCard>
+      </PortalShell>
     );
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto grid min-h-screen max-w-6xl grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
-        <section className="flex flex-col justify-between px-5 py-8 sm:px-10 lg:px-14 lg:py-12">
-          <div className="flex items-center gap-3 text-sm text-zinc-400">
-            <span className="grid h-9 w-9 place-items-center border border-cyan-300/30 text-cyan-300">
-              <Wifi className="h-4 w-4" />
-            </span>
-            <span>{routerName || context.brand || "Wi-Fi access"}</span>
-          </div>
-          <div className="py-12 lg:py-0">
-            <h1 className="max-w-xl text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
-              Choose your internet package
-            </h1>
-            <p className="mt-5 max-w-lg text-base leading-7 text-zinc-400">
-              Select a package, approve the M-Pesa prompt on your phone, then connect.
-            </p>
-            <div className="mt-8 flex items-center gap-3 text-sm text-zinc-500">
-              <Signal className="h-4 w-4 text-cyan-300" />
-              Secure payment · access starts after payment confirmation
-            </div>
-          </div>
-          <p className="text-xs text-zinc-600">
-            Your device address is used only to deliver access to this Wi-Fi session.
+    <PortalShell brand={brand} device={device} theme={context.theme} support={context.support}>
+      <div className="hp-layout">
+        <section className="hp-hero">
+          <div className="hp-eyebrow"><Sparkles className="h-3.5 w-3.5" /> Fast · Simple · Secure</div>
+          <h1 className="hp-title">Get online in <span className="hp-gradient-text">seconds.</span></h1>
+          <p className="hp-sub">
+            {context.welcome || "Pick a package that fits your day, approve the prompt on your phone, and you're browsing. No sign-up, no hassle."}
           </p>
+          <div className="hp-steps">
+            <div className="hp-step"><span className="hp-step-num">01</span> Choose an internet package below</div>
+            <div className="hp-step"><span className="hp-step-num">02</span> Approve the M-Pesa prompt on your phone</div>
+            <div className="hp-step"><span className="hp-step-num">03</span> Tap connect and start browsing</div>
+          </div>
+          <div className="hp-trust"><ShieldCheck className="h-4 w-4 text-emerald-400" /> Secure payment · your device is identified by its Wi-Fi address</div>
         </section>
 
-        <section className="border-t border-zinc-800 px-5 py-8 sm:px-10 lg:border-l lg:border-t-0 lg:px-12 lg:py-12">
+        <section className="hp-card">
           {payment ? (
-            <div className="mx-auto flex h-full max-w-md flex-col justify-center">
-              <div
-                className={`mb-6 grid h-12 w-12 place-items-center border ${
-                  paymentConfirmed
-                    ? "border-emerald-400/30 text-emerald-300"
-                    : "border-cyan-300/30 text-cyan-300"
-                }`}
-              >
-                {paymentConfirmed ? (
-                  <CheckCircle2 className="h-5 w-5" />
-                ) : (
-                  <Clock3 className="h-5 w-5" />
-                )}
+            <div>
+              <div className="hp-ring"><Clock3 className="h-6 w-6" /></div>
+              <div className="hp-brand-sub" style={{ marginTop: 18 }}>
+                {paymentConfirmed ? "Almost there" : "Payment in progress"}
               </div>
-              <h2 className="text-2xl font-semibold">
+              <h2 className="hp-card-title">
                 {payment.status === "authorization_failed"
                   ? "Payment received"
                   : paymentConfirmed
                     ? "Preparing your access"
-                    : "Approve payment"}
+                    : "Approve on your phone"}
               </h2>
-              <p className="mt-3 leading-6 text-zinc-400">
+              <p className="hp-card-note" style={{ lineHeight: 1.6 }}>
                 {payment.status === "authorization_failed"
                   ? payment.error || "Payment is confirmed, but the router could not be reached."
                   : paymentConfirmed
-                    ? "Payment is confirmed. We are authorizing your device on the router."
+                    ? "We are activating your device on the network now."
                     : timedOut
-                      ? "The payment prompt may have timed out. Check the payment status or retry the payment."
-                      : "Check your phone and enter your M-Pesa PIN to approve the prompt."}
+                      ? "The prompt may have expired. Check the status or start a new payment."
+                      : "Look for the M-Pesa message and enter your PIN to approve."}
               </p>
+              <PaymentSteps stage={stage} />
               {payment.status === "authorization_failed" ? (
-                <button
-                  type="button"
-                  onClick={retryAuthorization}
-                  disabled={checking}
-                  className="mt-7 flex w-full items-center justify-center gap-2 bg-cyan-300 px-5 py-4 font-semibold text-black hover:bg-cyan-200 disabled:opacity-50"
-                >
-                  {checking && <LoaderCircle className="h-4 w-4 animate-spin" />}
+                <button type="button" className="hp-btn" onClick={retryAuthorization} disabled={checking}>
+                  {checking ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   Retry router authorization
                 </button>
               ) : waitingForPayment || paymentConfirmed ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    setPollCount(0);
-                    refreshPayment();
-                  }}
+                  className="hp-btn-ghost"
+                  onClick={() => { setPollCount(0); refreshPayment(); }}
                   disabled={checking}
-                  className="mt-7 flex w-full items-center justify-center gap-2 border border-zinc-700 px-5 py-4 font-medium text-zinc-100 hover:border-cyan-300/60 disabled:opacity-50"
                 >
-                  {checking ? (
-                    <LoaderCircle className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
+                  {checking ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   Check payment status
                 </button>
               ) : null}
-              {payment.status === "failed" || payment.status === "payment_review" ? (
-                <div className="mt-6 border border-amber-400/30 bg-amber-400/5 p-4 text-sm text-amber-100">
-                  <AlertTriangle className="mb-2 h-4 w-4 text-amber-300" />
+              {(payment.status === "failed" || payment.status === "payment_review" || error) && (
+                <div className="hp-notice">
+                  <AlertTriangle className="mb-1 h-4 w-4" />
                   {payment.status === "payment_review"
                     ? "The provider amount needs review. Do not pay again; contact the network operator."
-                    : payment.error || "Payment was not completed. You can choose a package and try again."}
+                    : error || payment.error || "Payment was not completed. You can choose a package and try again."}
                 </div>
-              ) : null}
-              {payment.status === "failed" && (
-                <button
-                  type="button"
-                  onClick={resetPayment}
-                  className="mt-5 text-sm text-zinc-500 underline underline-offset-4 hover:text-zinc-200"
-                >
-                  Choose another package
-                </button>
+              )}
+              {(payment.status === "failed" || payment.status === "payment_review") && (
+                <button type="button" className="hp-link" onClick={resetPayment}>Choose another package</button>
               )}
             </div>
           ) : (
-            <form onSubmit={startPayment} className="mx-auto max-w-md">
-              <h2 className="text-xl font-semibold">Available packages</h2>
+            <form onSubmit={startPayment}>
+              <div className="hp-brand-sub">Wi-Fi packages</div>
+              <h2 className="hp-card-title">Choose your package</h2>
+              <p className="hp-card-note">Pay only for the time you need.</p>
               {plans.length === 0 ? (
-                <p className="mt-6 border border-zinc-800 p-5 text-sm leading-6 text-zinc-400">
-                  There are no hotspot packages available right now. Please contact the network operator.
-                </p>
+                <div className="hp-empty">No packages are available right now. Please contact the network operator.</div>
               ) : (
-                <div className="mt-5 divide-y divide-zinc-800 border-y border-zinc-800">
+                <div className="hp-plans">
                   {plans.map((plan) => (
                     <label
                       key={plan.id}
-                      className={`flex cursor-pointer items-center justify-between gap-4 py-5 transition-colors ${
-                        selectedPlan === plan.id ? "text-white" : "text-zinc-400"
-                      }`}
+                      className={`hp-plan ${selectedPlan === plan.id ? "is-selected" : ""}`}
                     >
-                      <span className="flex min-w-0 items-start gap-3">
-                        <input
-                          type="radio"
-                          name="hotspot-plan"
-                          value={plan.id}
-                          checked={selectedPlan === plan.id}
-                          onChange={() => setSelectedPlan(plan.id)}
-                          className="mt-1 accent-cyan-300 focus-visible:outline-cyan-300"
-                        />
-                        <span className="min-w-0">
-                          <span className="block font-medium text-zinc-100">{plan.name}</span>
-                          <span className="mt-1 block text-sm text-zinc-500">
-                            {plan.speed_up} up · {plan.speed_down} down
-                            {plan.quota_gb ? ` · ${plan.quota_gb} GB` : ""}
-                            {" · "}{plan.validity_days} day{plan.validity_days === 1 ? "" : "s"}
-                          </span>
+                      <input
+                        type="radio"
+                        name="hotspot-plan"
+                        value={plan.id}
+                        checked={selectedPlan === plan.id}
+                        onChange={() => setSelectedPlan(plan.id)}
+                        className="hp-plan-radio"
+                      />
+                      <span className="hp-plan-check"><Check className="h-3.5 w-3.5" strokeWidth={3} /></span>
+                      <span className="hp-plan-body">
+                        <span className="hp-plan-name">
+                          {plan.name}
+                          {plan.id === bestValueId && plans.length > 1 && <span className="hp-badge">Best value</span>}
+                        </span>
+                        <span className="hp-plan-meta">
+                          <span className="hp-tag"><Zap className="mr-1 inline h-3 w-3" />{plan.speed_up}/{plan.speed_down}</span>
+                          {plan.quota_gb ? <span className="hp-tag">{plan.quota_gb} GB</span> : null}
+                          <span className="hp-tag">{plan.validity_days} day{plan.validity_days === 1 ? "" : "s"}</span>
                         </span>
                       </span>
-                      <span className="shrink-0 font-semibold text-cyan-300">
-                        {formatPrice(plan.price)}
+                      <span className="hp-plan-price">
+                        <span className="hp-price">{formatPrice(plan.price)}</span>
+                        <span className="hp-price-label">one-off</span>
                       </span>
                     </label>
                   ))}
                 </div>
               )}
 
-              <label htmlFor="mpesa-phone" className="mt-7 block text-sm font-medium text-zinc-200">
-                M-Pesa phone number
-              </label>
-              <input
-                id="mpesa-phone"
-                type="tel"
-                autoComplete="tel"
-                inputMode="tel"
-                required
-                value={phone}
-                onChange={(event) => setPhone(event.target.value)}
-                placeholder="07XX XXX XXX"
-                className="mt-2 h-12 w-full border border-zinc-700 bg-zinc-900 px-4 text-base text-white placeholder:text-zinc-600 focus:border-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-300/20"
-              />
+              <label className="hp-field" htmlFor="mpesa-phone">M-Pesa phone number</label>
+              <div className="hp-input-wrap">
+                <Smartphone className="h-4 w-4" />
+                <input
+                  id="mpesa-phone"
+                  className="hp-input"
+                  type="tel"
+                  autoComplete="tel"
+                  inputMode="tel"
+                  required
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  placeholder="07XX XXX XXX"
+                />
+              </div>
+              <p className="hp-card-note" style={{ marginTop: 8 }}>We'll send the payment prompt to this number.</p>
+
               {error && (
-                <div
-                  role="alert"
-                  className="mt-4 flex gap-2 border border-rose-400/30 bg-rose-400/5 p-3 text-sm leading-5 text-rose-200"
-                >
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-300" />
+                <div role="alert" className="hp-error">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>{error}</span>
                 </div>
               )}
+
               <button
                 type="submit"
                 disabled={submitting || plans.length === 0 || !selectedPlan}
-                className="mt-6 flex min-h-14 w-full items-center justify-center gap-2 bg-cyan-300 px-5 py-4 font-semibold text-black transition-colors hover:bg-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-black"
+                className="hp-btn"
               >
-                {submitting ? (
-                  <LoaderCircle className="h-5 w-5 animate-spin" />
-                ) : (
-                  <span>Pay with M-Pesa</span>
-                )}
+                {submitting ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <><span>Pay with M-Pesa</span><ArrowRight className="h-4 w-4" /></>}
               </button>
-              {submitting && (
-                <p className="mt-3 text-center text-sm text-zinc-500">
-                  Sending a secure payment prompt…
-                </p>
-              )}
               {sessionToken && (
-                <button
-                  type="button"
-                  onClick={refreshPayment}
-                  className="mt-4 w-full text-center text-sm text-zinc-500 underline underline-offset-4 hover:text-zinc-200"
-                >
-                  Recover pending payment
-                </button>
+                <button type="button" className="hp-link" onClick={refreshPayment}>Recover a pending payment</button>
               )}
             </form>
           )}
         </section>
       </div>
-    </main>
+    </PortalShell>
   );
 }

@@ -62,6 +62,10 @@ export default defineConfig({
         target: localApiTarget,
         changeOrigin: true,
       },
+      "/speedtest": {
+        target: localApiTarget,
+        changeOrigin: true,
+      },
       "/ws-bandwidth": {
         target: localApiTarget,
         ws: true,

@@ -141,6 +141,7 @@ class HealthCheckService {
           "Router Offline",
           `Router ${snapshot.connection?.name || connectionId} (${snapshot.connection?.ip_address || "unknown IP"}) is not responding${snapshot.error ? `: ${snapshot.error}` : ""}`,
         );
+        await this.resolveAlerts(connectionId, ALERT_TYPES.ROUTER_ONLINE);
       } else {
         await this.resolveAlerts(connectionId, ALERT_TYPES.ROUTER_OFFLINE);
       }
@@ -332,6 +333,36 @@ class HealthCheckService {
           now.toISOString(),
         ],
       );
+
+      const rulesResult = await db.query(
+        "SELECT rule_type, threshold_value, comparison_operator, alert_severity FROM monitoring_rules WHERE connection_id = $1 AND is_enabled = true",
+        [connectionId],
+      );
+      const totalBps = Number(snapshot.totalBandwidth || 0);
+      const bandwidthPercent = totalBps
+        ? (Number(snapshot.usedBandwidth || 0) / totalBps) * 100
+        : 0;
+
+      for (const rule of rulesResult.rows) {
+        if (rule.rule_type !== "bandwidth_exceeded") {continue;}
+        if (
+          this.checkThreshold(
+            bandwidthPercent,
+            Number(rule.threshold_value),
+            rule.comparison_operator,
+          )
+        ) {
+          await this.createAlert(
+            connectionId,
+            "bandwidth_exceeded",
+            rule.alert_severity,
+            "High Bandwidth Usage",
+            `Link usage is ${bandwidthPercent.toFixed(1)}% (threshold: ${rule.threshold_value}%)`,
+          );
+        } else {
+          await this.resolveAlerts(connectionId, "bandwidth_exceeded");
+        }
+      }
 
       logger.debug("Bandwidth check completed", {
         connectionId,

@@ -1451,7 +1451,7 @@ router.get("/customers/online-status", async (req, res) => {
 // ═══════════════════════════════════════
 // USAGE
 // ═══════════════════════════════════════
-router.get("/usage/:customerId", async (req, res) => {
+router.get("/usage/:customerId([0-9a-fA-F-]{36})", async (req, res) => {
   try {
     const records = await billing.listUsageRecords({
       customerId: req.params.customerId,

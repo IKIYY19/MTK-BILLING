@@ -837,7 +837,7 @@ async function networkSummaryHandler(req, res) {
           COUNT(*) FILTER (WHERE status = 'used') AS used_ips,
           COUNT(*) FILTER (WHERE status = 'reserved') AS reserved_ips,
           COUNT(*) AS total_ips
-        FROM ip_addresses`).catch(() => ({ rows: [{ free_ips: 0, used_ips: 0, reserved_ips: 0, total_ips: 0 }] })),
+         FROM ipam_ips`).catch(() => ({ rows: [{ free_ips: 0, used_ips: 0, reserved_ips: 0, total_ips: 0 }] })),
       db.query(`SELECT
           COUNT(*) AS total,
           COUNT(*) FILTER (WHERE status = 'active') AS active,
@@ -868,8 +868,8 @@ async function networkSummaryHandler(req, res) {
                 COUNT(a.id) FILTER (WHERE a.status='used') AS used_ips,
                 COUNT(a.id) FILTER (WHERE a.status='free') AS free_ips,
                 COUNT(a.id) AS total_ips
-         FROM ip_subnets s
-         LEFT JOIN ip_addresses a ON a.subnet_id = s.id
+          FROM ipam_subnets s
+          LEFT JOIN ipam_ips a ON a.subnet_id = s.id
          GROUP BY s.id ORDER BY s.network LIMIT 20`,
       );
       subnets = snRes.rows;

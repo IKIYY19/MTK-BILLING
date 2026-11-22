@@ -11,8 +11,8 @@ export function Alerts() {
   const [filter, setFilter] = useState('open'); // open, acknowledged, resolved, all
   const [loading, setLoading] = useState(false);
 
-  const fetchAlerts = async () => {
-    setLoading(true);
+  const fetchAlerts = async (silent = false) => {
+    if (!silent) {setLoading(true);}
     try {
       const token = localStorage.getItem('token');
       const params = filter !== 'all' ? { status: filter } : {};
@@ -24,7 +24,7 @@ export function Alerts() {
     } catch (error) {
       console.error('Failed to fetch alerts:', error);
     }
-    setLoading(false);
+    if (!silent) {setLoading(false);}
   };
 
   const acknowledgeAlert = async (alertId) => {
@@ -57,6 +57,8 @@ export function Alerts() {
 
   useEffect(() => {
     fetchAlerts();
+    const timer = setInterval(() => fetchAlerts(true), 2000);
+    return () => clearInterval(timer);
   }, [filter]);
 
   const getSeverityColor = (severity) => {

@@ -28,7 +28,7 @@ const HOTSPOT_TEMPLATES = [
   { id: "cosmic",   name: "Cosmic Void",      icon: Stars,     desc: "Deep space purples", accent: "#c084fc", colors: { bg: "#0d0a1a", bg2: "#1a0f2e", bg3: "#241540", accent: "#c084fc", card: "rgba(13,10,26,0.8)", text: "#f3e8ff", border: "rgba(192,132,252,0.15)", inputBg: "rgba(192,132,252,0.05)", glow: "0 0 35px rgba(192,132,252,0.18)", cardBlur: "26px" } },
 ];
 
-function generatePortalHTML({ companyName, routerId, portalUrl }) {
+function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeText, phoneNumber }) {
   const company = String(companyName || "Wi-Fi access").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[char]);
@@ -38,8 +38,16 @@ function generatePortalHTML({ companyName, routerId, portalUrl }) {
   } catch {
     hostedPortal = null;
   }
-  const localHttp = hostedPortal?.protocol === "http:" &&
-    ["localhost", "127.0.0.1"].includes(hostedPortal.hostname);
+  if (hostedPortal) {
+    if (theme) {hostedPortal.searchParams.set("theme", theme);}
+    if (welcomeText) {hostedPortal.searchParams.set("welcome", welcomeText);}
+    if (phoneNumber) {hostedPortal.searchParams.set("support", phoneNumber);}
+  }
+  const hostname = (hostedPortal?.hostname || "").toLowerCase();
+  const privateHost =
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" ||
+    /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(hostname);
+  const localHttp = hostedPortal?.protocol === "http:" && privateHost;
   if (!routerId || !hostedPortal || !["https:", "http:"].includes(hostedPortal.protocol) ||
       hostedPortal.username || hostedPortal.password ||
       hostedPortal.protocol === "http:" && !localHttp) {
@@ -76,7 +84,18 @@ function generatePortalHTML({ companyName, routerId, portalUrl }) {
     </form>
   </main>
   <script>
-    document.getElementById("portal-handoff").submit();
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var fields = ["router_id", "brand", "mac", "ip", "link_login_only", "original_url"];
+      fields.forEach(function (key) {
+        var value = params.get(key) || params.get(key.replace(/_/g, "-"));
+        var input = document.querySelector('input[name="' + key + '"]');
+        if (value && input && (!input.value || input.value.indexOf("$(") === 0)) {
+          input.value = value;
+        }
+      });
+      document.getElementById("portal-handoff").submit();
+    })();
   </script>
 </body>
 </html>`;
@@ -118,6 +137,7 @@ export default function CaptivePortalBuilder() {
   const [logoUrl,       setLogoUrl]       = useState(() => localStorage.getItem("portal_logo")     || "");
   const [primaryColor,  setPrimaryColor]  = useState(() => localStorage.getItem("portal_color")    || "");
   const [phoneNumber,   setPhoneNumber]   = useState(() => localStorage.getItem("portal_phone")    || "");
+  const [selectedTheme, setSelectedTheme] = useState(() => localStorage.getItem("portal_theme")    || "aurora");
   const [showTerms,     setShowTerms]     = useState(true);
   const [previewMode,   setPreviewMode]   = useState("desktop");
   const [connections,   setConnections]   = useState([]);
@@ -125,7 +145,7 @@ export default function CaptivePortalBuilder() {
   const [pushing,       setPushing]       = useState(false);
   const [copied,        setCopied]        = useState(false);
   const [savedPortals,  setSavedPortals]  = useState([]);
-  const [portalUrl, setPortalUrl] = useState(() => localStorage.getItem("portal_hosted_url") || `${window.location.origin}/hotspot`);
+  const [portalUrl, setPortalUrl] = useState(() => localStorage.getItem("portal_hosted_url") || `${import.meta.env.VITE_PUBLIC_APP_URL || window.location.origin}/hotspot`);
   const [activeView, setActiveView] = useState("builder");
 
   useEffect(() => {
@@ -134,7 +154,7 @@ export default function CaptivePortalBuilder() {
   }, []);
 
   const save = (key, val) => localStorage.setItem(key, val);
-  const getHtml = () => generatePortalHTML({ templateId: selectedTemplate, companyName, welcomeText, logoUrl, primaryColor, phoneNumber, showTerms, packages: [], routerId: selectedConn, portalUrl });
+  const getHtml = () => generatePortalHTML({ templateId: selectedTemplate, companyName, welcomeText, logoUrl, primaryColor, phoneNumber, showTerms, packages: [], routerId: selectedConn, portalUrl, theme: selectedTheme });
 
   const handlePush = async () => {
     if (!selectedConn) { toast.error("Select a router first"); return; }
@@ -330,6 +350,19 @@ export default function CaptivePortalBuilder() {
                   </Field>
                   <Field label="Support Phone">
                     <DarkInput value={phoneNumber} onChange={e => { setPhoneNumber(e.target.value); save("portal_phone", e.target.value); }} placeholder="0712 345 678" />
+                  </Field>
+                  <Field label="Portal Theme">
+                    <select
+                      value={selectedTheme}
+                      onChange={e => { setSelectedTheme(e.target.value); save("portal_theme", e.target.value); }}
+                      className="modern-input"
+                    >
+                      <option value="aurora">Aurora (cyan)</option>
+                      <option value="sunrise">Sunrise (warm)</option>
+                      <option value="lagoon">Lagoon (teal)</option>
+                      <option value="neon">Neon (purple)</option>
+                      <option value="monochrome">Monochrome</option>
+                    </select>
                   </Field>
                 </div>
                 <label className="flex items-center gap-2.5 cursor-pointer group">

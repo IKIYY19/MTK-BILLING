@@ -27,6 +27,10 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 
 const API = import.meta.env.VITE_API_URL || "/api";
+const todayLocal = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+};
 const emptyForm = {
   customer_id: "",
   plan_id: "",
@@ -107,7 +111,7 @@ export function BillingSubscriptions() {
       const { data } = await axios.post(`${API}/billing/subscriptions`, {
         ...form,
         router_id: null,
-        start_date: form.start_date || new Date().toISOString().split("T")[0],
+        start_date: form.start_date || todayLocal(),
       });
       handleSyncFeedback(data, "Subscription created");
     }

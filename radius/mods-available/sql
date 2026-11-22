@@ -9,6 +9,7 @@ sql {
     login = "__DB_USER__"
     password = "__DB_PASSWORD__"
     radius_db = "__RADIUS_DB_NAME__"
+    sql_user_name = "%{User-Name}"
     read_clients = yes
     client_table = "nas"
 

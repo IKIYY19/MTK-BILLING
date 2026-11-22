@@ -27,6 +27,12 @@ async function getTelegramConfig() {
   }
 }
 
+function acceptsSeverity(config, severity) {
+  const levels = config?.severities;
+  if (!Array.isArray(levels) || levels.length === 0) {return true;}
+  return levels.includes(severity);
+}
+
 class RouterAlertNotifier {
   async send(connection, alertType, severity, title, message) {
     const work = [];
@@ -35,7 +41,12 @@ class RouterAlertNotifier {
     work.push(this.sendViaChannels(connection, alertType, severity, title, message));
 
     // 2) Webhooks (event: router.offline / router.online, also matched by "*")
-    const event = alertType === "router_offline" ? "router.offline" : "router.online";
+    const event =
+      alertType === "router_offline"
+        ? "router.offline"
+        : alertType === "escalation"
+          ? "alert.escalated"
+          : "router.online";
     work.push(this.sendWebhook(event, {
       connection_id: connection.id,
       name: connection.name,
@@ -66,13 +77,13 @@ class RouterAlertNotifier {
         return;
       }
 
-      const emailService = require("./email");
-      const notificationService = require("./notificationService");
       const telegramConfig = await getTelegramConfig();
 
       for (const channel of channels.rows) {
+        if (!acceptsSeverity(channel.config, severity)) {continue;}
         try {
           if (channel.channel_type === "email" && channel.email) {
+            const emailService = require("./email");
             await emailService.sendEmail({
               to: channel.email,
               subject: `[${severity.toUpperCase()}] ${title}`,
@@ -86,6 +97,7 @@ class RouterAlertNotifier {
           } else if (channel.channel_type === "sms") {
             const phone = channel.config?.phone;
             if (phone) {
+              const notificationService = require("./notificationService");
               await notificationService.triggerSMS("service_suspended", {
                 customer: { phone, name: channel.name || "Admin" },
                 custom_message: `[${severity.toUpperCase()}] ${title}: ${message}`,
@@ -95,6 +107,7 @@ class RouterAlertNotifier {
           } else if (channel.channel_type === "whatsapp") {
             const phone = channel.config?.phone;
             if (phone) {
+              const notificationService = require("./notificationService");
               const wa = await notificationService.getWhatsAppService();
               if (wa && wa.isConfigured) {
                 await wa.sendMessage(phone, `*[${severity.toUpperCase()}] ${title}*\n${message}`);

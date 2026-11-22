@@ -24,6 +24,22 @@
         FORM: A telecom field-service docket, paired with a single-page shift handoff register; concept seeds 32b4e78f and 7e360a01.
         -->
         <div id="root"></div>
+        <script>
+          window.addEventListener('error', function (event) {
+            navigator.sendBeacon('/api/client-error', JSON.stringify({
+              message: event.message,
+              stack: event.error && event.error.stack,
+              url: location.href,
+            }));
+          });
+          window.addEventListener('unhandledrejection', function (event) {
+            navigator.sendBeacon('/api/client-error', JSON.stringify({
+              message: String(event.reason && event.reason.message || event.reason),
+              stack: event.reason && event.reason.stack,
+              url: location.href,
+            }));
+          });
+        </script>
         <script type="module" src="/src/main.jsx"></script>
     </body>
 </html>

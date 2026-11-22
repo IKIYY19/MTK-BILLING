@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Giraffe Hotspot</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#070b16;color:#e8eef9;font:16px/1.6 Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+    main{width:min(100%,420px);padding:28px;border:1px solid rgba(255,255,255,.12);border-radius:22px;background:linear-gradient(155deg,rgba(20,29,49,.9),rgba(10,15,28,.94));text-align:center}
+    h1{margin:0 0 8px;font-size:24px;letter-spacing:-.02em}p{margin:0;color:#94a3b8}
+  </style>
+</head>
+<body>
+  <main role="status" aria-live="polite">
+    <h1>Giraffe Hotspot</h1>
+    <p>Opening the Wi-Fi access page…</p>
+    <form id="portal-handoff" action="http://192.168.100.8:5000/hotspot" method="get">
+      <input type="hidden" name="router_id" value="e0bfcfd8-8b34-4e37-88d5-d484e90d628a">
+      <input type="hidden" name="brand" value="Giraffe Hotspot">
+      <input type="hidden" name="mac" value="$(mac)">
+      <input type="hidden" name="ip" value="$(ip)">
+      <input type="hidden" name="link_login_only" value="$(link-login-only)">
+      <input type="hidden" name="original_url" value="$(link-orig)">
+      <noscript><button type="submit">Continue to Wi-Fi access</button></noscript>
+    </form>
+  </main>
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var fields = ["router_id", "brand", "mac", "ip", "link_login_only", "original_url"];
+      fields.forEach(function (key) {
+        var value = params.get(key) || params.get(key.replace(/_/g, "-"));
+        var input = document.querySelector('input[name="' + key + '"]');
+        if (value && input && (!input.value || input.value.indexOf("$(") === 0)) {
+          input.value = value;
+        }
+      });
+      document.getElementById("portal-handoff").submit();
+    })();
+  </script>
+</body>
+</html>

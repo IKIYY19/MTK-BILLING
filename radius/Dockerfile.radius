@@ -14,6 +14,7 @@ RUN apt-get update && \
 # Copy configuration files
 COPY clients.conf /etc/freeradius/clients.conf
 COPY mods-available/sql /etc/freeradius/mods-available/sql
+COPY sites-available/default /etc/freeradius/sites-enabled/default
 COPY radius_schema.sql /docker-entrypoint-initdb.d/radius_schema.sql
 
 # Copy entrypoint script and enable the SQL module as a real symlink.
@@ -34,4 +35,4 @@ EXPOSE 1812/udp 1813/udp
 ENTRYPOINT ["/entrypoint.sh"]
 
 # Run FreeRADIUS in foreground
-CMD ["freeradius", "-X"]
+CMD ["freeradius", "-f"]

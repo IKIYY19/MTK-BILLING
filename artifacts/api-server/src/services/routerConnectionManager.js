@@ -1,5 +1,18 @@
 const logger = require("../utils/logger");
 
+const COMMAND_TIMEOUT_MS = 12000;
+const CONNECT_TIMEOUT_MS = 10000;
+
+function withTimeout(promise, timeoutMs, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    Promise.resolve(promise).then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 class RouterConnectionManager {
   constructor() {
     this.connections = new Map();
@@ -162,7 +175,11 @@ class RouterConnectionManager {
     });
 
     try {
-      await api.connect();
+      await withTimeout(
+        api.connect(),
+        CONNECT_TIMEOUT_MS,
+        `MikroTik API connection to ${effectiveConfig.ip_address}:${port} timed out`,
+      );
     } catch (error) {
       throw new Error(
         `MikroTik API connection to ${effectiveConfig.ip_address}:${port} failed: ${this.describeError(error)}`,
@@ -217,7 +234,7 @@ class RouterConnectionManager {
   }
 
   // Execute a command sequentially (using promise queuing) on the connection
-  async executeCommand(routerIdOrConfig, command, args = {}) {
+  async executeCommand(routerIdOrConfig, command, args = {}, options = {}) {
     let routerId = typeof routerIdOrConfig === "string" ? routerIdOrConfig : routerIdOrConfig.id;
     if (!routerId && typeof routerIdOrConfig === "object") {
       routerId = routerIdOrConfig.ip_address || "temp";
@@ -229,13 +246,20 @@ class RouterConnectionManager {
     }
 
     const queuePromise = this.queues.get(routerId);
+    const commandTimeout =
+      options.timeoutMs ||
+      (command === "/tool/bandwidth-test" ? 90000 : COMMAND_TIMEOUT_MS);
     const resultPromise = queuePromise.then(async () => {
       let retries = 1;
       while (retries >= 0) {
         let connObj = null;
         try {
           connObj = await this.getOrCreateConnection(routerIdOrConfig);
-          const result = await connObj.api.write(command, this.toApiParams(args));
+          const result = await withTimeout(
+            connObj.api.write(command, this.toApiParams(args)),
+            commandTimeout,
+            `MikroTik command ${command} timed out`,
+          );
           connObj.lastUsed = Date.now();
           return result;
         } catch (error) {
@@ -301,7 +325,11 @@ class RouterConnectionManager {
     const api = await this.createApiClient(config);
     try {
       // A lightweight command confirms both login and command execution.
-      await api.write("/system/identity/print");
+      await withTimeout(
+        api.write("/system/identity/print"),
+        COMMAND_TIMEOUT_MS,
+        "MikroTik identity command timed out",
+      );
     } finally {
       try {
         api.close();

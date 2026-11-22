@@ -6,6 +6,18 @@ import {
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '/api';
+const getRealtimeOrigin = () => {
+  const apiUrl = new URL(API, window.location.origin);
+  const isLocalViteApiProxy = API === '/api' && window.location.port === '5173';
+  const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${isLocalViteApiProxy ? 'localhost:5000' : apiUrl.host}`;
+};
+const formatRate = (bps) => {
+  const value = Number(bps) || 0;
+  if (value >= 1000000) {return `${(value / 1000000).toFixed(2)} Mbps`;}
+  if (value >= 1000) {return `${(value / 1000).toFixed(1)} kbps`;}
+  return `${value.toFixed(0)} bps`;
+};
 
 /* ─── Sparkline SVG ─── */
 function Sparkline({ data, color = '#3b82f6', width = 200, height = 60 }) {
@@ -82,12 +94,52 @@ export function BandwidthGraphs() {
   const [customers, setCustomers] = useState([]);
   const [timeRange, setTimeRange] = useState('1h');
   const [polling, setPolling] = useState(true);
+  const [livePorts, setLivePorts] = useState([]);
+  const [liveHistory, setLiveHistory] = useState([]);
+  const [liveConnected, setLiveConnected] = useState(false);
   const intervalRef = useRef(null);
 
   useEffect(() => {
     axios.get(`${API}/mikrotik`).then(r => setConnections(r.data)).catch(() => {});
     axios.get(`${API}/billing/customers`).then(r => setCustomers(r.data)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!selectedConnection) {return undefined;}
+    let socket;
+    try {
+      socket = new WebSocket(`${getRealtimeOrigin()}/ws-bandwidth`);
+      socket.onopen = () => {
+        socket.send(JSON.stringify({
+          type: 'subscribe',
+          channels: ['ports'],
+          connection_id: selectedConnection,
+        }));
+        setLiveConnected(true);
+      };
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type !== 'ports_update' || message.connection_id !== selectedConnection) {return;}
+          const ports = message.data?.ports || [];
+          setLivePorts(ports);
+          const rx = ports.reduce((sum, port) => sum + (Number(port.rx_bps) || 0), 0);
+          const tx = ports.reduce((sum, port) => sum + (Number(port.tx_bps) || 0), 0);
+          setLiveHistory((previous) => [...previous.slice(-29), { rx, tx }]);
+        } catch {}
+      };
+      socket.onclose = () => setLiveConnected(false);
+      socket.onerror = () => setLiveConnected(false);
+    } catch {
+      setLiveConnected(false);
+    }
+    return () => {
+      if (socket) {socket.close();}
+      setLiveConnected(false);
+      setLivePorts([]);
+      setLiveHistory([]);
+    };
+  }, [selectedConnection]);
 
   useEffect(() => {
     if (selectedConnection) {fetchBandwidthData();}
@@ -190,6 +242,59 @@ export function BandwidthGraphs() {
             <RefreshCw className={`w-4 h-4 ${polling ? 'animate-spin' : ''}`} />
           </button>
         </div>
+      </div>
+
+      {/* Live Interface Traffic */}
+      <div className="relative glass rounded-2xl p-6 mb-6">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              Live Interface Traffic
+              <span className={`text-xs ${liveConnected ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                {liveConnected ? '● LIVE' : '○ CONNECTING'}
+              </span>
+            </h3>
+            <p className="text-sm text-zinc-500 mt-0.5">
+              {selectedConnection ? 'Real interface counters from the selected router (1s updates)' : 'Select a router to see live traffic'}
+            </p>
+          </div>
+          <div className="flex items-center gap-3 text-xs text-zinc-500">
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-blue-500" /> Download</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-emerald-500" /> Upload</span>
+          </div>
+        </div>
+        {livePorts.length === 0 ? (
+          <div className="text-center text-zinc-600 py-8 text-sm">No live interface data</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-5">
+              <div>
+                <div className="text-xs text-zinc-500 mb-2">Total download</div>
+                <Sparkline data={liveHistory.map((point) => point.rx)} color="#3b82f6" width={400} height={100} />
+              </div>
+              <div>
+                <div className="text-xs text-zinc-500 mb-2">Total upload</div>
+                <Sparkline data={liveHistory.map((point) => point.tx)} color="#10b981" width={400} height={100} />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {livePorts.map((port) => (
+                <div key={port.name} className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-white font-mono">{port.name}</span>
+                    <span className={`text-xs ${port.disabled ? 'text-red-400' : port.running ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                      {port.disabled ? 'Disabled' : port.running ? 'Up' : 'Down'}
+                    </span>
+                  </div>
+                  <div className="flex gap-4 mt-2 text-xs">
+                    <span className="text-blue-400">↓ {formatRate(port.rx_bps)}</span>
+                    <span className="text-emerald-400">↑ {formatRate(port.tx_bps)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Stats */}

@@ -24,6 +24,8 @@ class BandwidthWebSocketService {
     this.history = [];
     this.latestData = null;
     this.collectionInterval = null;
+    this.portsInterval = null;
+    this.portSamples = new Map();
     this.isRunning = false;
 
     this.collectionIntervalMs = Number(
@@ -90,6 +92,7 @@ class BandwidthWebSocketService {
       });
 
       this.startBandwidthCollection();
+      this.startPortsCollection();
 
       logger.info("Real MikroTik bandwidth WebSocket service initialized", {
         path: "/ws-bandwidth",
@@ -124,6 +127,7 @@ class BandwidthWebSocketService {
           this.handleSubscription(
             clientId,
             Array.isArray(data.channels) ? data.channels : [],
+            data.connection_id,
           );
           break;
 
@@ -156,11 +160,15 @@ class BandwidthWebSocketService {
     }
   }
 
-  handleSubscription(clientId, channels) {
+  handleSubscription(clientId, channels, connectionId) {
     const client = this.clients.get(clientId);
 
     if (!client) {
       return;
+    }
+
+    if (connectionId) {
+      client.portConnectionId = connectionId;
     }
 
     channels.forEach((channel) => {
@@ -299,6 +307,10 @@ class BandwidthWebSocketService {
       clearInterval(this.collectionInterval);
       this.collectionInterval = null;
     }
+    if (this.portsInterval) {
+      clearInterval(this.portsInterval);
+      this.portsInterval = null;
+    }
 
     this.isRunning = false;
 
@@ -328,6 +340,81 @@ class BandwidthWebSocketService {
     this.checkRealAlerts(data);
 
     return data;
+  }
+
+  startPortsCollection() {
+    if (this.portsInterval) {return;}
+    this.portsInterval = setInterval(() => {
+      this.collectPortsData().catch((error) => {
+        logger.error("Real port collection failed", { error: error.message });
+      });
+    }, 1000);
+  }
+
+  async collectPortsData() {
+    const subscribers = Array.from(this.clients.values()).filter(
+      (client) => client.subscriptions.has("ports") && client.portConnectionId,
+    );
+    if (subscribers.length === 0) {return;}
+
+    const manager = require("./routerConnectionManager");
+    const connectionIds = Array.from(
+      new Set(subscribers.map((client) => client.portConnectionId)),
+    );
+
+    for (const connectionId of connectionIds) {
+      try {
+        const rows = await manager.print(
+          connectionId,
+          "/interface",
+          "name,disabled,running,rx-byte,tx-byte",
+        );
+        const now = Date.now();
+        const previous = this.portSamples.get(connectionId);
+        const elapsed = previous
+          ? Math.max((now - previous.at) / 1000, 0.1)
+          : 0;
+        const previousByName = new Map(
+          (previous?.ports || []).map((port) => [port.name, port]),
+        );
+        const ports = (Array.isArray(rows) ? rows : [])
+          .filter((row) => /^(ether|sfp|bridge|vlan|pppoe|wireguard|sstp)/.test(row.name || ""))
+          .map((row) => {
+            const rx = Number(row["rx-byte"] || 0);
+            const tx = Number(row["tx-byte"] || 0);
+            const old = previousByName.get(row.name);
+            return {
+              name: row.name,
+              disabled: String(row.disabled) === "true",
+              running: String(row.running) === "true",
+              rx_bytes: String(rx),
+              tx_bytes: String(tx),
+              rx_bps: old && elapsed
+                ? (Math.max(0, rx - Number(old.rx_bytes || 0)) * 8) / elapsed
+                : 0,
+              tx_bps: old && elapsed
+                ? (Math.max(0, tx - Number(old.tx_bytes || 0)) * 8) / elapsed
+                : 0,
+            };
+          });
+
+        this.portSamples.set(connectionId, { at: now, ports });
+        const message = {
+          type: "ports_update",
+          timestamp: new Date().toISOString(),
+          connection_id: connectionId,
+          data: { ports, sample_seconds: elapsed || 1 },
+        };
+        subscribers
+          .filter((client) => client.portConnectionId === connectionId)
+          .forEach((client) => this.sendToClient(client.id, message));
+      } catch (error) {
+        logger.warn("Port stream sample failed", {
+          connectionId,
+          error: error.message,
+        });
+      }
+    }
   }
 
   appendHistory(data) {

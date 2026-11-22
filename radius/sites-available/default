@@ -1,0 +1,54 @@
+# FreeRADIUS virtual server for MikroTik Billing
+# All users and groups come from the SQL tables written by the API.
+
+server default {
+    listen {
+        type = auth
+        ipaddr = *
+        port = 0
+    }
+
+    listen {
+        type = acct
+        ipaddr = *
+        port = 0
+    }
+
+    authorize {
+        preprocess
+        sql
+        expiration
+        logintime
+        pap
+        chap
+        mschap
+    }
+
+    authenticate {
+        Auth-Type PAP {
+            pap
+        }
+        Auth-Type CHAP {
+            chap
+        }
+        Auth-Type MS-CHAP {
+            mschap
+        }
+    }
+
+    preacct {
+        preprocess
+    }
+
+    accounting {
+        sql
+    }
+
+    session {
+        sql
+    }
+
+    post-auth {
+        sql
+    }
+}

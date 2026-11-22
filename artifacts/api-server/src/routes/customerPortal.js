@@ -129,7 +129,7 @@ router.post("/login", async (req, res) => {
       : null;
 
     // Get usage
-    const usage = radiusStore.getUsageReport(customer.id, "month");
+    const usage = await radiusStore.getUsageReport(customer.id, "month");
     const quotaUsed = plan?.quota_gb
       ? (
           (usage.total_bytes / (plan.quota_gb * 1024 * 1024 * 1024)) *
@@ -225,7 +225,7 @@ router.get("/:customerId/dashboard", async (req, res) => {
       .reduce((sum, i) => sum + billingData.toNumber(i.total, 0) - billingData.toNumber(i.paid_amount, 0), 0);
 
     // Get usage from RADIUS store
-    const usage = radiusStore.getUsageReport(customer.id, "month");
+    const usage = await radiusStore.getUsageReport(customer.id, "month");
     const quotaUsed = subscription?.plan?.quota_gb
       ? (
           (usage.total_bytes / (subscription.plan.quota_gb * 1024 * 1024 * 1024)) *
@@ -413,10 +413,14 @@ router.post("/radius/accounting", async (req, res) => {
 });
 
 // Get usage for customer
-router.get("/radius/usage/:customerId", (req, res) => {
+router.get("/radius/usage/:customerId", async (req, res) => {
   const { period = "month" } = req.query;
-  const report = radiusStore.getUsageReport(req.params.customerId, period);
-  res.json(report);
+  try {
+    const report = await radiusStore.getUsageReport(req.params.customerId, period);
+    res.json(report);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Get active sessions

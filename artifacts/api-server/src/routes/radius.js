@@ -21,9 +21,20 @@ router.post("/nas", async (req, res) => {
   try {
     const { nasname, shortname, secret, description, type, connection_id } =
       req.body;
+    if (!nasname || !String(nasname).trim() || !secret || !String(secret).trim()) {
+      return res.status(400).json({ error: "nasname and secret are required" });
+    }
+    if (!/^[A-Za-z0-9.\-:]+$/.test(String(nasname))) {
+      return res.status(400).json({ error: "nasname must be an IP address or hostname" });
+    }
     const result = await getDb().query(
       `INSERT INTO nas (nasname, shortname, secret, description, type, connection_id)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (nasname) DO UPDATE SET
+         shortname = EXCLUDED.shortname, secret = EXCLUDED.secret,
+         description = EXCLUDED.description, type = EXCLUDED.type,
+         connection_id = EXCLUDED.connection_id, updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
       [
         nasname,
         shortname || nasname,
@@ -41,12 +52,14 @@ router.post("/nas", async (req, res) => {
 
 router.put("/nas/:id", async (req, res) => {
   try {
-    const { nasname, shortname, secret, description, type } = req.body;
+    const { nasname, shortname, secret, description, type, connection_id } = req.body;
     const result = await getDb().query(
       `UPDATE nas SET nasname = COALESCE($1, nasname), shortname = COALESCE($2, shortname),
-       secret = COALESCE($3, secret), description = COALESCE($4, description), type = COALESCE($5, type)
-       WHERE id = $6 RETURNING *`,
-      [nasname, shortname, secret, description, type, req.params.id],
+       secret = COALESCE($3, secret), description = COALESCE($4, description),
+       type = COALESCE($5, type), connection_id = COALESCE($6, connection_id),
+       updated_at = CURRENT_TIMESTAMP
+       WHERE id = $7 RETURNING *`,
+      [nasname, shortname, secret, description, type, connection_id, req.params.id],
     );
     if (result.rows.length === 0)
       {return res.status(404).json({ error: "NAS not found" });}
@@ -71,7 +84,11 @@ router.delete("/nas/:id", async (req, res) => {
 router.get("/groups", async (req, res) => {
   try {
     const checkRes = await getDb().query(
-      "SELECT DISTINCT groupname FROM radgroupcheck ORDER BY groupname",
+      `SELECT DISTINCT groupname FROM (
+         SELECT groupname FROM radgroupcheck
+         UNION SELECT groupname FROM radgroupreply
+         UNION SELECT groupname FROM radusergroup
+       ) all_groups ORDER BY groupname`,
     );
     const groups = checkRes.rows.map((r) => r.groupname);
 
@@ -105,6 +122,9 @@ router.get("/groups", async (req, res) => {
 router.post("/groups", async (req, res) => {
   try {
     const { name, check, reply } = req.body;
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: "Group name is required" });
+    }
 
     for (const c of check || []) {
       await getDb().query(
@@ -147,17 +167,18 @@ router.delete("/groups/:name", async (req, res) => {
 router.get("/users", async (req, res) => {
   try {
     const result = await getDb().query(
-      `SELECT DISTINCT rc.username, rc.customer_id, c.name as customer_name,
-              (SELECT value FROM radcheck WHERE username = rc.username AND attribute = 'Cleartext-Password' LIMIT 1) as password,
-              (SELECT value FROM radcheck WHERE username = rc.username AND attribute = 'Expiration' LIMIT 1) as expiration,
-              (SELECT value FROM radreply WHERE username = rc.username AND attribute = 'Framed-IP-Address' LIMIT 1) as framed_ip,
-              (SELECT value FROM radreply WHERE username = rc.username AND attribute = 'Mikrotik-Rate-Limit' LIMIT 1) as rate_limit,
-              (SELECT string_agg(groupname, ', ') FROM radusergroup WHERE username = rc.username) as groups,
-              (SELECT COUNT(*) FROM radacct WHERE username = rc.username AND acctstoptime IS NULL) as active_sessions,
-              rc.created_at
-       FROM radcheck rc
-       LEFT JOIN customers c ON c.id = rc.customer_id
-       ORDER BY rc.created_at DESC`,
+       `SELECT DISTINCT ON (rc.username) rc.username, rc.customer_id, c.name as customer_name,
+               (SELECT value FROM radcheck WHERE username = rc.username AND attribute = 'Cleartext-Password' LIMIT 1) as password,
+               (SELECT value FROM radcheck WHERE username = rc.username AND attribute = 'Expiration' LIMIT 1) as expiration,
+               (SELECT value FROM radreply WHERE username = rc.username AND attribute = 'Framed-IP-Address' LIMIT 1) as framed_ip,
+               (SELECT value FROM radreply WHERE username = rc.username AND attribute = 'Mikrotik-Rate-Limit' LIMIT 1) as rate_limit,
+               (SELECT string_agg(groupname, ', ') FROM radusergroup WHERE username = rc.username) as groups,
+               (SELECT COUNT(*) FROM radacct WHERE username = rc.username AND acctstoptime IS NULL) as active_sessions,
+               EXISTS(SELECT 1 FROM radcheck WHERE username = rc.username AND attribute = 'Auth-Type' AND value = 'Reject') as disabled,
+               rc.created_at
+        FROM radcheck rc
+        LEFT JOIN customers c ON c.id = rc.customer_id
+        ORDER BY rc.username, rc.created_at DESC`,
     );
     res.json(result.rows);
   } catch (e) {
@@ -176,6 +197,10 @@ router.post("/users", async (req, res) => {
       attributes,
     } = req.body;
 
+    if (!username || !String(username).trim() || !password) {
+      return res.status(400).json({ error: "username and password are required" });
+    }
+
     // Create password check
     await getDb().query(
       `INSERT INTO radcheck (username, attribute, op, value, customer_id, subscription_id)
@@ -186,19 +211,24 @@ router.post("/users", async (req, res) => {
     // Add reply attributes
     if (attributes) {
       for (const attr of attributes) {
+        if (!attr?.attribute || attr.value === undefined || attr.value === null || attr.value === "") {continue;}
+        const table = attr.attribute === "Expiration" ? "radcheck" : "radreply";
         await getDb().query(
-          `INSERT INTO radreply (username, attribute, op, value) VALUES ($1, $2, $3, $4)`,
-          [username, attr.attribute, attr.op || "=", attr.value],
+          `INSERT INTO ${table} (username, attribute, op, value) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (username, attribute) DO UPDATE SET value = EXCLUDED.value, op = EXCLUDED.op`,
+          [username, attr.attribute, attr.op || (table === "radcheck" ? ":=" : "="), String(attr.value)],
         );
       }
     }
 
     // Assign to groups
     if (groups && groups.length > 0) {
-      for (const group of groups) {
+      for (const item of groups) {
+        const group = typeof item === "string" ? item : item?.name;
+        if (!group) {continue;}
         await getDb().query(
           `INSERT INTO radusergroup (username, groupname, priority) VALUES ($1, $2, $3)`,
-          [username, group, group.priority || 1],
+          [username, group, typeof item === "string" ? 1 : item.priority || 1],
         );
       }
     }
@@ -222,10 +252,12 @@ router.put("/users/:username", async (req, res) => {
 
     if (attributes) {
       for (const attr of attributes) {
+        if (!attr?.attribute || attr.value === undefined || attr.value === null || attr.value === "") {continue;}
+        const table = attr.attribute === "Expiration" ? "radcheck" : "radreply";
         await getDb().query(
-          `INSERT INTO radreply (username, attribute, op, value) VALUES ($1, $2, $3, $4)
-           ON CONFLICT DO NOTHING`,
-          [req.params.username, attr.attribute, attr.op || "=", attr.value],
+          `INSERT INTO ${table} (username, attribute, op, value) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (username, attribute) DO UPDATE SET value = EXCLUDED.value, op = EXCLUDED.op`,
+          [req.params.username, attr.attribute, attr.op || (table === "radcheck" ? ":=" : "="), String(attr.value)],
         );
       }
     }
@@ -234,10 +266,12 @@ router.put("/users/:username", async (req, res) => {
       await getDb().query("DELETE FROM radusergroup WHERE username = $1", [
         req.params.username,
       ]);
-      for (const group of groups) {
+      for (const item of groups) {
+        const group = typeof item === "string" ? item : item?.name;
+        if (!group) {continue;}
         await getDb().query(
           `INSERT INTO radusergroup (username, groupname, priority) VALUES ($1, $2, $3)`,
-          [req.params.username, group.name || group, group.priority || 1],
+          [req.params.username, group, typeof item === "string" ? 1 : item.priority || 1],
         );
       }
     }

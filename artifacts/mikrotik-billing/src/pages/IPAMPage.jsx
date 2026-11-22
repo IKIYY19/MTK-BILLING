@@ -181,7 +181,7 @@ function AddSubnetModal({ onClose, onCreated }) {
             onChange={handleChange}
             placeholder="e.g. 192.168.1.0"
             required
-            pattern="^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"
+            pattern="^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$"
             className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500/50 text-sm font-mono"
           />
         </div>
@@ -228,7 +228,7 @@ function AddSubnetModal({ onClose, onCreated }) {
             value={form.gateway}
             onChange={handleChange}
             placeholder="e.g. 192.168.1.1"
-            pattern="^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"
+            pattern="^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$"
             className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500/50 text-sm font-mono"
           />
         </div>
@@ -272,25 +272,37 @@ function EditIPModal({ ip, onClose, onSaved }) {
     status: ip.status,
     description: ip.description || "",
     assigned_to: ip.assigned_to || "",
+    customer_id: ip.customer_id || "",
   });
   const [saving, setSaving] = useState(false);
+  const [customers, setCustomers] = useState([]);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    axios.get(`${API}/billing/customers`).then((r) => setCustomers(r.data)).catch(() => {});
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
+    setError("");
     try {
       await axios.put(`${API}/ipam/ips/${ip.id}`, form);
       onSaved();
       onClose();
     } catch (err) {
-      console.error(err);
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return (
     <Modal title={`Edit IP: ${ip.ip_address}`} onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-4">
+        {error && (
+          <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm">{error}</div>
+        )}
         <div>
           <label className="block text-sm font-medium text-zinc-400 mb-1.5">
             Status
@@ -305,6 +317,29 @@ function EditIPModal({ ip, onClose, onSaved }) {
             <option value="free">Free</option>
             <option value="used">Used</option>
             <option value="reserved">Reserved</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-zinc-400 mb-1.5">
+            Assign to customer
+          </label>
+          <select
+            value={form.customer_id || ip.customer_id || ""}
+            onChange={(e) => {
+              const customer = customers.find((c) => c.id === e.target.value);
+              setForm((prev) => ({
+                ...prev,
+                customer_id: e.target.value || null,
+                assigned_to: customer?.name || prev.assigned_to,
+                status: e.target.value ? "used" : prev.status,
+              }));
+            }}
+            className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-blue-500/50 text-sm"
+          >
+            <option value="">Unassigned</option>
+            {customers.map((customer) => (
+              <option key={customer.id} value={customer.id}>{customer.name}</option>
+            ))}
           </select>
         </div>
         <div>

@@ -112,22 +112,18 @@ async function ensurePlanRadiusGroup(plan) {
   const db = getDb();
   const groupName = plan.name.replace(/\s+/g, "_");
 
-  const existing = await db.query(
-    "SELECT id FROM radgroupcheck WHERE groupname = $1 LIMIT 1",
-    [groupName]
-  );
-  if (existing.rows.length > 0) {return;}
-
   if (plan.speed_up && plan.speed_down) {
     await db.query(
-      `INSERT INTO radgroupreply (groupname, attribute, op, value) VALUES ($1, 'Mikrotik-Rate-Limit', '=', $2)`,
+      `INSERT INTO radgroupreply (groupname, attribute, op, value) VALUES ($1, 'Mikrotik-Rate-Limit', '=', $2)
+       ON CONFLICT (groupname, attribute) DO UPDATE SET value = EXCLUDED.value`,
       [groupName, `${plan.speed_down}/${plan.speed_up}`]
     );
   }
 
   if (plan.priority) {
     await db.query(
-      `INSERT INTO radgroupreply (groupname, attribute, op, value) VALUES ($1, 'Mikrotik-Priority', '=', $2)`,
+      `INSERT INTO radgroupreply (groupname, attribute, op, value) VALUES ($1, 'Mikrotik-Priority', '=', $2)
+       ON CONFLICT (groupname, attribute) DO UPDATE SET value = EXCLUDED.value`,
       [groupName, String(plan.priority)]
     );
   }
@@ -184,9 +180,18 @@ async function upsertRadiusUser(subscription) {
       }
     }
 
+    await db.query(
+      "DELETE FROM radcheck WHERE username = $1 AND attribute = 'Auth-Type' AND value = 'Reject'",
+      [username]
+    );
+
     if (plan && plan.name) {
       await ensurePlanRadiusGroup(plan);
       const groupName = plan.name.replace(/\s+/g, "_");
+      await db.query(
+        "DELETE FROM radusergroup WHERE username = $1 AND groupname <> $2",
+        [username, groupName]
+      );
       const existingGroup = await db.query(
         "SELECT id FROM radusergroup WHERE username = $1 AND groupname = $2",
         [username, groupName]
@@ -267,16 +272,19 @@ async function reconcileRadiusUser(subscription) {
     return upsertRadiusUser(subscription);
   }
 
-  const db = getDb();
-  const disabled = await db.query(
-    "SELECT id FROM radcheck WHERE username = $1 AND attribute = 'Auth-Type' AND value = 'Reject'",
-    [subscription.pppoe_username]
-  );
-  if (disabled.rows.length === 0) {
-    return upsertRadiusUser(subscription);
-  }
+  return suspendRadiusUser(subscription.pppoe_username);
+}
 
-  return { success: true, status: "synced", action: "already_disabled" };
+async function suspendRadiusUser(username) {
+  await ensureRadiusTables();
+  const db = getDb();
+  await db.query(
+    `INSERT INTO radcheck (username, attribute, op, value) VALUES ($1, 'Auth-Type', ':=', 'Reject')
+     ON CONFLICT (username, attribute) DO UPDATE SET value = EXCLUDED.value`,
+    [username]
+  );
+  logger.info(`[RADIUS] User suspended: ${username}`);
+  return { success: true, status: "synced", action: "suspended" };
 }
 
 async function updateThrottle(username, rateLimit) {
@@ -308,7 +316,7 @@ async function isRadiusEnabled() {
       "SELECT value FROM settings WHERE key = $1",
       ["radius_provisioning_enabled"]
     );
-    return result.rows[0]?.value === "true";
+    return String(result.rows[0]?.value) === "true";
   } catch {
     return false;
   }
@@ -319,7 +327,7 @@ module.exports = {
   ensureRadiusNas,
   ensurePlanRadiusGroup,
   upsertRadiusUser,
-  suspendRadiusUser: upsertRadiusUser,
+  suspendRadiusUser,
   deleteRadiusUser,
   reconcileRadiusUser,
   updateThrottle,

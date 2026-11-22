@@ -79,6 +79,16 @@ function generateProvisionScript(router, options = {}) {
   const lanNetwork = lanIp.replace(/\d+\/\d+/, "0/24");
   const dhcpStart = router.dhcp_start || "192.168.88.100";
   const dhcpEnd = router.dhcp_end || "192.168.88.200";
+  const mgmtBaseUrl =
+    options.callbackBaseUrl ||
+    router.callback_url ||
+    process.env.PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    "";
+  let mgmtHost = "";
+  try {mgmtHost = new URL(mgmtBaseUrl).hostname;} catch {mgmtHost = "";}
+  const mgmtIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(mgmtHost) ? mgmtHost : "";
+  const mgmtCondition = mgmtIp ? " src-address-list=MGMT" : "";
 
   lines.push("#############################################");
   lines.push("# MikroTik Auto-Provisioning Script");
@@ -567,6 +577,18 @@ function generateProvisionScript(router, options = {}) {
     "# Only add firewall rules if no input rules exist (fresh deployment)",
   );
   lines.push("# Input Chain");
+  if (mgmtIp) {
+    lines.push(
+      `  :do { /ip firewall address-list remove [find list=MGMT]; /ip firewall address-list add list=MGMT address=${mgmtIp}/32 comment="Billing server" } on-error={}`,
+    );
+    lines.push(
+      '  :do { /ip firewall address-list remove [find list=BOGONS]; /ip firewall address-list add list=BOGONS address=0.0.0.0/8; /ip firewall address-list add list=BOGONS address=127.0.0.0/8; /ip firewall address-list add list=BOGONS address=169.254.0.0/16; /ip firewall address-list add list=BOGONS address=172.16.0.0/12; /ip firewall address-list add list=BOGONS address=192.168.0.0/16; /ip firewall address-list add list=BOGONS address=224.0.0.0/4 } on-error={}',
+    );
+  } else {
+    lines.push(
+      '  /log info message="[ZTP] WARNING: no management IP found; management ports will be unrestricted"',
+    );
+  }
   lines.push(`:if (!$hasInputRules) do={`);
   lines.push(
     `  ${safeAdd('/ip firewall filter add chain=input action=accept connection-state=established,related,untracked comment="Allow established connections"')}`,
@@ -581,16 +603,35 @@ function generateProvisionScript(router, options = {}) {
     `  ${safeAdd('/ip firewall filter add chain=input protocol=udp port=123 action=accept comment="Allow NTP"')}`,
   );
   lines.push(
-    `  ${safeAdd('/ip firewall filter add chain=input protocol=tcp dst-port=22 action=accept comment="Allow SSH"')}`,
+    `  ${safeAdd(`/ip firewall filter add chain=input protocol=tcp dst-port=22${mgmtCondition} action=accept comment="Allow SSH"`)}`,
   );
   lines.push(
-    `  ${safeAdd('/ip firewall filter add chain=input protocol=tcp dst-port=8291 action=accept comment="Allow WinBox"')}`,
+    `  ${safeAdd(`/ip firewall filter add chain=input protocol=tcp dst-port=8291${mgmtCondition} action=accept comment="Allow WinBox"`)}`,
   );
   lines.push(
-    `  ${safeAdd('/ip firewall filter add chain=input protocol=tcp dst-port=8728 action=accept comment="Allow API"')}`,
+    `  ${safeAdd(`/ip firewall filter add chain=input protocol=tcp dst-port=8728${mgmtCondition} action=accept comment="Allow API"`)}`,
   );
   lines.push(
-    `  ${safeAdd('/ip firewall filter add chain=input protocol=tcp dst-port=443 action=accept comment="Allow HTTPS"')}`,
+    `  ${safeAdd(`/ip firewall filter add chain=input protocol=tcp dst-port=443${mgmtCondition} action=accept comment="Allow HTTPS"`)}`,
+  );
+  if (router.radius_server) {
+    lines.push(
+      `  ${safeAdd(`/ip firewall filter add chain=input protocol=udp dst-port=1812,1813 src-address=${escapeRouterValue(router.radius_server)} action=accept comment="Allow RADIUS"`)}`,
+    );
+  }
+  if (mgmtIp) {
+    lines.push(
+      `  ${safeAdd(`/ip firewall filter add chain=input protocol=udp dst-port=161 src-address=${mgmtIp} action=accept comment="Allow SNMP"`)}`,
+    );
+    lines.push(
+      `  :do { /ip snmp community remove [find name=public]; /ip snmp community add name=public addresses=${mgmtIp}/32 read-access=yes write-access=no } on-error={}`,
+    );
+  }
+  lines.push(
+    `  ${safeAdd('/ip firewall filter add chain=input protocol=tcp dst-port=22,8291,8728,443 connection-state=new action=add-src-to-address-list address-list=BRUTEFORCE address-list-timeout=1h comment="Brute force detect"')}`,
+  );
+  lines.push(
+    `  ${safeAdd('/ip firewall filter add chain=input src-address-list=BRUTEFORCE action=drop comment="Drop brute force"')}`,
   );
   lines.push(
     `  ${safeAdd('/ip firewall filter add chain=input action=drop comment="Drop all other input"')}`,
@@ -611,6 +652,12 @@ function generateProvisionScript(router, options = {}) {
   );
   lines.push(
     `  ${safeAdd('/ip firewall filter add chain=forward action=drop connection-state=invalid comment="Drop invalid forward"')}`,
+  );
+  lines.push(
+    `  ${safeAdd(`/ip firewall filter add chain=forward in-interface=${wanIface} src-address-list=BOGONS action=drop comment="Drop bogon WAN traffic"`)}`,
+  );
+  lines.push(
+    `  ${safeAdd('/ip firewall filter add chain=forward protocol=tcp psd=21,3s,3,1 action=drop comment="Drop port scans"')}`,
   );
   lines.push(
     `  ${safeAdd(`/ip firewall filter add chain=forward in-interface=$targetBridgeName action=accept comment="Allow LAN to WAN"`)}`,

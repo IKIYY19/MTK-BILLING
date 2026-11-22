@@ -8,18 +8,29 @@ while ! nc -z "${DB_HOST:-postgres}" "${DB_PORT:-5432}"; do
 done
 echo "PostgreSQL is ready!"
 
+escape_sed() {
+  printf '%s' "$1" | sed -e 's/[\/&|\\]/\\&/g'
+}
+
+DB_HOST_VALUE=$(escape_sed "${DB_HOST:-postgres}")
+DB_PORT_VALUE=$(escape_sed "${DB_PORT:-5432}")
+DB_USER_VALUE=$(escape_sed "${DB_USER:-postgres}")
+DB_PASSWORD_VALUE=$(escape_sed "${DB_PASSWORD:-}")
+DB_NAME_VALUE=$(escape_sed "${RADIUS_DB_NAME:-mikrotik_config_builder}")
+
 # Inject database settings into the FreeRADIUS SQL module.
 sed -i \
-  -e "s|__DB_HOST__|${DB_HOST:-postgres}|g" \
-  -e "s|__DB_PORT__|${DB_PORT:-5432}|g" \
-  -e "s|__DB_USER__|${DB_USER:-postgres}|g" \
-  -e "s|__DB_PASSWORD__|${DB_PASSWORD}|g" \
-  -e "s|__RADIUS_DB_NAME__|${RADIUS_DB_NAME:-mikrotik_config_builder}|g" \
+  -e "s|__DB_HOST__|${DB_HOST_VALUE}|g" \
+  -e "s|__DB_PORT__|${DB_PORT_VALUE}|g" \
+  -e "s|__DB_USER__|${DB_USER_VALUE}|g" \
+  -e "s|__DB_PASSWORD__|${DB_PASSWORD_VALUE}|g" \
+  -e "s|__RADIUS_DB_NAME__|${DB_NAME_VALUE}|g" \
   /etc/freeradius/mods-available/sql
 
 # Inject the shared secret into the RADIUS client configuration.
 if [ -n "${RADIUS_SECRET:-}" ]; then
-  sed -i "s|\${ENV:RADIUS_SECRET}|${RADIUS_SECRET}|g" /etc/freeradius/clients.conf
+  SECRET_VALUE=$(escape_sed "${RADIUS_SECRET}")
+  sed -i "s|\${ENV:RADIUS_SECRET}|${SECRET_VALUE}|g" /etc/freeradius/clients.conf
 fi
 
 if [ "${RUN_RADIUS_MIGRATIONS:-true}" = "true" ]; then

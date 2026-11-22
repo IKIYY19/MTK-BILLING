@@ -230,6 +230,10 @@ export function SettingsPage() {
     secondary_color: "#1e293b",
     branding_title: "",
     slack_webhook_url: "",
+    vpn_server_address: "",
+    vpn_server_port: "443",
+    vpn_username: "",
+    vpn_password: "",
   });
 
   const [logoPreview, setLogoPreview] = useState(null);
@@ -774,6 +778,59 @@ export function SettingsPage() {
                     placeholder="Kenya"
                   />
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Remote Access VPN */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Globe className="w-5 h-5" /> Remote Access VPN
+              </CardTitle>
+              <CardDescription>
+                SSTP server details used by the Remote Winbox client commands generated on the Routers page.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="vpn-server-address">Server address</Label>
+                  <Input
+                    id="vpn-server-address"
+                    value={settings.vpn_server_address || ""}
+                    onChange={(e) => setSettings({ ...settings, vpn_server_address: e.target.value })}
+                    placeholder="vpn.example.com or public IP"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="vpn-server-port">Port</Label>
+                  <Input
+                    id="vpn-server-port"
+                    value={settings.vpn_server_port || "443"}
+                    onChange={(e) => setSettings({ ...settings, vpn_server_port: e.target.value })}
+                    placeholder="443"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="vpn-username">Username</Label>
+                  <Input
+                    id="vpn-username"
+                    value={settings.vpn_username || ""}
+                    onChange={(e) => setSettings({ ...settings, vpn_username: e.target.value })}
+                    placeholder="isp-default"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2 md:max-w-sm">
+                <Label htmlFor="vpn-password">Password</Label>
+                <Input
+                  id="vpn-password"
+                  type="password"
+                  value={settings.vpn_password || ""}
+                  onChange={(e) => setSettings({ ...settings, vpn_password: e.target.value })}
+                  placeholder="SSTP password"
+                />
               </div>
             </CardContent>
           </Card>

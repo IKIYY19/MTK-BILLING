@@ -6,9 +6,31 @@
 
 const logger = require("../utils/logger");
 const { v4: uuidv4 } = require("uuid");
+const net = require("net");
 
-// Check interval in milliseconds (2 minutes)
-const CHECK_INTERVAL = 2 * 60 * 1000;
+// Check interval in milliseconds (2 seconds)
+const CHECK_INTERVAL = 2000;
+const REFRESH_INTERVAL = 30000;
+const TCP_TIMEOUT_MS = 1500;
+
+function tcpReachable(host, port, timeoutMs = TCP_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    if (!host) {return resolve(false);}
+    const socket = new net.Socket();
+    let settled = false;
+    const finish = (result) => {
+      if (settled) {return;}
+      settled = true;
+      socket.destroy();
+      resolve(result);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+    try {socket.connect(Number(port) || 8728, host);} catch {finish(false);}
+  });
+}
 
 // Alert types
 const ALERT_TYPES = {
@@ -26,7 +48,9 @@ const SEVERITY = {
 class RouterConnectivityService {
   constructor() {
     this.intervals = new Map();
+    this.inFlight = new Set();
     this.isRunning = false;
+    this.refreshInterval = null;
   }
 
   // Get database connection
@@ -47,16 +71,14 @@ class RouterConnectivityService {
     this.isRunning = true;
 
     try {
-      const db = this.getDb();
-      const result = await db.query("SELECT id FROM mikrotik_connections");
-
-      for (const row of result.rows) {
-        this.startConnectionCheck(row.id);
-      }
-
-      logger.info(
-        `Started connectivity checks for ${result.rows.length} connections`,
-      );
+      await this.refreshConnections();
+      this.refreshInterval = setInterval(() => {
+        this.refreshConnections().catch((error) => {
+          logger.error("Failed to refresh connectivity checks", {
+            error: error.message,
+          });
+        });
+      }, REFRESH_INTERVAL);
     } catch (error) {
       logger.error("Failed to start connectivity checks", {
         error: error.message,
@@ -65,10 +87,27 @@ class RouterConnectivityService {
     }
   }
 
+  async refreshConnections() {
+    const db = this.getDb();
+    const result = await db.query("SELECT id FROM mikrotik_connections");
+    const activeIds = new Set(result.rows.map((row) => row.id));
+
+    for (const id of activeIds) {
+      if (!this.intervals.has(id)) {this.startConnectionCheck(id);}
+    }
+    for (const id of Array.from(this.intervals.keys())) {
+      if (!activeIds.has(id)) {this.stopConnectionCheck(id);}
+    }
+  }
+
   // Stop all connectivity checks
   stop() {
     logger.info("Stopping router connectivity service");
     this.isRunning = false;
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+      this.refreshInterval = null;
+    }
 
     for (const [, interval] of this.intervals) {
       clearInterval(interval);
@@ -101,8 +140,18 @@ class RouterConnectivityService {
     }
   }
 
-  // Check if a connection is online
   async checkConnection(connectionId) {
+    if (this.inFlight.has(connectionId)) {return;}
+    this.inFlight.add(connectionId);
+    try {
+      await this.performCheck(connectionId);
+    } finally {
+      this.inFlight.delete(connectionId);
+    }
+  }
+
+  // Check if a connection is online
+  async performCheck(connectionId) {
     try {
       const db = this.getDb();
       const now = new Date();
@@ -124,11 +173,14 @@ class RouterConnectivityService {
       const wasOnline = connection.is_online;
       let isOnline = false;
 
-      // Use real MikroTik connection test based on connection type
-      isOnline = await this.testAPIConnection(connection);
-      if (!isOnline && connection.connection_type === "ssh") {
-        isOnline = await this.testSSHConnection(connection);
-      }
+      const port =
+        connection.connection_type === "ssh"
+          ? connection.ssh_port || 22
+          : connection.api_port || 8728;
+      isOnline = await tcpReachable(
+        require("./routerConnectionManager").normalizeHost(connection.ip_address),
+        port,
+      );
 
       // Update connection status
       await db.query(
@@ -143,6 +195,7 @@ class RouterConnectivityService {
         const title = "Router Offline";
         const message = `Router ${connection.name} (${connection.ip_address}) is not responding`;
         await this.createAlert(connectionId, ALERT_TYPES.ROUTER_OFFLINE, SEVERITY.CRITICAL, title, message);
+        await this.resolveAlerts(connectionId, ALERT_TYPES.ROUTER_ONLINE);
         await this.notify(connection, ALERT_TYPES.ROUTER_OFFLINE, SEVERITY.CRITICAL, title, message);
       } else if (!wasOnline && isOnline) {
         const title = "Router Online";
@@ -201,6 +254,14 @@ class RouterConnectivityService {
           error: tableError.message,
         });
       }
+
+      const existing = await db.query(
+        `SELECT id FROM alerts
+         WHERE connection_id = $1 AND alert_type = $2 AND status = 'open'
+         ORDER BY created_at DESC LIMIT 1`,
+        [connectionId, alertType],
+      );
+      if (existing.rows.length > 0) {return;}
 
       await db.query(
         `INSERT INTO alerts (id, connection_id, alert_type, severity, title, message, status, created_at)

@@ -10,6 +10,7 @@ const { validateSecrets } = require("./utils/security");
 const { initSentry, sentryErrorHandler } = require("./services/sentry");
 const helmet = require("helmet");
 const { domainResolver } = require("./middleware/domainResolver");
+const { requireRole, ROLES } = require("./middleware/auth");
 
 const isTestEnv = process.env.NODE_ENV === "test";
 const isProductionEnv = process.env.NODE_ENV === "production";
@@ -248,6 +249,7 @@ app.use(
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
         formAction: ["'self'"],
+        upgradeInsecureRequests: null,
       },
     },
     crossOriginEmbedderPolicy: false,
@@ -323,6 +325,10 @@ const startServer = async () => {
         .catch(() => {});
       // Run IPAM migration
       require("./db/ipamMigrations")
+        .run()
+        .catch(() => {});
+      // Run RADIUS/IPAM integrity fixes
+      require("./db/radiusFixesMigration")
         .run()
         .catch(() => {});
     } else {
@@ -449,6 +455,40 @@ const startServer = async () => {
     app.use("/api/portal/auth", require("./routes/customerAuth"));
     app.use("/api/public", require("./routes/publicPortal"));
     app.use("/api/captive-hotspot", require("./routes/captiveHotspot"));
+
+    app.post("/api/client-error", (req, res) => {
+      try {
+        const fs = require("fs");
+        const path = require("path");
+        const file = path.join(__dirname, "logs", "client-errors.log");
+        fs.appendFileSync(
+          file,
+          `${new Date().toISOString()} ${JSON.stringify(req.body || {})}\n`,
+        );
+      } catch {}
+      res.json({ ok: true });
+    });
+
+    app.post("/speedtest/upload", (req, res) => {
+      req.resume();
+      req.on("end", () => res.json({ ok: true }));
+    });
+
+    app.get("/speedtest/payload", (req, res) => {
+      const mb = Math.min(Math.max(Number(req.query.mb) || 1, 1), 20);
+      const chunk = Buffer.alloc(65536);
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("Content-Length", String(mb * 1024 * 1024));
+      const total = mb * 16;
+      let sent = 0;
+      const write = () => {
+        while (sent < total && res.write(chunk)) {sent++;}
+        if (sent >= total) {res.end();}
+        else {res.once("drain", write);}
+      };
+      write();
+    });
+
     app.use("/api/router", mikrotikLimiter, require("./routes/provision"));
 
     app.use("/hotspot", (req, res, next) => {
@@ -466,6 +506,7 @@ const startServer = async () => {
     const possiblePaths = [
       path.join(__dirname, "..", "..", "client", "dist"),
       path.join(__dirname, "..", "client", "dist"),
+      path.join(__dirname, "..", "..", "mikrotik-billing", "dist", "public"),
       path.join(process.cwd(), "client", "dist"),
       path.join(process.cwd(), "public"),
     ];
@@ -476,7 +517,15 @@ const startServer = async () => {
 
     if (frontendPath) {
       logger.info("Serving frontend", { path: frontendPath });
-      app.use(express.static(frontendPath));
+      app.use(
+        express.static(frontendPath, {
+          setHeaders: (res, filePath) => {
+            if (filePath.endsWith("index.html")) {
+              res.setHeader("Cache-Control", "no-store");
+            }
+          },
+        }),
+      );
     } else if (!isProductionEnv) {
       app.get("/portal/*", (req, res) => {
         const frontendUrl =
@@ -695,7 +744,7 @@ const startServer = async () => {
     app.use("/api/advanced", authenticate, require("./routes/advanced"));
     app.use("/api/inventory", authenticate, require("./routes/inventory"));
     app.use("/api/analytics", authenticate, require("./routes/analytics"));
-    app.use("/api/radius", authenticate, require("./routes/radius"));
+    app.use("/api/radius", authenticate, requireRole(ROLES.ADMIN), require("./routes/radius"));
     app.use("/api/tickets", authenticate, require("./routes/tickets"));
     app.use("/api/resellers", authenticate, resellerRoutes);
     app.use("/api/olt", authenticate, require("./routes/olt"));
@@ -736,7 +785,7 @@ const startServer = async () => {
     );
 
     // IPAM routes
-    app.use("/api/ipam", authenticate, require("./routes/ipam"));
+    app.use("/api/ipam", authenticate, requireRole(ROLES.ADMIN), require("./routes/ipam"));
 
     // Webhook routes
     app.use("/api/webhooks", authenticate, require("./routes/webhooks"));
@@ -763,6 +812,7 @@ const startServer = async () => {
     // SPA catch-all route MUST be last - serves index.html for all non-API routes
     if (frontendPath) {
       app.get("*", (req, res) => {
+        res.setHeader("Cache-Control", "no-store");
         res.sendFile(path.join(frontendPath, "index.html"));
       });
     }
@@ -857,6 +907,8 @@ const startServer = async () => {
         // Initialize WebSocket service for real-time monitoring
         const websocketService = require("./services/websocketService");
         websocketService.initialize(serverInstance);
+
+        require("./services/alertEscalationService").start();
 
         // Start user online status updater
         startOnlineStatusUpdater();

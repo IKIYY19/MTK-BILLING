@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   Activity, AlertTriangle, CheckCircle, XCircle, Bell, Settings,
-  Clock, RefreshCw, Plus, Trash2, Eye, EyeOff, TrendingUp,
+  Clock,   RefreshCw,
+  Network,
+  Plus, Trash2, Eye, EyeOff, TrendingUp,
   Cpu, HardDrive, Wifi, Zap, Mail, MessageSquare, Phone
 } from 'lucide-react';
 
@@ -22,6 +24,7 @@ export function Monitoring() {
   const [showRuleModal, setShowRuleModal] = useState(false);
   const [showChannelModal, setShowChannelModal] = useState(false);
   const [rules, setRules] = useState([]);
+  const [snmpData, setSnmpData] = useState(null);
   const [channels, setChannels] = useState([]);
 
   useEffect(() => {
@@ -71,7 +74,32 @@ export function Monitoring() {
     setShowChannelModal(true);
   };
 
-  const [channelForm, setChannelForm] = useState({ channel_type: 'sms', phone: '', chat_id: '', is_enabled: true });
+  const [channelForm, setChannelForm] = useState({ channel_type: 'sms', phone: '', chat_id: '', is_enabled: true, severities: ['critical', 'warning', 'info'] });
+  const [ruleForm, setRuleForm] = useState({ rule_type: 'high_cpu', threshold_value: '85', comparison_operator: '>', alert_severity: 'warning' });
+
+  const addRule = async () => {
+    if (!selectedConnection) return;
+    try {
+      await axios.post(`${API}/monitoring/rules`, {
+        ...ruleForm,
+        connection_id: selectedConnection,
+        threshold_value: Number(ruleForm.threshold_value),
+        is_enabled: true,
+      });
+      fetchRules(selectedConnection);
+    } catch (e) {
+      console.error('Failed to add rule:', e);
+    }
+  };
+
+  const deleteRule = async (id) => {
+    try {
+      await axios.delete(`${API}/monitoring/rules/${id}`);
+      fetchRules(selectedConnection);
+    } catch (e) {
+      console.error('Failed to delete rule:', e);
+    }
+  };
 
   const addChannel = async () => {
     try {
@@ -80,13 +108,14 @@ export function Monitoring() {
       const config = {};
       if (channelForm.phone) config.phone = channelForm.phone;
       if (channelForm.chat_id) config.chat_id = channelForm.chat_id;
+      config.severities = channelForm.severities;
       await axios.post(`${API}/monitoring/notification-channels`, {
         user_id: userId,
         channel_type: channelForm.channel_type,
         is_enabled: channelForm.is_enabled,
         config,
       });
-      setChannelForm({ channel_type: 'sms', phone: '', chat_id: '', is_enabled: true });
+      setChannelForm({ channel_type: 'sms', phone: '', chat_id: '', is_enabled: true, severities: ['critical', 'warning', 'info'] });
       fetchChannels();
     } catch (e) {
       console.error('Failed to add channel:', e);
@@ -108,6 +137,16 @@ export function Monitoring() {
       setHealthChecks(data);
     } catch (e) {
       console.error('Failed to fetch health checks:', e);
+    }
+  };
+
+  const pollSnmp = async () => {
+    if (!selectedConnection) return;
+    try {
+      const { data } = await axios.get(`${API}/monitoring/snmp/${selectedConnection}`);
+      setSnmpData(data);
+    } catch (e) {
+      console.error('SNMP poll failed:', e);
     }
   };
 
@@ -485,6 +524,91 @@ export function Monitoring() {
         </div>
       )}
 
+      {/* SNMP */}
+      {selectedConnection && (
+        <div className="glass rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+              <Network className="w-4 h-4" /> SNMP
+            </h3>
+            <button onClick={pollSnmp} className="btn-ghost flex items-center gap-2 text-xs">
+              <RefreshCw className="w-3.5 h-3.5" /> Poll
+            </button>
+          </div>
+          {snmpData ? (
+            <div className="space-y-1">
+              {snmpData.values.filter(v => !v.error).map(v => (
+                <div key={v.oid} className="flex justify-between gap-4 text-xs">
+                  <span className="text-zinc-500 font-mono truncate">{v.oid}</span>
+                  <span className="text-zinc-300 truncate">{v.value}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-zinc-500 text-sm">Poll the router for SNMP system and interface data.</p>
+          )}
+        </div>
+      )}
+
+      {/* Thresholds */}
+      {selectedConnection && (
+        <div className="glass rounded-2xl p-5">
+          <h3 className="text-sm font-medium text-zinc-300 mb-4 flex items-center gap-2">
+            <Zap className="w-4 h-4" /> Alert Thresholds ({rules.length})
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+            <select
+              className="modern-input"
+              value={ruleForm.rule_type}
+              onChange={e => setRuleForm({ ...ruleForm, rule_type: e.target.value })}
+            >
+              <option value="high_cpu">High CPU</option>
+              <option value="high_memory">High Memory</option>
+              <option value="bandwidth_exceeded">Bandwidth Exceeded</option>
+            </select>
+            <select
+              className="modern-input"
+              value={ruleForm.comparison_operator}
+              onChange={e => setRuleForm({ ...ruleForm, comparison_operator: e.target.value })}
+            >
+              <option value=">">&gt;</option>
+              <option value=">=">&gt;=</option>
+              <option value="<">&lt;</option>
+            </select>
+            <input
+              className="modern-input"
+              type="number"
+              placeholder="Threshold %"
+              value={ruleForm.threshold_value}
+              onChange={e => setRuleForm({ ...ruleForm, threshold_value: e.target.value })}
+            />
+            <select
+              className="modern-input"
+              value={ruleForm.alert_severity}
+              onChange={e => setRuleForm({ ...ruleForm, alert_severity: e.target.value })}
+            >
+              <option value="info">Info</option>
+              <option value="warning">Warning</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+          <button onClick={addRule} className="btn-primary flex items-center justify-center gap-2">
+            <Plus className="w-4 h-4" /> Add Threshold
+          </button>
+          <div className="mt-4 space-y-2">
+            {rules.map(rule => (
+              <div key={rule.id} className="flex items-center gap-3 rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-3">
+                <span className="flex-1 text-sm text-white capitalize">{(rule.rule_type || '').replace(/_/g, ' ')}</span>
+                <span className="text-sm text-zinc-400">{rule.comparison_operator} {rule.threshold_value}%</span>
+                <span className="text-xs text-zinc-500 capitalize">{rule.alert_severity}</span>
+                <button onClick={() => deleteRule(rule.id)} className="text-zinc-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            ))}
+            {rules.length === 0 && <p className="text-zinc-500 text-sm">No thresholds configured for this router.</p>}
+          </div>
+        </div>
+      )}
+
       {/* Notification Channels Modal */}
       {showChannelModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowChannelModal(false)}>
@@ -538,6 +662,26 @@ export function Monitoring() {
                     ? { ...channelForm, chat_id: e.target.value }
                     : { ...channelForm, phone: e.target.value })}
                 />
+              </div>
+              <div className="mb-3">
+                <p className="text-xs text-zinc-400 mb-2">Alert severities for this channel</p>
+                <div className="flex gap-4">
+                  {['critical', 'warning', 'info'].map(level => (
+                    <label key={level} className="flex items-center gap-2 text-xs text-zinc-300 capitalize">
+                      <input
+                        type="checkbox"
+                        checked={channelForm.severities.includes(level)}
+                        onChange={e => setChannelForm({
+                          ...channelForm,
+                          severities: e.target.checked
+                            ? [...channelForm.severities, level]
+                            : channelForm.severities.filter(s => s !== level),
+                        })}
+                      />
+                      {level}
+                    </label>
+                  ))}
+                </div>
               </div>
               <button onClick={addChannel} className="btn-primary w-full flex items-center justify-center gap-2">
                 <Plus className="w-4 h-4" /> Add Channel

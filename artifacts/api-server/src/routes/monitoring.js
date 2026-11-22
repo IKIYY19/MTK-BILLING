@@ -133,6 +133,175 @@ router.get('/bandwidth/top-consumers', async (req, res) => {
   }
 });
 
+// ─── SNMP ───
+
+router.get('/snmp/:connection_id', async (req, res) => {
+  let snmp;
+  try {
+    snmp = require('net-snmp');
+  } catch {
+    return res.status(501).json({ error: 'SNMP support is not available' });
+  }
+  try {
+    const db = getDb();
+    const result = await db.query(
+      'SELECT id, name, ip_address FROM mikrotik_connections WHERE id = $1',
+      [req.params.connection_id],
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Connection not found' });
+    }
+    const connection = result.rows[0];
+    const community = process.env.SNMP_COMMUNITY || 'public';
+    const port = Number(process.env.SNMP_PORT || 161);
+    const session = snmp.createSession(connection.ip_address, community, {
+      port,
+      timeout: Number(process.env.SNMP_TIMEOUT || 2000),
+      retries: 1,
+    });
+
+    const oids = [
+      '1.3.6.1.2.1.1.1.0',
+      '1.3.6.1.2.1.1.5.0',
+      '1.3.6.1.2.1.1.3.0',
+      '1.3.6.1.2.1.2.2.1.2',
+      '1.3.6.1.2.1.2.2.1.10',
+      '1.3.6.1.2.1.2.2.1.16',
+      '1.3.6.1.2.1.2.2.1.8',
+    ];
+
+    const values = await new Promise((resolve, reject) => {
+      session.get(oids, (error, varbinds) => {
+        session.close();
+        if (error) {return reject(error);}
+        resolve(varbinds.map((bind) => ({
+          oid: bind.oid,
+          value: String(bind.value),
+          error: bind.type === snmp.ObjectType.Null ? 'no-such-object' : null,
+        })));
+      });
+    });
+
+    res.json({
+      connection_id: connection.id,
+      name: connection.name,
+      ip_address: connection.ip_address,
+      community_configured: Boolean(community),
+      values,
+    });
+  } catch (e) {
+    logger.warn('SNMP poll failed, falling back to API data', { error: e.message });
+    try {
+      const manager = require('../services/routerConnectionManager');
+      const interfaces = await manager.print(
+        req.params.connection_id,
+        '/interface',
+        '.id,name,type,running,rx-byte,tx-byte,rx-packet,tx-packet,comment',
+      );
+      const resource = await manager.print(
+        req.params.connection_id,
+        '/system/resource',
+        'name,version,uptime,cpu-load,total-memory,free-memory',
+      );
+      return res.json({
+        connection_id: req.params.connection_id,
+        source: 'api-fallback',
+        snmp_error: e.message,
+        values: [
+          { oid: '1.3.6.1.2.1.1.1.0', value: resource[0]?.version || '' },
+          { oid: '1.3.6.1.2.1.1.3.0', value: resource[0]?.uptime || '' },
+          ...interfaces.map((iface) => ({
+            oid: `interface:${iface.name}`,
+            value: `${iface['rx-byte'] || 0} rx / ${iface['tx-byte'] || 0} tx (${iface.running === 'true' ? 'up' : 'down'})`,
+          })),
+        ],
+      });
+    } catch (fallbackError) {
+      logger.error('SNMP API fallback failed', { error: fallbackError.message });
+      return res.status(502).json({ error: e.message });
+    }
+  }
+});
+
+// ─── ROUTER HARDWARE / PORTS ───
+
+router.get('/router-ports/:connection_id', async (req, res) => {
+  try {
+    const manager = require('../services/routerConnectionManager');
+    const id = req.params.connection_id;
+    const [resource, board, interfaces, ethernet] = await Promise.all([
+      manager.print(id, '/system/resource', 'board-name,version,platform,model'),
+      manager.print(id, '/routerboard', 'model,serial-number,board-name').catch(() => []),
+      manager.print(id, '/interface', '.id,name,type,mac-address,disabled,running,comment,rx-byte,tx-byte,rx-packet,tx-packet').catch(() => []),
+      manager.print(id, '/interface/ethernet', '.id,name,status,speed,duplex,mac-address,rx-byte,tx-byte,rx-error,tx-error').catch(() => []),
+    ]);
+    const sampleStarted = Date.now();
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const secondInterfaces = await manager
+      .print(id, '/interface', 'name,rx-byte,tx-byte')
+      .catch(() => []);
+    const sampleSeconds = Math.max((Date.now() - sampleStarted) / 1000, 0.1);
+    const secondByName = new Map(
+      (Array.isArray(secondInterfaces) ? secondInterfaces : []).map((item) => [item.name, item]),
+    );
+
+    const first = (rows) => (Array.isArray(rows) ? rows[0] : rows) || {};
+    const info = { ...first(resource), ...first(board) };
+    const ethByName = new Map(
+      (Array.isArray(ethernet) ? ethernet : []).map((item) => [item.name, item]),
+    );
+    const ports = (Array.isArray(interfaces) ? interfaces : [])
+      .filter((iface) => /^(ether|sfp|wlan|bridge|vlan|pppoe|wireguard|sstp|l2tp|openvpn)/.test(iface.name || ''))
+      .map((iface) => {
+        const eth = ethByName.get(iface.name) || {};
+        return {
+          name: iface.name,
+          type: iface.type || (iface.name.startsWith('ether') ? 'ether' : 'virtual'),
+          mac_address: iface['mac-address'] || eth['mac-address'] || '',
+          disabled: String(iface.disabled) === 'true',
+          running: String(iface.running || eth.status) === 'true',
+          link: eth.status || null,
+          speed: eth.speed || null,
+          duplex: eth.duplex || null,
+          rx_bytes: iface['rx-byte'] || eth['rx-byte'] || '0',
+          tx_bytes: iface['tx-byte'] || eth['tx-byte'] || '0',
+          rx_bps:
+            (Math.max(
+              0,
+              Number(secondByName.get(iface.name)?.['rx-byte'] || iface['rx-byte'] || 0) -
+                Number(iface['rx-byte'] || 0),
+            ) *
+              8) /
+            sampleSeconds,
+          tx_bps:
+            (Math.max(
+              0,
+              Number(secondByName.get(iface.name)?.['tx-byte'] || iface['tx-byte'] || 0) -
+                Number(iface['tx-byte'] || 0),
+            ) *
+              8) /
+            sampleSeconds,
+          sample_seconds: Number(sampleSeconds.toFixed(2)),
+          rx_packets: iface['rx-packet'] || eth['rx-packet'] || '0',
+          tx_packets: iface['tx-packet'] || eth['tx-packet'] || '0',
+          comment: iface.comment || '',
+        };
+      });
+
+    res.json({
+      connection_id: id,
+      model: info.model || info['board-name'] || 'Unknown',
+      board_name: info['board-name'] || '',
+      version: info.version || '',
+      serial: info['serial-number'] || '',
+      ports,
+    });
+  } catch (e) {
+    logger.error('Failed to collect router port data', { error: e.message });
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // ─── HEALTH CHECKS ───
 
 // Get health check history for a connection

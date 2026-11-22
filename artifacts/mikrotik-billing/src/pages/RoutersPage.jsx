@@ -11,6 +11,30 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Button } from "../components/ui/button";
 
 const API = import.meta.env.VITE_API_URL || "/api";
+const getRealtimeOrigin = () => {
+  const apiUrl = new URL(API, window.location.origin);
+  const isLocalViteApiProxy = API === "/api" && window.location.port === "5173";
+  const protocol = apiUrl.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${isLocalViteApiProxy ? "localhost:5000" : apiUrl.host}`;
+};
+
+const formatBps = (bps) => {
+  const value = Number(bps) || 0;
+  if (value >= 1000000) {return `${(value / 1000000).toFixed(1)} Mbps`;}
+  if (value >= 1000) {return `${(value / 1000).toFixed(0)} kbps`;}
+  return `${value.toFixed(0)} bps`;
+};
+
+const serverUrlError = (value) => {
+  try {
+    const parsed = new URL(value);
+    if (!["http:", "https:"].includes(parsed.protocol)) {return "Use an HTTP or HTTPS server URL.";}
+    if (["localhost", "127.0.0.1", "::1"].includes(parsed.hostname.toLowerCase())) {return "Set your LAN IP or public server URL above — the router cannot reach localhost.";}
+    return "";
+  } catch {
+    return "Set a valid server URL above.";
+  }
+};
 
 const TABS = [
   { id: "link", label: "Link Router", icon: Link2 },
@@ -31,6 +55,9 @@ export default function RoutersPage() {
   // Router list state
   const [routers, setRouters] = useState([]);
   const [routersLoading, setRoutersLoading] = useState(false);
+  const [portModal, setPortModal] = useState(null);
+  const [portLoading, setPortLoading] = useState(false);
+  const [portStreamLive, setPortStreamLive] = useState(false);
 
   // Link wizard state
   const [apiKey, setApiKey] = useState(() => localStorage.getItem("router_link_api_key") || "");
@@ -210,23 +237,80 @@ export default function RoutersPage() {
     } finally { setDeleting(null); }
   };
 
+  const openPortModal = async (router, silent = false) => {
+    if (!silent) {
+      setPortModal({ router });
+      setPortLoading(true);
+    }
+    if (!router.linked_mikrotik_connection_id) {
+      setPortModal({ router, error: 'Link this router to billing first to inspect its ports.' });
+      setPortLoading(false);
+      return;
+    }
+    try {
+      const token = getToken();
+      const { data } = await axios.get(
+        `${API}/monitoring/router-ports/${router.linked_mikrotik_connection_id}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const fetchedAt = Date.now();
+      setPortModal((previous) => {
+        const oldPorts = previous?.data?.ports || [];
+        const previousByName = new Map(oldPorts.map((port) => [port.name, port]));
+        const elapsed = previous?.fetchedAt
+          ? Math.max((fetchedAt - previous.fetchedAt) / 1000, 0.1)
+          : 0;
+        const hasServerRates = (data.ports || []).some(
+          (port) => typeof port.rx_bps === 'number',
+        );
+        const ports = (data.ports || []).map((port) => {
+          if (hasServerRates) {return port;}
+          const old = previousByName.get(port.name);
+          if (!old || !elapsed) {
+            return { ...port, rx_bps: 0, tx_bps: 0 };
+          }
+          const rx = Math.max(0, Number(port.rx_bytes || 0) - Number(old.rx_bytes || 0));
+          const tx = Math.max(0, Number(port.tx_bytes || 0) - Number(old.tx_bytes || 0));
+          return {
+            ...port,
+            rx_bps: (rx * 8) / elapsed,
+            tx_bps: (tx * 8) / elapsed,
+          };
+        });
+        return { router, data: { ...data, ports }, fetchedAt };
+      });
+    } catch (e) {
+      if (!silent) {
+        setPortModal({ router, error: e.response?.data?.error || 'Could not read router ports.' });
+      }
+    } finally {
+      if (!silent) {setPortLoading(false);}
+    }
+  };
+
   const openVpnModal = async (router, slug) => {
     setVpnModal({ router, slug });
     setVpnCopied(false);
     setVpnLoading(true);
     try {
-      await axios.get(`${API}/settings`);
+      const { data } = await axios.get(`${API}/settings`);
+      if (!data?.vpn_server_address) {
+        setVpnModal({ router, slug, noServer: true });
+      }
     } catch (e) {
       setVpnModal({ router, slug, noServer: true });
     } finally { setVpnLoading(false); }
   };
 
+  const vpnUrlError = serverUrlError(appUrl);
+
   const getVpnCommand = () => {
-    if (!vpnModal) { return ""; }
+    if (!vpnModal || vpnUrlError) { return ""; }
     const { slug } = vpnModal;
-    const origin = window.location.origin;
+    const mode = appUrl.startsWith("https") ? "https" : "http";
+    const certFlag = appUrl.startsWith("https") ? " check-certificate=no" : "";
     const token = getToken();
-    return `/tool fetch url="${origin}/api/router/v1/${slug}/scripts/vpn" http-header-field="Authorization: Bearer ${token || 'YOUR_API_KEY'}" dst-path="vpn.rsc" mode=https check-certificate=no; :delay 2s; /import file-name="vpn.rsc"; :delay 1s; /file remove "vpn.rsc"`;
+    return `/tool fetch url="${appUrl}/api/router/v1/${slug}/scripts/vpn" http-header-field="Authorization: Bearer ${token || 'YOUR_API_KEY'}" dst-path="vpn.rsc" mode=${mode}${certFlag}; :delay 2s; /import file-name="vpn.rsc"; :delay 1s; /file remove "vpn.rsc"`;
   };
 
   const copyVpnCmd = () => {
@@ -265,6 +349,52 @@ export default function RoutersPage() {
     } catch (e) { setLastError("Failed to start watch: " + (e.response?.data?.error || e.message)); }
   };
   const stopWatching = () => { if (watchIntervalRef.current) { clearInterval(watchIntervalRef.current); watchIntervalRef.current = null; } };
+
+  useEffect(() => {
+    if (!portModal?.router?.linked_mikrotik_connection_id || portModal.error || portStreamLive) {return undefined;}
+    const timer = setInterval(() => openPortModal(portModal.router, true), 3000);
+    return () => clearInterval(timer);
+  }, [portModal?.router?.id, portModal?.error, portStreamLive]);
+
+  useEffect(() => {
+    const connectionId = portModal?.router?.linked_mikrotik_connection_id;
+    if (!connectionId || portModal.error) {return undefined;}
+    let socket;
+    try {
+      socket = new WebSocket(`${getRealtimeOrigin()}/ws-bandwidth`);
+      socket.onopen = () => {
+        socket.send(JSON.stringify({
+          type: "subscribe",
+          channels: ["ports"],
+          connection_id: connectionId,
+        }));
+        setPortStreamLive(true);
+      };
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type !== "ports_update" || message.connection_id !== connectionId) {return;}
+          setPortModal((previous) =>
+            previous?.data
+              ? {
+                  ...previous,
+                  data: { ...previous.data, ports: message.data.ports },
+                  streamTimestamp: message.timestamp,
+                }
+              : previous,
+          );
+        } catch {}
+      };
+      socket.onclose = () => setPortStreamLive(false);
+      socket.onerror = () => setPortStreamLive(false);
+    } catch {
+      setPortStreamLive(false);
+    }
+    return () => {
+      if (socket) {socket.close();}
+      setPortStreamLive(false);
+    };
+  }, [portModal?.router?.id, portModal?.error]);
 
   useEffect(() => { if (tenantSlug && apiKey) { startWatching(); } }, [tenantSlug, apiKey]);
 
@@ -512,6 +642,13 @@ export default function RoutersPage() {
                               <Link2 className="w-4 h-4" />
                             </button>
                           )}
+                          <button
+                            onClick={() => openPortModal(r)}
+                            className="p-1.5 rounded-lg text-zinc-600 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                            title="View hardware ports"
+                          >
+                            <Activity className="w-4 h-4" />
+                          </button>
                           <button
                             onClick={() => openVpnModal(r, tenantSlug)}
                             className="p-1.5 rounded-lg text-zinc-600 hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
@@ -1047,6 +1184,103 @@ export default function RoutersPage() {
         </div>
       )}
 
+      {/* Hardware / Port Map Modal */}
+      {portModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setPortModal(null)}>
+          <div className="bg-zinc-900 border border-zinc-700/50 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-zinc-800 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                  <Router className="w-4 h-4 text-emerald-400" /> {portModal.router?.name || portModal.router?.identity || 'Router'} hardware
+                </h3>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  {portModal.data?.model || portModal.router?.model || 'Unknown model'} · RouterOS {portModal.data?.version || '—'}
+                  {portStreamLive && <span className="ml-2 text-emerald-400">● LIVE</span>}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => openPortModal(portModal.router)} className="p-1.5 rounded-lg text-zinc-500 hover:text-white" title="Refresh">
+                  <RefreshCw className={`w-4 h-4 ${portLoading ? 'animate-spin' : ''}`} />
+                </button>
+                <button onClick={() => setPortModal(null)} className="text-zinc-400 hover:text-white"><X className="w-5 h-5" /></button>
+              </div>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-6">
+              {portLoading ? (
+                <div className="flex items-center justify-center gap-2 py-12 text-zinc-400 text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Reading router interfaces…
+                </div>
+              ) : portModal.error ? (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 text-sm text-amber-300">{portModal.error}</div>
+              ) : (
+                <>
+                  <div className="flex flex-col sm:flex-row items-center gap-6">
+                    <div className="w-full sm:w-1/2 rounded-xl bg-zinc-800/40 border border-zinc-700/50 p-4 flex items-center justify-center">
+                      {/powerbox|750p|rb750/i.test(portModal.data?.model || '') ? (
+                        <img src="/router-images/1446_xl.webp" alt={portModal.data?.model} className="max-h-56 object-contain" />
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2">
+                          {(portModal.data?.ports || []).filter((p) => p.type === 'ether').map((p) => (
+                            <span key={p.name} className={`px-3 py-2 rounded text-xs font-mono ${p.disabled ? 'bg-red-500/15 text-red-400' : p.running ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-700/40 text-zinc-400'}`}>{p.name}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="w-full sm:w-1/2">
+                      <p className="text-xs uppercase tracking-wider text-zinc-500 mb-3">Port status</p>
+                      <div className="flex flex-wrap gap-2">
+                        {(portModal.data?.ports || []).map((p) => (
+                          <span
+                            key={p.name}
+                            title={`${p.name} · ${p.mac_address || 'no MAC'} · ${p.disabled ? 'disabled' : p.running ? 'link up' : 'no link'}`}
+                            className={`px-3 py-1.5 rounded-lg font-mono text-xs border ${p.disabled ? 'border-red-500/40 bg-red-500/10 text-red-400' : p.running ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-zinc-700 bg-zinc-800/50 text-zinc-500'}`}
+                          >
+                            <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${p.rx_bps > 0 || p.tx_bps > 0 ? 'animate-pulse' : ''} ${p.disabled ? 'bg-red-400' : p.running ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
+                            {p.name}
+                            {(p.rx_bps > 0 || p.tx_bps > 0) && (
+                              <span className="ml-2 text-[10px] opacity-80 font-sans">
+                                ↓{formatBps(p.rx_bps)} ↑{formatBps(p.tx_bps)}
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-xs text-zinc-500 mt-4">
+                        <span className="text-emerald-400">●</span> link up · <span className="text-zinc-400">●</span> unused · <span className="text-red-400">●</span> disabled · rates are a 2-second average from the router
+                      </p>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs uppercase tracking-wider text-zinc-500 border-b border-zinc-800">
+                          <th className="py-2">Port</th><th>Type</th><th>MAC</th><th>Status</th><th>Speed</th><th>Live RX / TX</th><th>Total RX / TX</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(portModal.data?.ports || []).map((p) => (
+                          <tr key={p.name} className="border-b border-zinc-800/50 text-zinc-300">
+                            <td className="py-2 font-mono">{p.name}</td>
+                            <td className="text-zinc-500 capitalize">{p.type}</td>
+                            <td className="font-mono text-xs text-zinc-500">{p.mac_address || '—'}</td>
+                            <td className={p.disabled ? 'text-red-400' : p.running ? 'text-emerald-400' : 'text-zinc-500'}>{p.disabled ? 'Disabled' : p.running ? 'Active' : 'Not connected'}</td>
+                            <td className="text-zinc-500">{p.speed || '—'}</td>
+                            <td className={`text-xs font-mono ${p.rx_bps > 0 || p.tx_bps > 0 ? 'text-emerald-400' : 'text-zinc-600'}`}>
+                              {p.rx_bps > 0 || p.tx_bps > 0 ? `↓ ${formatBps(p.rx_bps)} / ↑ ${formatBps(p.tx_bps)}` : '—'}
+                            </td>
+                            <td className="text-xs text-zinc-500 font-mono">{p.rx_bytes} / {p.tx_bytes}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Remote Winbox VPN Modal */}
       {vpnModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
@@ -1067,7 +1301,7 @@ export default function RoutersPage() {
                 <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
                   <p className="text-amber-300 text-sm font-medium mb-2">VPN server not configured</p>
                   <p className="text-amber-400/80 text-xs">
-                    Configure the SSTP VPN server address in Settings &gt; General &gt; Remote Access VPN.
+                    Add your SSTP server address, port and credentials under Settings &gt; General &gt; Remote Access VPN, then open this again.
                   </p>
                 </div>
               ) : (
@@ -1078,6 +1312,12 @@ export default function RoutersPage() {
                       Establishes a secure tunnel from the router to your VPN server, enabling remote Winbox access even through NAT and firewalls.
                     </p>
                   </div>
+
+                  {vpnUrlError && (
+                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                      <p className="text-amber-300 text-xs">{vpnUrlError}</p>
+                    </div>
+                  )}
 
                   <div className="bg-zinc-800/50 rounded-lg p-4">
                     <p className="text-zinc-400 text-xs mb-2 font-medium">INSTRUCTIONS</p>
@@ -1092,7 +1332,7 @@ export default function RoutersPage() {
                     {getVpnCommand()}
                   </pre>
 
-                  <Button onClick={copyVpnCmd} className="gap-2 w-full">
+                  <Button onClick={copyVpnCmd} disabled={Boolean(vpnUrlError)} className="gap-2 w-full">
                     {vpnCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                     {vpnCopied ? "Copied!" : "Copy Command"}
                   </Button>

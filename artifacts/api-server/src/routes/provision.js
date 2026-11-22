@@ -2035,11 +2035,12 @@ router.get("/v1/:slug/install", async (req, res) => {
     const routerIdentity = req.query.identity || tenant.name || slug;
 
     const db = getDb();
-    const settingsRes = await db.query("SELECT value FROM settings WHERE key = $1", ["vpn_server_address"]).catch(() => ({ rows: [] }));
-    const vpnServerAddress = settingsRes.rows[0]?.value || process.env.VPN_SERVER_ADDRESS || req.query.vpn_address || "";
-    const vpnServerPort = process.env.VPN_SERVER_PORT || req.query.vpn_port || "443";
-    const vpnUsername = req.query.vpn_user || tenant.settings?.vpn_username || `isp-${slug}`;
-    const vpnPassword = req.query.vpn_pass || tenant.settings?.vpn_password || apiKey.substring(0, 16);
+    const vpnSettingsRes = await db.query("SELECT key, value FROM settings WHERE key IN ('vpn_server_address','vpn_server_port','vpn_username','vpn_password')").catch(() => ({ rows: [] }));
+    const vpnSettings = Object.fromEntries(vpnSettingsRes.rows.map((r) => [r.key, r.value]));
+    const vpnServerAddress = vpnSettings.vpn_server_address || process.env.VPN_SERVER_ADDRESS || req.query.vpn_address || "";
+    const vpnServerPort = vpnSettings.vpn_server_port || process.env.VPN_SERVER_PORT || req.query.vpn_port || "443";
+    const vpnUsername = req.query.vpn_user || vpnSettings.vpn_username || tenant.settings?.vpn_username || `isp-${slug}`;
+    const vpnPassword = req.query.vpn_pass || vpnSettings.vpn_password || tenant.settings?.vpn_password || apiKey.substring(0, 16);
 
     const scriptTemplates = require("../services/scriptTemplates");
     const script = scriptTemplates.buildInstallScript({
@@ -2077,9 +2078,10 @@ router.get("/v1/:slug/scripts/vpn", async (req, res) => {
     }
 
     const db = getDb();
-    const settingsRes = await db.query("SELECT value FROM settings WHERE key = $1", ["vpn_server_address"]).catch(() => ({ rows: [] }));
-    const serverAddress = settingsRes.rows[0]?.value || process.env.VPN_SERVER_ADDRESS || req.query.address || "";
-    const serverPort = process.env.VPN_SERVER_PORT || req.query.port || "443";
+    const vpnSettingsRes = await db.query("SELECT key, value FROM settings WHERE key IN ('vpn_server_address','vpn_server_port','vpn_username','vpn_password')").catch(() => ({ rows: [] }));
+    const vpnSettings = Object.fromEntries(vpnSettingsRes.rows.map((r) => [r.key, r.value]));
+    const serverAddress = vpnSettings.vpn_server_address || process.env.VPN_SERVER_ADDRESS || req.query.address || "";
+    const serverPort = vpnSettings.vpn_server_port || process.env.VPN_SERVER_PORT || req.query.port || "443";
 
     if (!serverAddress) {
       return res.type("text/plain").send([
@@ -2089,8 +2091,8 @@ router.get("/v1/:slug/scripts/vpn", async (req, res) => {
       ].join("\n"));
     }
 
-    const username = req.query.user || tenant.settings?.vpn_username || `isp-${slug}`;
-    const password = req.query.pass || tenant.settings?.vpn_password || apiKey.substring(0, 16);
+    const username = req.query.user || vpnSettings.vpn_username || tenant.settings?.vpn_username || `isp-${slug}`;
+    const password = req.query.pass || vpnSettings.vpn_password || tenant.settings?.vpn_password || apiKey.substring(0, 16);
     const identity = tenant.name || slug;
     const isHttps = (process.env.APP_URL || "").startsWith("https");
     const fetchMode = isHttps ? "https" : "http";

@@ -1,11 +1,44 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import {
   Gauge, Play, RefreshCw, Clock, Download, Upload, Zap,
   Activity, TrendingUp, History, Trash2, AlertCircle
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '/api';
+
+const measureUpload = async (apiBase) => {
+  const bytes = 2 * 1024 * 1024;
+  const payload = new Uint8Array(bytes);
+  const started = performance.now();
+  await axios.post(`${apiBase}/speedtest/upload`, payload, {
+    headers: { 'Content-Type': 'application/octet-stream' },
+    timeout: 60000,
+  });
+  const seconds = Math.max((performance.now() - started) / 1000, 0.1);
+  return Number(((bytes * 8) / seconds / 1000000).toFixed(2));
+};
+
+const normalizeResult = (item) => ({
+  ...item,
+  latency: Number(item.latency ?? item.latency_ms ?? 0) || 0,
+  jitter: Number(item.jitter ?? item.jitter_ms ?? 0) || 0,
+  packet_loss: Number(item.packet_loss ?? item.packet_loss_pct ?? 0) || 0,
+  download_mbps: Number(item.download_mbps ?? 0) || 0,
+  upload_mbps: Number(item.upload_mbps ?? 0) || 0,
+  download_speed: Number(item.download_speed ?? item.download_mbps ?? 0) || 0,
+  upload_speed: Number(item.upload_speed ?? item.upload_mbps ?? 0) || 0,
+  timestamp: item.timestamp || item.created_at,
+});
 
 export function SpeedTest() {
   const [connections, setConnections] = useState([]);
@@ -16,6 +49,8 @@ export function SpeedTest() {
   const [protocol, setProtocol] = useState('tcp');
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState(null);
+  const [pingSamples, setPingSamples] = useState([]);
+  const pingTimerRef = useRef(null);
   const [history, setHistory] = useState([]);
   const [progress, setProgress] = useState(0);
 
@@ -41,7 +76,7 @@ export function SpeedTest() {
   const fetchHistory = async (connectionId) => {
     try {
       const { data } = await axios.get(`${API}/speedtest/history/${connectionId}`).catch(() => ({ data: [] }));
-      setHistory(data);
+      setHistory(Array.isArray(data) ? data.map(normalizeResult) : []);
     } catch (e) {
       console.error('Failed to fetch history:', e);
     }
@@ -56,6 +91,28 @@ export function SpeedTest() {
     setRunning(true);
     setProgress(0);
     setResults(null);
+    setPingSamples([]);
+
+    const pingHost = testTo || '8.8.8.8';
+    const samplePing = async () => {
+      try {
+        const { data } = await axios.get(`${API}/speedtest/ping/${selectedConnection}`, {
+          params: { host: pingHost },
+        });
+        setPingSamples((previous) => [
+          ...previous.slice(-29),
+          {
+            time: new Date(data.timestamp).toLocaleTimeString([], {
+              minute: '2-digit',
+              second: '2-digit',
+            }),
+            latency: Number(data.latency_ms) || 0,
+          },
+        ]);
+      } catch {}
+    };
+    await samplePing();
+    pingTimerRef.current = setInterval(samplePing, 1500);
 
     const startTime = Date.now();
     const interval = setInterval(() => {
@@ -73,13 +130,25 @@ export function SpeedTest() {
         protocol,
       });
 
-      setResults(data);
+      const normalized = normalizeResult(data);
+      try {
+        const uploadMbps = await measureUpload(API.replace(/\/api\/?$/, ''));
+        normalized.upload_mbps = uploadMbps;
+        normalized.upload_speed = uploadMbps;
+      } catch (e) {
+        console.error('Upload measurement failed:', e);
+      }
+      setResults(normalized);
       setProgress(100);
       await fetchHistory(selectedConnection);
     } catch (e) {
       alert(`Speed test failed: ${e.response?.data?.error || e.message}`);
     } finally {
       clearInterval(interval);
+      if (pingTimerRef.current) {
+        clearInterval(pingTimerRef.current);
+        pingTimerRef.current = null;
+      }
       setRunning(false);
     }
   };
@@ -95,8 +164,9 @@ export function SpeedTest() {
   };
 
   const formatSpeed = (mbps) => {
-    if (mbps >= 1000) {return `${(mbps / 1000).toFixed(2)} Gbps`;}
-    return `${mbps.toFixed(2)} Mbps`;
+    const value = Number(mbps) || 0;
+    if (value >= 1000) {return `${(value / 1000).toFixed(2)} Gbps`;}
+    return `${value.toFixed(2)} Mbps`;
   };
 
   return (
@@ -142,7 +212,7 @@ export function SpeedTest() {
               value={testTo}
               onChange={e => setTestTo(e.target.value)}
               className="modern-input"
-              placeholder="Leave empty for self-test"
+              placeholder="Public download URL (blank = OVH 10 MB)"
               disabled={running}
             />
           </div>
@@ -204,6 +274,47 @@ export function SpeedTest() {
           </button>
         </div>
       </div>
+
+      {(running || pingSamples.length > 0) && (
+        <div className="glass rounded-2xl p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              <Activity className="w-4 h-4 text-cyan-400" /> Live Ping
+            </h3>
+            {pingSamples.length > 0 && (
+              <span className="text-sm text-zinc-400">
+                {pingSamples[pingSamples.length - 1].latency.toFixed(1)} ms
+              </span>
+            )}
+          </div>
+          {pingSamples.length === 0 ? (
+            <p className="text-zinc-500 text-sm">Collecting ping samples…</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={pingSamples}>
+                <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
+                <XAxis dataKey="time" stroke="#71717a" fontSize={11} />
+                <YAxis stroke="#71717a" fontSize={11} unit=" ms" />
+                <Tooltip
+                  contentStyle={{
+                    background: '#18181b',
+                    border: '1px solid #3f3f46',
+                    borderRadius: 12,
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="latency"
+                  name="Ping"
+                  stroke="#38bdf8"
+                  dot={false}
+                  strokeWidth={2}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      )}
 
       {/* Results */}
           {results && (

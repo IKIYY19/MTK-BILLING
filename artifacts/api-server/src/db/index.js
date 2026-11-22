@@ -1,5 +1,8 @@
-const { Pool } = require("pg");
+const pg = require("pg");
+const { Pool } = pg;
 const { loadEnv } = require("../config/loadEnv");
+
+pg.types.setTypeParser(1114, (value) => (value ? new Date(`${value}Z`) : null));
 loadEnv();
 
 // Support multiple database URL formats (Railway, Render, etc.)

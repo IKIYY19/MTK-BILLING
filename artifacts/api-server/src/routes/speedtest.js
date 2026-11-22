@@ -41,6 +41,33 @@ async function ensureSpeedtestTable() {
   } catch (e) {}
 }
 
+function parseRouterTime(value) {
+  const ms = /([\d.]+)\s*ms/.exec(String(value || ""));
+  const us = /([\d.]+)\s*us/.exec(String(value || ""));
+  return Number(ms?.[1] || 0) + Number(us?.[1] || 0) / 1000;
+}
+
+router.get("/ping/:connection_id", async (req, res) => {
+  try {
+    const conn = await getConnection(req.params.connection_id);
+    const target = String(req.query.host || "8.8.8.8").slice(0, 100);
+    const ping = await runPingTest(
+      conn,
+      target,
+      Math.min(Math.max(Number(req.query.count || 3), 1), 10),
+    );
+    res.json({
+      host: target,
+      latency_ms: ping.latency_ms,
+      jitter_ms: ping.jitter_ms,
+      packet_loss: ping.packet_loss_pct,
+      timestamp: ping.timestamp,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post("/run", async (req, res) => {
   try {
     const { connection_id, test_to, direction = "both", duration = 10, protocol = "tcp" } = req.body;
@@ -52,45 +79,55 @@ router.post("/run", async (req, res) => {
     }
 
     const routerConnectionManager = require("../services/routerConnectionManager");
+    const target = test_to && /^https?:\/\//.test(test_to) ? test_to : process.env.SPEEDTEST_DOWNLOAD_URL || "https://proof.ovh.net/files/10Mb.dat";
+    const pingTarget = "8.8.8.8";
+    const fileName = `speedtest-${Date.now()}.bin`;
 
-    const args = {
-      duration: String(duration),
-      protocol: protocol,
-    };
-    if (test_to) args["address"] = test_to;
-    if (direction === "tx") args.direction = "transmit";
-    else if (direction === "rx") args.direction = "receive";
+    logger.info(`[SpeedTest] Starting on ${conn.name} (${conn.ip_address})`, { direction, url: target });
 
-    logger.info(`[SpeedTest] Starting on ${conn.name} (${conn.ip_address})`, { direction, duration, protocol });
-
-    // bandwidth-test streams !re sentences and resolves on !done after the duration
-    const monitorResult = await routerConnectionManager.executeCommand(
+    const startedAt = Date.now();
+    const fetchResult = await routerConnectionManager.executeCommand(
       conn,
-      "/tool/bandwidth-test",
-      args,
+      "/tool/fetch",
+      {
+        url: target,
+        "dst-path": fileName,
+        mode: target.startsWith("https") ? "https" : "http",
+        ...(target.startsWith("https") ? { "check-certificate": "no" } : {}),
+      },
+      { timeoutMs: 120000 },
     );
+    const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.1);
+    const lastFetch = Array.isArray(fetchResult)
+      ? fetchResult[fetchResult.length - 1]
+      : fetchResult;
+    const downloadedKiB = Number(lastFetch?.downloaded || 0);
+    const bytesTransferred = downloadedKiB > 0 ? downloadedKiB * 1024 : 5 * 1024 * 1024;
+    const throughputMbps = (bytesTransferred * 8) / elapsedSeconds / 1000000;
 
-    if (!monitorResult || monitorResult.length === 0) {
-      const fallback = await runPingTest(conn, test_to, duration);
-      fallback.connection_id = connection_id;
-      fallback.connection_name = conn.name;
-      await saveResult(fallback);
-      return res.json(fallback);
+    try {
+      await routerConnectionManager.executeCommand(conn, "/file/remove", {
+        numbers: fileName,
+      });
+    } catch (e) {
+      logger.warn("[SpeedTest] Could not remove temporary file", { error: e.message });
     }
 
-    const last = Array.isArray(monitorResult) ? monitorResult[monitorResult.length - 1] : monitorResult;
+    const ping = await runPingTest(conn, pingTarget, 3);
     const result = {
       connection_id,
       connection_name: conn.name,
-      test_to: test_to || conn.ip_address,
+      test_to: target,
+      ping_target: pingTarget,
       direction,
-      duration: duration,
-      protocol,
-      download_mbps: parseFloat(last["rx-10-second-average"] || last["rx-current"] || 0) / 1000000,
-      upload_mbps: parseFloat(last["tx-10-second-average"] || last["tx-current"] || 0) / 1000000,
-      latency_ms: parseFloat(last["tcp-latency"] || 0),
-      jitter_ms: parseFloat(last["udp-jitter"] || 0),
-      packet_loss_pct: parseFloat(last["lost-packets"] || 0) / Math.max(parseFloat(last["total-packets"] || 1), 1) * 100,
+      duration: Number(elapsedSeconds.toFixed(1)),
+      protocol: "http-fetch",
+      download_mbps: Number(throughputMbps.toFixed(2)),
+      upload_mbps: 0,
+      latency_ms: ping.latency_ms,
+      jitter_ms: ping.jitter_ms,
+      packet_loss_pct: ping.packet_loss_pct,
+      note: "Download measured from the router to a public speed-test server; upload is measured from your browser",
       timestamp: new Date().toISOString(),
     };
 
@@ -104,29 +141,33 @@ router.post("/run", async (req, res) => {
   }
 });
 
-async function runPingTest(conn, testTo, count) {
+async function runPingTest(conn, testTo, count = 5) {
   const routerConnectionManager = require("../services/routerConnectionManager");
   const target = testTo || "8.8.8.8";
-  const results = [];
-  let lost = 0;
-
-  for (let i = 0; i < Math.min(count, 5); i++) {
-    try {
-      const start = Date.now();
-      const pingResult = await routerConnectionManager.executeCommand(conn, "/ping", { address: target, count: "1" });
-      const elapsed = Date.now() - start;
-      if (pingResult && !pingResult.error) {
-        results.push(elapsed);
-      } else {
-        lost++;
-      }
-    } catch (e) {
-      lost++;
-    }
+  let rows = [];
+  try {
+    rows = await routerConnectionManager.executeCommand(
+      conn,
+      "/ping",
+      { address: target, count: String(count) },
+      { timeoutMs: 30000 },
+    );
+  } catch (e) {
+    logger.warn("[SpeedTest] Ping failed", { error: e.message });
   }
+  if (!Array.isArray(rows)) {rows = rows ? [rows] : [];}
 
-  const avgLatency = results.length > 0 ? results.reduce((a, b) => a + b, 0) / results.length : 0;
-  const packetLoss = (lost / count) * 100;
+  const times = rows
+    .map((row) => parseRouterTime(row.time || row["avg-rtt"]))
+    .filter((value) => value > 0);
+  const latency = times.length
+    ? times.reduce((sum, value) => sum + value, 0) / times.length
+    : 0;
+  let jitter = 0;
+  for (let i = 1; i < times.length; i++) {jitter += Math.abs(times[i] - times[i - 1]);}
+  jitter = times.length > 1 ? jitter / (times.length - 1) : 0;
+  const received = times.length;
+  const packetLoss = count > 0 ? ((count - received) / count) * 100 : 0;
 
   return {
     test_to: target,
@@ -135,9 +176,9 @@ async function runPingTest(conn, testTo, count) {
     protocol: "icmp",
     download_mbps: 0,
     upload_mbps: 0,
-    latency_ms: avgLatency,
-    jitter_ms: 0,
-    packet_loss_pct: packetLoss,
+    latency_ms: Number(latency.toFixed(2)),
+    jitter_ms: Number(jitter.toFixed(2)),
+    packet_loss_pct: Number(packetLoss.toFixed(2)),
     timestamp: new Date().toISOString(),
   };
 }

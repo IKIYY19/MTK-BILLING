@@ -329,7 +329,7 @@ function App() {
                         <Route path="/fup" element={<FUPProfiles />} />
                         <Route path="/tr069" element={<TR069Devices />} />
                         <Route path="/speedtest" element={<SpeedTest />} />
-                        <Route path="/ipam" element={<IPAMPage />} />
+                        <Route path="/ipam" element={<ProtectedRoute feature="ipam"><IPAMPage /></ProtectedRoute>} />
                         <Route path="/network-dashboard" element={<NetworkManagementDashboard />} />
                         <Route path="/dns-adblock" element={<DNSAdblockPage />} />
                         <Route path="/monitoring" element={<Monitoring />} />
