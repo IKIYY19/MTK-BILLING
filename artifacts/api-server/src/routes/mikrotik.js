@@ -519,11 +519,12 @@ router.post('/alerts/bulk-delete', requirePermission('network:write'), async (re
     const params = [...validIds];
 
     // Alerts have no tenant_id of their own: scope router-linked alerts to the
-    // caller's tenant. System alerts (no connection) remain admin-only.
+    // caller's tenant. System alerts (no connection) are shown to every tenant
+    // by /alerts/all, so they can be cleared here too.
     if (!req.isSuperAdmin && req.tenantId) {
-      query += ` AND connection_id IN (
+      query += ` AND (connection_id IS NULL OR connection_id IN (
         SELECT id FROM mikrotik_connections WHERE tenant_id = $${params.length + 1}
-      )`;
+      ))`;
       params.push(req.tenantId);
     } else if (!req.isSuperAdmin) {
       query += ' AND false';
