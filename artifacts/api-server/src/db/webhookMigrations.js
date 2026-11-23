@@ -6,7 +6,7 @@
  *   url        — Destination URL for the HTTP POST
  *   events     — JSON array of event names (e.g. ["payment.received","*"])
  *   name       — Human-readable label
- *   secret     — Shared secret sent as X-Webhook-Secret header
+ *   secret     — Shared secret used for X-Webhook-Signature (HMAC-SHA256)
  *   enabled    — Whether this webhook is active
  *   created_at — Creation timestamp
  *   updated_at — Last-updated timestamp
@@ -20,9 +20,12 @@ const migrations = [
     name       VARCHAR(255) DEFAULT '',
     secret     VARCHAR(255) DEFAULT '',
     enabled    BOOLEAN DEFAULT true,
+    tenant_id  UUID REFERENCES tenants(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`,
+  `ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE`,
+  `CREATE INDEX IF NOT EXISTS idx_webhooks_tenant ON webhooks(tenant_id)`,
 ];
 
 async function run() {

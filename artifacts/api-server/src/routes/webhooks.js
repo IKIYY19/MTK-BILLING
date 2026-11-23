@@ -8,6 +8,8 @@
 
 const express = require("express");
 const { getDb } = require("../db");
+const { getTenantId } = require("../db/tenantScope");
+const dns = require("dns").promises;
 const router = express.Router();
 const { v4: uuidv4 } = require("uuid");
 const axios = require("axios");
@@ -28,6 +30,46 @@ function isPrivateHost(hostname) {
     }
   }
   return host.startsWith("fc") || host.startsWith("fd") || host === "::1";
+}
+
+function isPrivateIp(ip) {
+  const host = String(ip || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "::1" || host.startsWith("fe80") || host.startsWith("fc") || host.startsWith("fd")) {
+    return true;
+  }
+  const parts = host.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n))) {return true;}
+  const [a, b] = parts;
+  return a === 10 || a === 127 || a === 0 || a >= 224 ||
+    (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+}
+
+async function assertPublicUrl(value) {
+  const error = validateWebhookUrl(value);
+  if (error) {return error;}
+  if (process.env.ALLOW_PRIVATE_WEBHOOKS === "true") {return null;}
+  try {
+    const hostname = new URL(value).hostname.replace(/^\[|\]$/g, "");
+    const addresses = await dns.lookup(hostname, { all: true });
+    if (!addresses.length || addresses.some((entry) => isPrivateIp(entry.address))) {
+      return "Webhook host resolves to a private or unsafe address";
+    }
+  } catch {
+    return "Webhook host could not be resolved";
+  }
+  return null;
+}
+
+function scoped(req, sql, params = []) {
+  const tenantId = getTenantId();
+  if (!tenantId) {return { sql, params }; }
+  const clause = `${/\sWHERE\s/i.test(sql) ? " AND" : " WHERE"} tenant_id = $${params.length + 1}`;
+  const orderIndex = sql.search(/\sORDER\s+BY\s/i);
+  const scopedSql = orderIndex >= 0
+    ? `${sql.slice(0, orderIndex)}${clause}${sql.slice(orderIndex)}`
+    : `${sql}${clause}`;
+  return { sql: scopedSql, params: [...params, tenantId] };
 }
 
 function validateWebhookUrl(value) {
@@ -74,9 +116,8 @@ function publicWebhook(row) {
 router.get("/", async (req, res) => {
   try {
     if (!global.dbAvailable) {return res.json([]);}
-    const result = await getDb().query(
-      "SELECT * FROM webhooks ORDER BY created_at DESC"
-    );
+    const query = scoped(req, "SELECT * FROM webhooks ORDER BY created_at DESC");
+    const result = await getDb().query(query.sql, query.params);
     res.json(result.rows.map(publicWebhook));
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -92,7 +133,7 @@ router.post("/", async (req, res) => {
     if (!url || !events || events.length === 0) {
       return res.status(400).json({ error: "URL and events are required" });
     }
-    const urlError = validateWebhookUrl(url);
+    const urlError = await assertPublicUrl(url);
     if (urlError) {
       return res.status(400).json({ error: urlError });
     }
@@ -112,11 +153,11 @@ router.post("/", async (req, res) => {
     }
 
     const result = await getDb().query(
-      `INSERT INTO webhooks (id, url, events, name, secret, enabled)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO webhooks (id, url, events, name, secret, enabled, tenant_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-       [id, url, JSON.stringify(events), name || "", secret || "", enabled !== false]
-     );
+      [id, url, JSON.stringify(events), name || "", secret || "", enabled !== false, getTenantId() || null]
+    );
     res.status(201).json(publicWebhook(result.rows[0]));
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -130,7 +171,7 @@ router.put("/:id", async (req, res) => {
   try {
     const { url, events, name, secret, enabled } = req.body;
     if (url !== undefined) {
-      const urlError = validateWebhookUrl(url);
+      const urlError = await assertPublicUrl(url);
       if (urlError) {
         return res.status(400).json({ error: urlError });
       }
@@ -145,10 +186,10 @@ router.put("/:id", async (req, res) => {
           SET url     = COALESCE($1, url),
               events  = COALESCE($2, events),
               name    = COALESCE($3, name),
-              secret  = COALESCE($4, secret),
+               secret  = COALESCE(NULLIF($4, ''), secret),
               enabled = COALESCE($5, enabled),
               updated_at = CURRENT_TIMESTAMP
-        WHERE id = $6
+        WHERE id = $6${getTenantId() ? " AND tenant_id = $7" : ""}
         RETURNING *`,
       [
         url || null,
@@ -157,6 +198,7 @@ router.put("/:id", async (req, res) => {
         secret !== undefined ? secret : null,
         enabled !== undefined ? enabled : null,
         req.params.id,
+        ...(getTenantId() ? [getTenantId()] : []),
       ]
     );
     if (result.rows.length === 0) {
@@ -174,7 +216,8 @@ router.put("/:id", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   try {
     if (!global.dbAvailable) {return res.json({ success: true });}
-    await getDb().query("DELETE FROM webhooks WHERE id = $1", [req.params.id]);
+    const query = scoped(req, "DELETE FROM webhooks WHERE id = $1", [req.params.id]);
+    await getDb().query(query.sql, query.params);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -189,14 +232,16 @@ router.post("/:id/test", async (req, res) => {
     if (!global.dbAvailable) {
       return res.json({ success: true, status: 200, message: "Test payload sent (memory mode — no-op)" });
     }
-    const result = await getDb().query(
-      "SELECT * FROM webhooks WHERE id = $1",
-      [req.params.id]
-    );
+    const query = scoped(req, "SELECT * FROM webhooks WHERE id = $1", [req.params.id]);
+    const result = await getDb().query(query.sql, query.params);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Webhook not found" });
     }
     const webhook = result.rows[0];
+    const urlError = await assertPublicUrl(webhook.url);
+    if (urlError) {
+      return res.status(400).json({ error: urlError });
+    }
 
     const payload = {
       event: "test",
@@ -211,10 +256,11 @@ router.post("/:id/test", async (req, res) => {
     const response = await axios.post(webhook.url, body, {
       headers,
       timeout: 10000,
+      maxRedirects: 0,
     });
     res.json({ success: true, status: response.status });
   } catch (e) {
-    res.json({
+    res.status(502).json({
       success: false,
       error: e.response ? `HTTP ${e.response.status}: ${e.response.statusText}` : e.message,
     });
@@ -230,16 +276,15 @@ module.exports = router;
 module.exports.triggerWebhook = async (event, data) => {
   try {
     if (!global.dbAvailable) {return;}
-    const result = await getDb().query(
-      "SELECT * FROM webhooks WHERE enabled = true"
-    );
+    const query = scoped({ tenantId: getTenantId() }, "SELECT * FROM webhooks WHERE enabled = true");
+    const result = await getDb().query(query.sql, query.params);
     for (const webhook of result.rows) {
       let events = webhook.events;
       if (typeof events === "string") {
         try { events = JSON.parse(events); } catch { events = []; }
       }
       if (!events.includes(event) && !events.includes("*")) {continue;}
-      if (validateWebhookUrl(webhook.url)) {
+      if (await assertPublicUrl(webhook.url)) {
         console.error("Webhook skipped: invalid or unsafe URL", webhook.id);
         continue;
       }
@@ -253,7 +298,7 @@ module.exports.triggerWebhook = async (event, data) => {
       const headers = signedHeaders(webhook, body);
       // Fire-and-forget — never block caller
       axios
-        .post(webhook.url, body, { headers, timeout: 5000 })
+        .post(webhook.url, body, { headers, timeout: 5000, maxRedirects: 0 })
         .catch((e) => {
           console.error('webhooks.js async op failed:', e?.message || e);
           require('../services/opsAlertService').webhookFailure(webhook.url, e?.message || e).catch(() => {});

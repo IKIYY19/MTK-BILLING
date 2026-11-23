@@ -398,13 +398,31 @@ async function getSubscriptionById(id) {
   return subscriptions.find((subscription) => subscription.id === id) || null;
 }
 
+function fireWebhook(event, data) {
+  setImmediate(() => {
+    try {
+      require("../routes/webhooks").triggerWebhook(event, data).catch(() => {});
+    } catch {
+      // Webhook delivery must never affect billing operations.
+    }
+  });
+}
+
 async function createSubscription(data) {
   const backend = getBackend();
-  if (usesRepositoryBackend()) {
-    const subscription = await backend.subscriptions.create(data);
-    return getSubscriptionById(subscription.id);
+  const subscription = usesRepositoryBackend()
+    ? await getSubscriptionById((await backend.subscriptions.create(data)).id)
+    : normalizeSubscription(await backend.createSubscription(data));
+
+  if (subscription && String(subscription.status || "").toLowerCase() === "active") {
+    fireWebhook("customer.activated", {
+      subscription_id: subscription.id,
+      customer_id: subscription.customer_id || null,
+      plan_id: subscription.plan_id || null,
+      pppoe_username: subscription.pppoe_username || null,
+    });
   }
-  return normalizeSubscription(await backend.createSubscription(data));
+  return subscription;
 }
 
 async function updateSubscription(id, data) {
@@ -473,11 +491,19 @@ async function getInvoiceById(id) {
 
 async function createInvoice(data) {
   const backend = getBackend();
-  if (usesRepositoryBackend()) {
-    const invoice = await backend.invoices.create(data);
-    return getInvoiceById(invoice.id);
+  const invoice = usesRepositoryBackend()
+    ? await getInvoiceById((await backend.invoices.create(data)).id)
+    : normalizeInvoice(await backend.createInvoice(data));
+
+  if (invoice) {
+    fireWebhook("invoice.created", {
+      invoice_id: invoice.id,
+      customer_id: invoice.customer_id || null,
+      invoice_number: invoice.invoice_number || null,
+      total: Number(invoice.total) || 0,
+    });
   }
-  return normalizeInvoice(await backend.createInvoice(data));
+  return invoice;
 }
 
 async function updateInvoice(id, data) {
@@ -538,11 +564,26 @@ async function getPaymentById(id) {
 
 async function createPayment(data) {
   const backend = getBackend();
-  if (usesRepositoryBackend()) {
-    const payment = await backend.payments.create(data);
-    return getPaymentById(payment.id);
+  const payment = usesRepositoryBackend()
+    ? await getPaymentById((await backend.payments.create(data)).id)
+    : normalizePayment(await backend.createPayment(data));
+
+  if (payment && !data?.skip_webhook) {
+    setImmediate(() => {
+      try {
+        require("../routes/webhooks").triggerWebhook("payment.received", {
+          payment_id: payment.id,
+          customer_id: payment.customer_id || null,
+          invoice_id: payment.invoice_id || null,
+          amount: Number(payment.amount) || 0,
+          method: payment.method || null,
+        }).catch(() => {});
+      } catch {
+        // Webhook delivery must never affect payment recording.
+      }
+    });
   }
-  return normalizePayment(await backend.createPayment(data));
+  return payment;
 }
 
 async function updatePayment(id, data) {

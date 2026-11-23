@@ -80,7 +80,7 @@ export default function WebhooksPage() {
       name: webhook.name || "",
       url: webhook.url || "",
       events: events || [],
-      secret: webhook.secret || "",
+      secret: "",
       enabled: webhook.enabled !== false,
     });
     setFormError("");
@@ -125,7 +125,7 @@ export default function WebhooksPage() {
           name: form.name,
           url: form.url.trim(),
           events: form.events,
-          secret: form.secret,
+          secret: form.secret || undefined,
           enabled: form.enabled,
         });
         setWebhooks((prev) =>
@@ -287,7 +287,7 @@ export default function WebhooksPage() {
                     <div className="flex items-center gap-2 mb-2 text-xs text-zinc-500">
                       <Globe className="w-3 h-3 flex-shrink-0" />
                       <span className="truncate">{webhook.url}</span>
-                      {webhook.secret && (
+                      {webhook.has_secret && (
                         <>
                           <span className="text-zinc-700">•</span>
                           <Key className="w-3 h-3 flex-shrink-0 text-amber-500" />
@@ -446,7 +446,7 @@ export default function WebhooksPage() {
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, secret: e.target.value }))
                   }
-                  placeholder="Shared secret for X-Webhook-Secret header"
+                  placeholder="Shared secret for X-Webhook-Signature (HMAC-SHA256)"
                   className="w-full px-3 py-2.5 bg-zinc-800 border border-zinc-700 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-colors"
                 />
               </div>

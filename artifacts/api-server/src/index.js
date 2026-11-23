@@ -315,6 +315,8 @@ const startServer = async () => {
 
     // Run database migrations automatically
     if (dbAvailable) {
+      // Webhook schema must exist before RLS policies are created.
+      await require("./db/webhookMigrations").run();
       const { runMigrations } = require("./db/migrate");
       await runMigrations();
       logger.info("Database migrations done");
@@ -322,10 +324,6 @@ const startServer = async () => {
       require("./services/captiveHotspot").startExpiryWorker();
       db.query("SELECT 1")
         .then(() => logger.info("DB pool warmed"))
-        .catch(() => {});
-      // Run webhook migration
-      require("./db/webhookMigrations")
-        .run()
         .catch(() => {});
       // Run IPAM migration
       require("./db/ipamMigrations")

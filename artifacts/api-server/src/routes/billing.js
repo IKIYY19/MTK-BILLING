@@ -1328,14 +1328,6 @@ router.post("/payments", async (req, res) => {
       );
     }
 
-    // Trigger webhooks
-    const { triggerWebhook } = require("./webhooks");
-    triggerWebhook("payment.received", {
-      customer_id: payment.customer_id,
-      amount: payment.amount,
-      invoice_id: payment.invoice_id,
-    }).catch((e) => console.error('billing.js async op failed:', e?.message || e));
-
     // Slack notification
     const customerName = customer?.name || "Unknown";
     const invoiceNumber =
