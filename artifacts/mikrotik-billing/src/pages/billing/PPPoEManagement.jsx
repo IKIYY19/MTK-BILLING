@@ -6,6 +6,8 @@ import {
   ArrowUpRight, ArrowDownRight, Zap, AlertCircle
 } from 'lucide-react';
 
+import './pppoe.css';
+
 const API = import.meta.env.VITE_API_URL || '/api';
 
 /* ─── Animated Number ─── */
@@ -49,8 +51,18 @@ function PasswordField({ value }) {
   const [show, setShow] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const copy = () => {
-    navigator.clipboard.writeText(value);
+  const copy = async () => {
+    if (!value) {return;}
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      const input = document.createElement('textarea');
+      input.value = value;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -246,13 +258,26 @@ export function PPPoEManagement() {
 
   useEffect(() => { fetchData(); }, [selectedConnection]);
 
+  useEffect(() => {
+    if (!selectedConnection && connections.length) {
+      setSelectedConnection(connections[0].id);
+    }
+  }, [connections, selectedConnection]);
+
   const handleCreateSecret = async (form) => {
     try {
-      await axios.post(`${API}/pppoe/secrets`, { ...form, connection_id: selectedConnection });
+      const url = editingSecret
+        ? `${API}/pppoe/secrets/${encodeURIComponent(editingSecret.name)}`
+        : `${API}/pppoe/secrets`;
+      if (editingSecret) {
+        await axios.put(url, { ...form, connection_id: selectedConnection });
+      } else {
+        await axios.post(url, { ...form, connection_id: selectedConnection });
+      }
       setShowSecretForm(false);
       setEditingSecret(null);
       fetchData();
-    } catch (e) { alert(e.response?.data?.error || 'Failed to create secret'); }
+    } catch (e) { alert(e.response?.data?.error || 'Failed to save secret'); }
   };
 
   const handleDeleteSecret = async (name) => {
@@ -272,11 +297,18 @@ export function PPPoEManagement() {
 
   const handleCreateProfile = async (form) => {
     try {
-      await axios.post(`${API}/pppoe/profiles`, { ...form, connection_id: selectedConnection });
+      if (editingProfile) {
+        await axios.put(`${API}/pppoe/profiles/${encodeURIComponent(editingProfile.name)}`, {
+          ...form,
+          connection_id: selectedConnection,
+        });
+      } else {
+        await axios.post(`${API}/pppoe/profiles`, { ...form, connection_id: selectedConnection });
+      }
       setShowProfileForm(false);
       setEditingProfile(null);
       fetchData();
-    } catch (e) { alert('Failed to create profile'); }
+    } catch (e) { alert(e.response?.data?.error || 'Failed to save profile'); }
   };
 
   const handleDeleteProfile = async (name) => {
@@ -310,7 +342,7 @@ export function PPPoEManagement() {
   ];
 
   return (
-    <div className="relative min-h-full p-8 animate-fade-in">
+    <div className="pppoe-page relative min-h-full p-8 animate-fade-in">
       <div className="absolute inset-0 bg-mesh" />
       <div className="absolute inset-0 bg-noise" />
 

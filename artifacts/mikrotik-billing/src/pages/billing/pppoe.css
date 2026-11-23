@@ -1,0 +1,99 @@
+/* PPPoE Management — theme-aware restyle, scoped to this page. */
+
+.pppoe-page { color: var(--text-primary); }
+
+.light .pppoe-page .text-white,
+.dark .pppoe-page .text-white,
+.pppoe-page .text-white { color: var(--text-primary) !important; }
+.light .pppoe-page .text-zinc-300,
+.dark .pppoe-page .text-zinc-300,
+.pppoe-page .text-zinc-300 { color: var(--text-secondary) !important; }
+.light .pppoe-page .text-zinc-400,
+.dark .pppoe-page .text-zinc-400,
+.pppoe-page .text-zinc-400 { color: var(--text-muted) !important; }
+.light .pppoe-page .text-zinc-500,
+.dark .pppoe-page .text-zinc-500,
+.pppoe-page .text-zinc-500 { color: var(--text-dim) !important; }
+.pppoe-page .text-blue-400 { color: var(--accent-blue) !important; }
+.pppoe-page .text-emerald-400 { color: var(--accent-emerald) !important; }
+.pppoe-page .text-amber-400 { color: var(--accent-amber) !important; }
+.pppoe-page .text-rose-400 { color: var(--accent-rose) !important; }
+
+.pppoe-page .glass,
+.pppoe-page .glass-strong {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--shadow-sm);
+}
+.pppoe-page [class*="border-zinc-800"] { border-color: var(--border-subtle) !important; }
+.pppoe-page [class*="border-zinc-700"] { border-color: var(--border-medium) !important; }
+.pppoe-page [class*="bg-zinc-800"] { background: var(--bg-surface) !important; }
+.pppoe-page [class*="hover:bg-zinc-700"]:hover { background: var(--bg-tertiary) !important; }
+.pppoe-page [class*="hover:text-blue-400"]:hover { color: var(--accent-blue) !important; }
+.pppoe-page [class*="hover:text-rose-400"]:hover { color: var(--accent-rose) !important; }
+
+.pppoe-page [class*="bg-blue-600"] {
+  background: var(--accent-blue) !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+  box-shadow: var(--shadow-sm);
+}
+.pppoe-page [class*="bg-gradient-to-br"][class*="from-blue"] {
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet)) !important;
+  border-radius: 12px !important;
+}
+.pppoe-page [class*="bg-blue-500/30"] {
+  background: color-mix(in srgb, var(--accent-blue) 12%, transparent) !important;
+  color: var(--accent-blue) !important;
+}
+.pppoe-page [class*="bg-emerald-400"] { background: var(--accent-emerald) !important; }
+.pppoe-page [class*="bg-amber-400"] { background: var(--accent-amber) !important; }
+
+.pppoe-page .modern-input,
+.pppoe-page input,
+.pppoe-page select {
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-medium) !important;
+  border-radius: 9px !important;
+  outline: none;
+}
+.pppoe-page .modern-input:focus,
+.pppoe-page input:focus,
+.pppoe-page select:focus {
+  border-color: var(--accent-blue) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue) 18%, transparent);
+}
+
+.pppoe-page .modern-table { width: 100%; border-collapse: collapse; }
+.pppoe-page .modern-table thead th {
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--text-muted) !important;
+  background: var(--bg-surface) !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+}
+.pppoe-page .modern-table tbody tr { transition: background .15s; }
+.pppoe-page .modern-table tbody tr:hover { background: var(--bg-surface) !important; }
+.pppoe-page .modern-table tbody td { border-bottom-color: var(--border-subtle) !important; }
+
+.pppoe-page .badge {
+  background: var(--bg-tertiary) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border-medium) !important;
+}
+.pppoe-page .badge-blue { color: var(--accent-blue) !important; border-color: color-mix(in srgb, var(--accent-blue) 30%, transparent) !important; }
+.pppoe-page .badge-emerald,
+.pppoe-page .badge-green { color: var(--accent-emerald) !important; border-color: color-mix(in srgb, var(--accent-emerald) 30%, transparent) !important; }
+.pppoe-page .badge-rose,
+.pppoe-page .badge-red { color: var(--accent-rose) !important; border-color: color-mix(in srgb, var(--accent-rose) 30%, transparent) !important; }
+
+.pppoe-page .font-mono { color: var(--text-secondary); }
+.pppoe-page button[class*="rounded-lg"] { border-radius: 10px !important; }
+.pppoe-page .fixed .glass-strong { box-shadow: var(--shadow-lg) !important; }
+
+@media (max-width: 640px) {
+  .pppoe-page { padding: 14px; }
+}

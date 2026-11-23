@@ -25,10 +25,10 @@ async function executeCommand(device, command, args = {}) {
 }
 
 // Helper: get all from MikroTik path
-async function getFromMikrotik(device, path) {
+async function getFromMikrotik(device, path, proplist = '.id,name,comment,disabled') {
   try {
     return await routerConnectionManager.executeCommand(device, path + '/print', { 
-      '.proplist': '.id,name,comment,disabled' 
+      '.proplist': proplist
     });
   } catch (error) {
     console.error(`MikroTik get error: ${error.message}`);
@@ -47,8 +47,41 @@ router.get('/pppoe/secrets', async (req, res) => {
     if (!connection_id) {return res.json([]);}
 
     const device = await getMikrotikConnection(connection_id);
-    const result = await getFromMikrotik(device, '/ppp/secret');
+    const result = await getFromMikrotik(
+      device,
+      '/ppp/secret',
+      '.id,name,password,service,profile,disabled,comment',
+    );
+    res.set('Cache-Control', 'no-store');
     res.json(Array.isArray(result) ? result : []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Update PPPoE secret
+router.put('/pppoe/secrets/:name', async (req, res) => {
+  try {
+    const { connection_id, password, profile, service, comment, rate_limit, disabled } = req.body;
+    const { name } = req.params;
+    if (!connection_id) {return res.status(400).json({ error: 'Connection ID required' });}
+
+    const device = await getMikrotikConnection(connection_id);
+    const secrets = await getFromMikrotik(device, '/ppp/secret', '.id,name');
+    const existing = secrets.find((s) => s.name === name);
+    if (!existing?.['.id']) {return res.status(404).json({ error: 'PPPoE secret not found' });}
+
+    const args = { 'numbers': existing['.id'] };
+    if (password !== undefined) {args.password = String(password);}
+    if (service !== undefined) {args.service = String(service);}
+    if (comment !== undefined) {args.comment = String(comment);}
+    if (disabled !== undefined) {args.disabled = disabled ? 'yes' : 'no';}
+    if (rate_limit) {
+      args.profile = await mikrotikProvisioning.ensureRateLimitProfile(device, rate_limit, profile);
+    } else if (profile !== undefined) {
+      args.profile = String(profile);
+    }
+
+    await executeCommand(device, '/ppp/secret/set', args);
+    res.json({ success: true, message: 'PPPoE secret updated' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -127,6 +160,30 @@ router.post('/pppoe/profiles', async (req, res) => {
 
     await executeCommand(device, '/ppp/profile/add', args);
     res.json({ success: true, message: 'PPPoE profile created' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Update PPPoE profile
+router.put('/pppoe/profiles/:name', async (req, res) => {
+  try {
+    const { connection_id, name: newName, local_address, remote_address, rate_limit, dns_server } = req.body;
+    const { name } = req.params;
+    if (!connection_id) {return res.status(400).json({ error: 'Connection ID required' });}
+
+    const device = await getMikrotikConnection(connection_id);
+    const profiles = await getFromMikrotik(device, '/ppp/profile', '.id,name');
+    const existing = profiles.find((p) => p.name === name);
+    if (!existing?.['.id']) {return res.status(404).json({ error: 'PPPoE profile not found' });}
+
+    const args = { 'numbers': existing['.id'] };
+    if (newName !== undefined) {args.name = String(newName);}
+    if (local_address !== undefined) {args['local-address'] = String(local_address);}
+    if (remote_address !== undefined) {args['remote-address'] = String(remote_address);}
+    if (rate_limit !== undefined) {args['rate-limit'] = String(rate_limit);}
+    if (dns_server !== undefined) {args['dns-server'] = String(dns_server);}
+
+    await executeCommand(device, '/ppp/profile/set', args);
+    res.json({ success: true, message: 'PPPoE profile updated' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
