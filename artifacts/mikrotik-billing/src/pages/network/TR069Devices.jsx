@@ -22,6 +22,9 @@ export function TR069Devices() {
   const [firmwareDevice, setFirmwareDevice] = useState(null);
   const [firmwareUrl, setFirmwareUrl] = useState('');
   const toast = useToast();
+  const [distConnection, setDistConnection] = useState('');
+  const [distUrl, setDistUrl] = useState('');
+  const [distributing, setDistributing] = useState(false);
 
   const [form, setForm] = useState({
     serial_number: '',
@@ -128,6 +131,22 @@ export function TR069Devices() {
       toast.success('Factory reset queued', data.message);
     } catch (e) {
       toast.error('Factory reset failed', e.response?.data?.message || e.response?.data?.error || e.message);
+    }
+  };
+
+  const handleDistribute = async () => {
+    if (!distConnection) {toast.warning('Select a router'); return;}
+    setDistributing(true);
+    try {
+      const { data } = await axios.post(`${API}/tr069/acs/distribute`, {
+        connection_id: distConnection,
+        url: distUrl || acsStatus?.acsUrl,
+      });
+      toast.success('ACS URL distributed', data.message);
+    } catch (e) {
+      toast.error('Distribution failed', e.response?.data?.error || e.message);
+    } finally {
+      setDistributing(false);
     }
   };
 
@@ -252,6 +271,42 @@ export function TR069Devices() {
           )}
         </div>
       )}
+
+      <div className="relative glass rounded-xl p-4 mb-6">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-9 h-9 rounded-xl bg-cyan-500/10 ring-1 ring-cyan-500/20 flex items-center justify-center shrink-0">
+            <Server className="w-4 h-4 text-cyan-400" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-white">Point CPEs at the ACS</h3>
+            <p className="text-xs text-zinc-400 mt-1">
+              Pushes the ACS URL as DHCP option 43 (sub-option 1) on every DHCP server of the selected router.
+              Most ONTs and CPEs read this on boot and start TR-069 automatically.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[220px] flex-1">
+            <label className="block text-xs text-zinc-400 mb-1.5">Router</label>
+            <select value={distConnection} onChange={e => setDistConnection(e.target.value)} className="modern-input">
+              <option value="">Select a router</option>
+              {connections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div className="min-w-[260px] flex-1">
+            <label className="block text-xs text-zinc-400 mb-1.5">ACS URL</label>
+            <input
+              className="modern-input font-mono"
+              value={distUrl || acsStatus?.acsUrl || ''}
+              onChange={e => setDistUrl(e.target.value)}
+              placeholder="http://192.168.100.8:17547"
+            />
+          </div>
+          <button onClick={handleDistribute} disabled={distributing} className="btn-primary flex items-center gap-2">
+            <Download className="w-4 h-4" /> {distributing ? 'Pushing…' : 'Push to DHCP'}
+          </button>
+        </div>
+      </div>
 
       {/* Form */}
       {showForm && (

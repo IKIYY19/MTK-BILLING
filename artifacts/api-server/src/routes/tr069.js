@@ -36,6 +36,44 @@ function respondWithTask(res, result) {
   return res.json(result);
 }
 
+// Distribute the ACS URL to CPEs via RouterOS DHCP option 43
+router.post('/acs/distribute', async (req, res) => {
+  try {
+    const { connection_id, url } = req.body || {};
+    if (!connection_id) {return res.status(400).json({ error: 'Connection ID required' });}
+    const acsUrl = String(url || tr069Service.acsUrl || '').trim();
+    if (!/^https?:\/\//i.test(acsUrl)) {
+      return res.status(400).json({ error: 'Enter a valid http(s) ACS URL' });
+    }
+
+    const db = global.db || require('../db/memory');
+    const result = await db.query('SELECT * FROM mikrotik_connections WHERE id = $1', [connection_id]);
+    if (!result.rows.length) {return res.status(404).json({ error: 'Router not found' });}
+    const device = result.rows[0];
+    device.password = require('../services/routerConnectionManager').decryptPassword(device.password_encrypted);
+
+    const bytes = Buffer.from(acsUrl);
+    if (bytes.length > 255) {return res.status(400).json({ error: 'ACS URL is too long for DHCP option 43' });}
+    const payload = `0x01${bytes.length.toString(16).padStart(2, '0')}${bytes.toString('hex')}`;
+    const escaped = payload.replace(/"/g, '\\"');
+    const script = [
+      '/ip dhcp-server option remove [find name="IKIYY-TR069-ACS"]',
+      '/ip dhcp-server option sets remove [find name="IKIYY-TR069"]',
+      `/ip dhcp-server option add name="IKIYY-TR069-ACS" code=43 value="${escaped}"`,
+      '/ip dhcp-server option sets add name="IKIYY-TR069" options="IKIYY-TR069-ACS"',
+      '/ip dhcp-server set [find] dhcp-option-set="IKIYY-TR069"',
+    ].join('\n');
+
+    await require('../services/routerConnectionManager').executeScript(device, script, {
+      name: `tr069-acs-${Date.now()}`,
+    });
+    res.json({ success: true, acsUrl, option43: payload, message: 'ACS URL pushed to DHCP option 43' });
+  } catch (e) {
+    logger.error('TR-069 ACS distribution failed', { error: e.message });
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // GenieACS connection status
 router.get('/acs/status', async (req, res) => {
   const status = await tr069Service.status();
