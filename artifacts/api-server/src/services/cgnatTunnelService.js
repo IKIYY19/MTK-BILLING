@@ -38,6 +38,7 @@ const WG_TUNNEL_SUBNET = process.env.WG_TUNNEL_SUBNET || "10.200.0";
 const WG_TUNNEL_PORT = parseInt(process.env.WG_TUNNEL_PORT || "51820", 10);
 const WG_CONFIG_PATH = path.join(WG_CONFIG_DIR, `${WG_INTERFACE}.conf`);
 const WG_PERSISTENT_KEEPALIVE = process.env.WG_PERSISTENT_KEEPALIVE || "25";
+let serverEndpointOverride = null;
 
 class CGNATTunnelService {
   constructor() {
@@ -237,6 +238,7 @@ class CGNATTunnelService {
 
     return {
       ready: blockers.length === 0,
+      canGenerateScripts: endpointConfigured,
       wireguardAvailable,
       interfaceActive,
       endpointConfigured,
@@ -579,8 +581,13 @@ echo "To verify: run 'wg show ${WG_INTERFACE}' after a router connects."
   /**
    * Get the server's public endpoint address
    */
+  setServerEndpointOverride(value) {
+    serverEndpointOverride = String(value || "").trim() || null;
+  }
+
   getServerEndpoint() {
     return (
+      serverEndpointOverride ||
       process.env.WG_SERVER_ENDPOINT?.trim() ||
       process.env.SERVER_PUBLIC_IP?.trim() ||
       null

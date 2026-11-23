@@ -885,9 +885,9 @@ export default function RoutersPage() {
                   {tunnelServer?.readiness && !tunnelServer.readiness.ready && (
                     <Card className="border-amber-500/20 bg-amber-500/5">
                       <CardContent className="p-4 space-y-2">
-                        <p className="text-sm font-medium text-amber-300">CGNAT linking needs a reachable tunnel server</p>
+                        <p className="text-sm font-medium text-amber-300">Prepare the WireGuard tunnel server</p>
                         <p className="text-xs text-amber-200/80">
-                          Run the billing API on a Linux VPS with a public IP or DNS name, allow inbound UDP {tunnelServer.serverPort || 51820}, and set WG_SERVER_ENDPOINT to that public address before restarting the API. Routers behind CGNAT initiate the encrypted tunnel outbound; no public IP or inbound port is needed on each router.
+                          Set the public IP/DNS of your WireGuard VPS under Settings &gt; General &gt; Remote Access VPN (or WG_SERVER_ENDPOINT), allow inbound UDP {tunnelServer.serverPort || 51820}, then click Server Setup and run that script as root on the VPS. Router scripts can be generated once the endpoint is set; the router dials out, so it needs no public IP.
                         </p>
                         {tunnelServer.readiness.blockers?.map((blocker) => (
                           <p key={blocker} className="text-xs text-amber-100/70">• {blocker}</p>
@@ -923,7 +923,7 @@ export default function RoutersPage() {
                             <p className="text-xs text-red-400">{wgError}</p>
                           </div>
                         )}
-                        <Button onClick={generateWgScript} disabled={wgGenerating || !tunnelServer?.readiness?.ready} className="gap-2 w-full bg-violet-600 hover:bg-violet-700">
+                        <Button onClick={generateWgScript} disabled={wgGenerating || !tunnelServer?.readiness?.canGenerateScripts} className="gap-2 w-full bg-violet-600 hover:bg-violet-700">
                           {wgGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
                           {wgGenerating ? "Generating…" : "Generate Link Script"}
                         </Button>

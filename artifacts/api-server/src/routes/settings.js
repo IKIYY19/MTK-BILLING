@@ -7,6 +7,7 @@ const express = require("express");
 const { getDb } = require("../db");
 const router = express.Router();
 const slack = require("../services/slackNotifier");
+const cgnatTunnelService = require("../services/cgnatTunnelService");
 
 
 
@@ -275,6 +276,9 @@ router.put("/", async (req, res) => {
   // Configure Slack webhook URL if provided
   if (settings.slack_webhook_url !== undefined) {
     slack.configure(settings.slack_webhook_url);
+  }
+  if (settings.wg_server_endpoint !== undefined) {
+    cgnatTunnelService.setServerEndpointOverride(settings.wg_server_endpoint);
   }
 
   if (!getDb()) {

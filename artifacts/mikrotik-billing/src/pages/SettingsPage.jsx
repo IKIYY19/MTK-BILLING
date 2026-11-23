@@ -804,9 +804,21 @@ export function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="space-y-2 md:max-w-md">
+                <Label htmlFor="wg-server-endpoint">WireGuard tunnel endpoint</Label>
+                <Input
+                  id="wg-server-endpoint"
+                  value={settings.wg_server_endpoint || ""}
+                  onChange={(e) => setSettings({ ...settings, wg_server_endpoint: e.target.value })}
+                  placeholder="vpn.example.com or public IP"
+                />
+                <p className="text-xs text-zinc-500">
+                  Public IP or DNS of the VPS running the WireGuard server used by WireGuard / NAT onboarding.
+                </p>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="vpn-server-address">Server address</Label>
+                  <Label htmlFor="vpn-server-address">SSTP server address</Label>
                   <Input
                     id="vpn-server-address"
                     value={settings.vpn_server_address || ""}

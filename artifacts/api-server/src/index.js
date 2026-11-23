@@ -311,6 +311,18 @@ const startServer = async () => {
     // Export for routes AFTER database is connected
     global.db = db;
     global.dbAvailable = dbAvailable;
+    try {
+      const endpointRow = await db.query(
+        "SELECT value FROM settings WHERE key = 'wg_server_endpoint'",
+      );
+      if (endpointRow.rows?.[0]?.value) {
+        require("./services/cgnatTunnelService").setServerEndpointOverride(
+          endpointRow.rows[0].value,
+        );
+      }
+    } catch {
+      // Setting is optional; environment fallback still applies.
+    }
     global.billingRepo = billingRepo;
 
     // Run database migrations automatically
