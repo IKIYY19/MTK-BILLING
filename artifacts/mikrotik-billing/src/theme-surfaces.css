@@ -1,0 +1,48 @@
+/* Theme-driven global surfaces.
+   Base .light/.dark palettes are neutral greens; these rules make the whole
+   app (backgrounds, cards, borders, text, glass, top bar) follow the active
+   theme accent instead of only buttons and links. */
+
+html.light[data-theme] {
+  --bg-primary: color-mix(in srgb, var(--theme-accent-blue) 3%, #f8fafc);
+  --bg-secondary: color-mix(in srgb, var(--theme-accent-blue) 7%, #f1f5f9);
+  --bg-tertiary: color-mix(in srgb, var(--theme-accent-blue) 12%, #e2e8f0);
+  --bg-card: color-mix(in srgb, var(--theme-accent-blue) 2%, #ffffff);
+  --bg-card-hover: color-mix(in srgb, var(--theme-accent-blue) 5%, #ffffff);
+  --bg-surface: color-mix(in srgb, var(--theme-accent-blue) 5%, #f8fafc);
+  --border-subtle: color-mix(in srgb, var(--theme-accent-blue) 14%, #e2e8f0);
+  --border-medium: color-mix(in srgb, var(--theme-accent-blue) 26%, #cbd5e1);
+  --border-strong: color-mix(in srgb, var(--theme-accent-blue) 38%, #94a3b8);
+  --text-primary: color-mix(in srgb, var(--theme-accent-blue) 10%, #0f172a);
+  --text-secondary: color-mix(in srgb, var(--theme-accent-blue) 7%, #334155);
+  --text-muted: color-mix(in srgb, var(--theme-accent-blue) 5%, #64748b);
+  --text-dim: color-mix(in srgb, var(--theme-accent-blue) 4%, #94a3b8);
+  --glass-bg: color-mix(in srgb, var(--theme-accent-blue) 3%, #ffffff);
+  --glass-border: color-mix(in srgb, var(--theme-accent-blue) 16%, #e2e8f0);
+  --topbar-bg: color-mix(in srgb, var(--theme-accent-blue) 3%, #ffffff);
+  --topbar-border: color-mix(in srgb, var(--theme-accent-blue) 14%, #e2e8f0);
+  --topbar-icon: #64748b;
+  --topbar-user-text: #1e293b;
+}
+
+html.dark[data-theme] {
+  --bg-primary: color-mix(in srgb, var(--theme-accent-blue) 6%, #0b1120);
+  --bg-secondary: color-mix(in srgb, var(--theme-accent-blue) 9%, #111827);
+  --bg-tertiary: color-mix(in srgb, var(--theme-accent-blue) 14%, #1e293b);
+  --bg-card: color-mix(in srgb, var(--theme-accent-blue) 8%, #131c2e);
+  --bg-card-hover: color-mix(in srgb, var(--theme-accent-blue) 12%, #18243a);
+  --bg-surface: color-mix(in srgb, var(--theme-accent-blue) 10%, #162033);
+  --border-subtle: color-mix(in srgb, var(--theme-accent-blue) 18%, #1e293b);
+  --border-medium: color-mix(in srgb, var(--theme-accent-blue) 28%, #334155);
+  --border-strong: color-mix(in srgb, var(--theme-accent-blue) 40%, #475569);
+  --text-primary: #e2e8f0;
+  --text-secondary: color-mix(in srgb, var(--theme-accent-blue) 8%, #cbd5e1);
+  --text-muted: color-mix(in srgb, var(--theme-accent-blue) 6%, #94a3b8);
+  --text-dim: color-mix(in srgb, var(--theme-accent-blue) 4%, #64748b);
+  --glass-bg: color-mix(in srgb, var(--theme-accent-blue) 8%, #131c2e);
+  --glass-border: color-mix(in srgb, var(--theme-accent-blue) 18%, #1e293b);
+  --topbar-bg: color-mix(in srgb, var(--theme-accent-blue) 8%, #0f172a);
+  --topbar-border: color-mix(in srgb, var(--theme-accent-blue) 16%, #1e293b);
+  --topbar-icon: #94a3b8;
+  --topbar-user-text: #e2e8f0;
+}

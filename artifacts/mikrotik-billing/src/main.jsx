@@ -8,6 +8,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { initSentry } from './services/sentry';
 import { ThemeProvider } from './contexts/ThemeContext';
 import './index.css';
+import './theme-surfaces.css';
 
 // Initialize Sentry for frontend error tracking
 initSentry();
