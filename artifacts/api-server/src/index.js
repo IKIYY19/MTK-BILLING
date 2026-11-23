@@ -780,7 +780,15 @@ const startServer = async () => {
     app.use("/api/fup", authenticate, require("./routes/fup"));
     app.use("/api/sales", authenticate, require("./routes/sales"));
     app.use("/api/tr069", authenticate, require("./routes/tr069"));
-    app.use("/api/speedtest", authenticate, require("./routes/speedtest"));
+    app.use(
+      "/api/speedtest",
+      authenticate,
+      (req, res, next) =>
+        requirePermission(
+          req.method === "GET" ? "network:read" : "network:write",
+        )(req, res, next),
+      require("./routes/speedtest"),
+    );
     if (monitoringApiEnabled) {
       app.use("/api/monitoring", authenticate, require("./routes/monitoring"));
     } else {

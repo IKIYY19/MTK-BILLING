@@ -3,6 +3,7 @@ const { getDb } = require("../db");
 const router = express.Router();
 const logger = require("../utils/logger");
 const { decrypt } = require("../utils/encryption");
+const { getTenantId } = require("../db/tenantScope");
 
 function decryptPassword(encrypted) {
   return decrypt(encrypted);
@@ -20,25 +21,51 @@ async function getConnection(id) {
 
 async function ensureSpeedtestTable() {
   const db = getDb();
-  try {
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS speedtest_results (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        connection_id UUID,
-        test_to VARCHAR(100),
-        direction VARCHAR(10),
-        duration_secs INTEGER,
-        protocol VARCHAR(10),
-        download_mbps DECIMAL(10,2),
-        upload_mbps DECIMAL(10,2),
-        latency_ms DECIMAL(8,2),
-        jitter_ms DECIMAL(8,2),
-        packet_loss_pct DECIMAL(5,2),
-        connection_name VARCHAR(255),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-  } catch (e) {}
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS speedtest_results (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      connection_id UUID,
+      test_to VARCHAR(100),
+      direction VARCHAR(10),
+      duration_secs NUMERIC(8,2),
+      protocol VARCHAR(20),
+      tenant_id UUID,
+      download_mbps DECIMAL(10,2),
+      upload_mbps DECIMAL(10,2),
+      latency_ms DECIMAL(8,2),
+      jitter_ms DECIMAL(8,2),
+      packet_loss_pct DECIMAL(5,2),
+      connection_name VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    "ALTER TABLE speedtest_results ADD COLUMN IF NOT EXISTS tenant_id UUID",
+    "ALTER TABLE speedtest_results ALTER COLUMN protocol TYPE VARCHAR(20)",
+    // Older deployments stored seconds as INTEGER, which rejects fractional
+    // durations and made every result fail to save.
+    "ALTER TABLE speedtest_results ALTER COLUMN duration_secs TYPE NUMERIC(8,2) USING duration_secs::numeric",
+    "CREATE INDEX IF NOT EXISTS idx_speedtest_results_tenant ON speedtest_results(tenant_id, created_at DESC)",
+  ];
+  for (const statement of statements) {
+    try {
+      await db.query(statement);
+    } catch (e) {
+      logger.warn("[SpeedTest] Table check failed", { error: e.message });
+    }
+  }
+}
+
+function measuredNumber(value, max = 100000) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > max) {return null;}
+  return Math.round(number * 100) / 100;
+}
+
+function scopedWhere(req, baseClause, baseParams) {
+  if (req.isSuperAdmin) {return { sql: baseClause, params: baseParams }; }
+  return {
+    sql: `${baseClause} AND tenant_id = $${baseParams.length + 1}`,
+    params: [...baseParams, getTenantId()],
+  };
 }
 
 function parseRouterTime(value) {
@@ -70,74 +97,83 @@ router.get("/ping/:connection_id", async (req, res) => {
 
 router.post("/run", async (req, res) => {
   try {
-    const { connection_id, test_to, direction = "both", duration = 10, protocol = "tcp" } = req.body;
-    if (!connection_id) return res.status(400).json({ error: "Connection ID required" });
+    const { connection_id, test_to, direction = "both" } = req.body;
+    if (!connection_id) {return res.status(400).json({ error: "Connection ID required" });}
 
     const conn = await getConnection(connection_id);
     if (!conn.password || !conn.username) {
-      return res.status(400).json({ error: "Connection credentials missing", details: "Add management credentials on the Routers page" });
+      return res.status(400).json({
+        error: "Connection credentials missing",
+        details: "Add management credentials on the Routers page",
+      });
     }
-
-    const routerConnectionManager = require("../services/routerConnectionManager");
-    const target = test_to && /^https?:\/\//.test(test_to) ? test_to : process.env.SPEEDTEST_DOWNLOAD_URL || "https://proof.ovh.net/files/10Mb.dat";
-    const pingTarget = "8.8.8.8";
-    const fileName = `speedtest-${Date.now()}.bin`;
-
-    logger.info(`[SpeedTest] Starting on ${conn.name} (${conn.ip_address})`, { direction, url: target });
 
     const startedAt = Date.now();
-    const fetchResult = await routerConnectionManager.executeCommand(
-      conn,
-      "/tool/fetch",
-      {
-        url: target,
-        "dst-path": fileName,
-        mode: target.startsWith("https") ? "https" : "http",
-        ...(target.startsWith("https") ? { "check-certificate": "no" } : {}),
-      },
-      { timeoutMs: 120000 },
-    );
-    const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.1);
-    const lastFetch = Array.isArray(fetchResult)
-      ? fetchResult[fetchResult.length - 1]
-      : fetchResult;
-    const downloadedKiB = Number(lastFetch?.downloaded || 0);
-    const bytesTransferred = downloadedKiB > 0 ? downloadedKiB * 1024 : 5 * 1024 * 1024;
-    const throughputMbps = (bytesTransferred * 8) / elapsedSeconds / 1000000;
+    const routerConnectionManager = require("../services/routerConnectionManager");
+    const clientDownload = measuredNumber(req.body.download_mbps);
+    const clientUpload = measuredNumber(req.body.upload_mbps);
+    let downloadMbps = clientDownload;
+    let protocol = String(req.body.protocol || (clientDownload !== null ? "browser-stream" : "http-fetch")).slice(0, 20);
+    let target = String(test_to || (clientDownload !== null ? "browser stream" : "")).slice(0, 100);
 
-    try {
-      await routerConnectionManager.executeCommand(conn, "/file/remove", {
-        numbers: fileName,
-      });
-    } catch (e) {
-      logger.warn("[SpeedTest] Could not remove temporary file", { error: e.message });
+    // Only fall back to a router-side fetch when the browser did not provide a
+    // real measurement. Never fabricate throughput from a hardcoded file size.
+    if (downloadMbps === null) {
+      target = test_to && /^https?:\/\//.test(test_to)
+        ? String(test_to).slice(0, 100)
+        : process.env.SPEEDTEST_DOWNLOAD_URL || "https://proof.ovh.net/files/10Mb.dat";
+      const fileName = `speedtest-${Date.now()}.bin`;
+      const fetchResult = await routerConnectionManager.executeCommand(
+        conn,
+        "/tool/fetch",
+        {
+          url: target,
+          "dst-path": fileName,
+          mode: target.startsWith("https") ? "https" : "http",
+          ...(target.startsWith("https") ? { "check-certificate": "no" } : {}),
+        },
+        { timeoutMs: 120000 },
+      );
+      const elapsed = Math.max((Date.now() - startedAt) / 1000, 0.1);
+      const lastFetch = Array.isArray(fetchResult) ? fetchResult[fetchResult.length - 1] : fetchResult;
+      const downloadedBytes = Number(lastFetch?.downloaded || 0) * 1024;
+      if (!(downloadedBytes > 0)) {
+        throw new Error("Router did not report downloaded bytes; cannot calculate a real speed");
+      }
+      downloadMbps = Math.round(((downloadedBytes * 8) / elapsed / 1000000) * 100) / 100;
+      try {
+        await routerConnectionManager.executeCommand(conn, "/file/remove", { numbers: fileName });
+      } catch (e) {
+        logger.warn("[SpeedTest] Could not remove temporary file", { error: e.message });
+      }
     }
 
-    const ping = await runPingTest(conn, pingTarget, 3);
+    const ping = await runPingTest(conn, "8.8.8.8", 3).catch(() => null);
     const result = {
       connection_id,
       connection_name: conn.name,
       test_to: target,
-      ping_target: pingTarget,
+      ping_target: "8.8.8.8",
       direction,
-      duration: Number(elapsedSeconds.toFixed(1)),
-      protocol: "http-fetch",
-      download_mbps: Number(throughputMbps.toFixed(2)),
-      upload_mbps: 0,
-      latency_ms: ping.latency_ms,
-      jitter_ms: ping.jitter_ms,
-      packet_loss_pct: ping.packet_loss_pct,
-      note: "Download measured from the router to a public speed-test server; upload is measured from your browser",
+      duration: measuredNumber(req.body.duration) ?? Math.max((Date.now() - startedAt) / 1000, 0.1),
+      protocol,
+      download_mbps: downloadMbps,
+      upload_mbps: clientUpload ?? 0,
+      latency_ms: measuredNumber(req.body.latency_ms) ?? ping?.latency_ms ?? 0,
+      jitter_ms: measuredNumber(req.body.jitter_ms) ?? ping?.jitter_ms ?? 0,
+      packet_loss_pct: measuredNumber(req.body.packet_loss_pct) ?? ping?.packet_loss_pct ?? 0,
+      note: protocol === "browser-stream"
+        ? "Throughput measured from this browser to the server; latency measured from the router"
+        : "Download measured from the router to a public speed-test server",
       timestamp: new Date().toISOString(),
     };
 
     await saveResult(result);
-    logger.info(`[SpeedTest] ${conn.name}: ↓${result.download_mbps.toFixed(1)}Mbps ↑${result.upload_mbps.toFixed(1)}Mbps`);
+    logger.info(`[SpeedTest] ${conn.name}: ↓${result.download_mbps}Mbps ↑${result.upload_mbps}Mbps (${protocol})`);
     res.json(result);
   } catch (e) {
     logger.error("[SpeedTest] Failed:", { error: e.message });
-    const fallback = await runFallbackTest(req.body.connection_id);
-    res.json(fallback);
+    res.status(502).json({ error: e.message });
   }
 });
 
@@ -230,14 +266,20 @@ async function saveResult(result) {
   await ensureSpeedtestTable();
   try {
     const db = getDb();
+    const tenantId = getTenantId();
     await db.query(
-      `INSERT INTO speedtest_results (connection_id, test_to, direction, duration_secs, protocol, download_mbps, upload_mbps, latency_ms, jitter_ms, packet_loss_pct, connection_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [result.connection_id, result.test_to, result.direction, result.duration, result.protocol,
-       result.download_mbps || 0, result.upload_mbps || 0, result.latency_ms || 0, result.jitter_ms || 0, result.packet_loss_pct || 0, result.connection_name]
+      `INSERT INTO speedtest_results (connection_id, test_to, direction, duration_secs, protocol, download_mbps, upload_mbps, latency_ms, jitter_ms, packet_loss_pct, connection_name, tenant_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [result.connection_id, String(result.test_to || "").slice(0, 100), result.direction,
+       Number(result.duration) || 0, String(result.protocol || "").slice(0, 20),
+       Number(result.download_mbps) || 0, Number(result.upload_mbps) || 0,
+       Number(result.latency_ms) || 0, Number(result.jitter_ms) || 0,
+       Number(result.packet_loss_pct) || 0, result.connection_name,
+       tenantId || null]
     );
   } catch (e) {
     logger.error("[SpeedTest] Failed to save result", { error: e.message });
+    throw e;
   }
 }
 
@@ -245,9 +287,10 @@ router.get("/history/:connection_id", async (req, res) => {
   try {
     await ensureSpeedtestTable();
     const db = getDb();
+    const where = scopedWhere(req, "WHERE connection_id = $1", [req.params.connection_id]);
     const result = await db.query(
-      "SELECT * FROM speedtest_results WHERE connection_id = $1 ORDER BY created_at DESC LIMIT 50",
-      [req.params.connection_id]
+      `SELECT * FROM speedtest_results ${where.sql} ORDER BY created_at DESC LIMIT 50`,
+      where.params
     );
     res.json(result.rows.map(r => ({
       id: r.id, connection_id: r.connection_id, test_to: r.test_to, direction: r.direction,
@@ -265,7 +308,8 @@ router.delete("/results/:id", async (req, res) => {
   try {
     await ensureSpeedtestTable();
     const db = getDb();
-    await db.query("DELETE FROM speedtest_results WHERE id = $1", [req.params.id]);
+    const where = scopedWhere(req, "WHERE id = $1", [req.params.id]);
+    await db.query(`DELETE FROM speedtest_results ${where.sql}`, where.params);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -276,7 +320,11 @@ router.get("/results", async (req, res) => {
   try {
     await ensureSpeedtestTable();
     const db = getDb();
-    const result = await db.query("SELECT * FROM speedtest_results ORDER BY created_at DESC LIMIT 100");
+    const where = scopedWhere(req, "WHERE 1=1", []);
+    const result = await db.query(
+      `SELECT * FROM speedtest_results ${where.sql} ORDER BY created_at DESC LIMIT 100`,
+      where.params
+    );
     res.json(result.rows.map(r => ({
       id: r.id, connection_id: r.connection_id, download_speed: parseFloat(r.download_mbps),
       upload_speed: parseFloat(r.upload_mbps), latency: parseFloat(r.latency_ms),
