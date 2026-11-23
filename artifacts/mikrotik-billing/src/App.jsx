@@ -85,6 +85,7 @@ const TR069Devices = lazy(() => import("./pages/network/TR069Devices").then(m =>
 const SpeedTest = lazy(() => import("./pages/network/SpeedTest").then(m => ({ default: m.SpeedTest })));
 const NetworkManagementDashboard = lazy(() => import("./pages/network/NetworkManagementDashboard").then(m => ({ default: m.NetworkManagementDashboard })));
 const DNSAdblockPage = lazy(() => import("./pages/DNSAdblockPage").then(m => ({ default: m.DNSAdblockPage })));
+const LoadBalancingPage = lazy(() => import("./pages/LoadBalancingPage").then(m => ({ default: m.LoadBalancingPage })));
 
 // Previously unrouted pages (verified working endpoints only)
 const Alerts = lazy(() => import("./pages/network/Alerts").then(m => ({ default: m.Alerts })));
@@ -332,6 +333,10 @@ function App() {
                         <Route path="/ipam" element={<ProtectedRoute feature="ipam"><IPAMPage /></ProtectedRoute>} />
                         <Route path="/network-dashboard" element={<NetworkManagementDashboard />} />
                         <Route path="/dns-adblock" element={<DNSAdblockPage />} />
+                        <Route
+                          path="/load-balancing"
+                          element={<ProtectedRoute feature="load-balancing"><LoadBalancingPage /></ProtectedRoute>}
+                        />
                         <Route path="/monitoring" element={<Monitoring />} />
                         <Route path="/alerts" element={<Alerts />} />
                         <Route path="/billing-monitoring" element={<MonitoringDashboard />} />

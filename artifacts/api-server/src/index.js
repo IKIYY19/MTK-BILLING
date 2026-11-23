@@ -678,6 +678,11 @@ const startServer = async () => {
     app.use("/api/templates", authenticate, require("./routes/templates"));
     app.use("/api/mikrotik", authenticate, require("./routes/mikrotik"));
     app.use(
+      "/api/load-balancing",
+      authenticate,
+      require("./routes/loadBalancing"),
+    );
+    app.use(
       "/api/mikrotik-automation",
       authenticate,
       require("./routes/mikrotikAutomation"),

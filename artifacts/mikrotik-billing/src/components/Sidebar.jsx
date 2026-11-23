@@ -117,6 +117,7 @@ const navGroups = [
       { to: "/dns-adblock", icon: ShieldCheck, label: "DNS Ad-Blocker", feature: "network" },
       { to: "/bandwidth", icon: Activity, label: "Bandwidth", feature: "bandwidth" },
       { to: "/speedtest", icon: Zap, label: "Speed Test", feature: "speedtest" },
+      { to: "/load-balancing", icon: Network, label: "Load Balancing", feature: "load-balancing" },
     ],
   },
   {

@@ -74,6 +74,7 @@ const DEFAULT_FEATURE_ACCESS = {
     "tickets",
     "captive-portal",
     "bandwidth",
+    "load-balancing",
     "resellers",
     "backups",
     "inventory",
@@ -105,6 +106,7 @@ const DEFAULT_FEATURE_ACCESS = {
     "dashboard",
     "monitoring",
     "bandwidth",
+    "load-balancing",
   ],
   [ROLES.RESELLER]: [
     "dashboard",
