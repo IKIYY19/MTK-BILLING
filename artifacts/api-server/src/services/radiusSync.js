@@ -120,13 +120,9 @@ async function ensurePlanRadiusGroup(plan) {
     );
   }
 
-  if (plan.priority) {
-    await db.query(
-      `INSERT INTO radgroupreply (groupname, attribute, op, value) VALUES ($1, 'Mikrotik-Priority', '=', $2)
-       ON CONFLICT (groupname, attribute) DO UPDATE SET value = EXCLUDED.value`,
-      [groupName, String(plan.priority)]
-    );
-  }
+  // Mikrotik-Priority is not in the default FreeRADIUS dictionary. Writing it
+  // makes SQL group reply parsing fail and every user in the group get an
+  // Access-Reject, so it is intentionally omitted.
 }
 
 async function upsertRadiusUser(subscription) {
