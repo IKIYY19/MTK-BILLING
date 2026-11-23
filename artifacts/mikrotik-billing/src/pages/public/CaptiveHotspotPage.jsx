@@ -186,6 +186,7 @@ export default function CaptiveHotspotPage() {
   const [error, setError] = useState("");
   const [timedOut, setTimedOut] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [paymentsEnabled, setPaymentsEnabled] = useState(true);
 
   useEffect(() => {
     if (!portalFont || portalFont === "Inter") {return undefined;}
@@ -225,6 +226,7 @@ export default function CaptiveHotspotPage() {
         setPlans(Array.isArray(data.plans) ? data.plans : []);
         setRouterName(data.router?.name || "");
         setActiveSession(data.activeSession || null);
+        setPaymentsEnabled(data.paymentsEnabled !== false);
         setSelectedPlan(data.plans?.[0]?.id || "");
       })
       .catch((requestError) => {
@@ -281,6 +283,14 @@ export default function CaptiveHotspotPage() {
 
   const startPayment = async (event) => {
     event.preventDefault();
+    if (preview) {
+      setError("Preview only — connect to the hotspot Wi-Fi to buy a package.");
+      return;
+    }
+    if (!paymentsEnabled) {
+      setError("Payments are not enabled for this network yet. Contact the network operator.");
+      return;
+    }
     const plan = plans.find((item) => item.id === selectedPlan);
     if (!plan) {
       setError("Choose an available package before continuing.");
@@ -585,9 +595,15 @@ export default function CaptiveHotspotPage() {
                 </div>
               )}
 
+              {!preview && !paymentsEnabled && (
+                <div role="alert" className="hp-notice">
+                  <AlertTriangle className="mb-1 h-4 w-4" />
+                  Payments are not enabled for this network yet. Contact the network operator.
+                </div>
+              )}
               <button
                 type="submit"
-                disabled={preview || submitting || plans.length === 0 || !selectedPlan || (Boolean(portalTerms) && !termsAccepted)}
+                disabled={preview || !paymentsEnabled || submitting || plans.length === 0 || !selectedPlan || (Boolean(portalTerms) && !termsAccepted)}
                 className="hp-btn"
               >
                 {submitting ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <><span>Pay with M-Pesa</span><ArrowRight className="h-4 w-4" /></>}

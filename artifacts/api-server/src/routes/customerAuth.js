@@ -79,12 +79,18 @@ router.post("/login", async (req, res) => {
     }
 
     if (phoneLogin && !cust.portal_pin_hash) {
+      // A PIN derived from the phone number is not a real credential. It is
+      // disabled by default and only available as an explicit migration aid.
+      if (process.env.ALLOW_PHONE_SUFFIX_PIN !== "true") {
+        opsAlertService.recordPortalLoginFailure(req, identity);
+        return res.status(401).json({
+          error: "Invalid login credentials. Ask the operator to set your portal PIN.",
+        });
+      }
       const defaultPin = normalizedPhone.replace(/\D/g, "").slice(-4);
       if (pin !== defaultPin) {
         opsAlertService.recordPortalLoginFailure(req, identity);
-        return res.status(401).json({
-          error: "First-time PIN is the last four digits of your phone number",
-        });
+        return res.status(401).json({ error: "Invalid login credentials" });
       }
       const newPinHash = await hashPIN(pin);
       await updateCustomerFields(cust.id, {
@@ -335,12 +341,15 @@ router.post("/forgot-pin", passwordResetLimiter, async (req, res) => {
       // WhatsApp not configured - silently continue
     }
 
+    // Only surface the code when explicitly opted into for local development.
+    const exposeResetCode =
+      ["development", "test"].includes(process.env.NODE_ENV) &&
+      process.env.ALLOW_DEV_RESET_CODE === "true";
     res.json({
       success: true,
       message: "Reset code sent to your phone",
-      // In development, return the code. In production, only send via SMS.
-      resetCode: process.env.NODE_ENV === "production" ? undefined : resetCode,
-      reset_code: process.env.NODE_ENV === "production" ? undefined : resetCode,
+      resetCode: exposeResetCode ? resetCode : undefined,
+      reset_code: exposeResetCode ? resetCode : undefined,
     });
   } catch (error) {
     console.error("Forgot PIN error:", error);

@@ -184,9 +184,9 @@ export default function CaptivePortalBuilder() {
     if (!portalUrl || !/^https:\/\//i.test(portalUrl.trim())) { toast.error("Enter the public HTTPS URL for the hosted hotspot page"); return; }
     setPushing(true);
     try {
-      await axios.post(`${API}/resellers/captive-portals/push`, { connection_id: selectedConn, html: getHtml(), profile: "default", portal_name: companyName || "hotspot-portal" });
-      toast.success("Portal pushed to router!");
-    } catch (e) { toast.error("Push failed — check router connection"); }
+      const { data } = await axios.post(`${API}/resellers/captive-portals/push`, { connection_id: selectedConn, html: getHtml(), portal_url: portalUrl, profile: "default", portal_name: companyName || "hotspot-portal" });
+      toast.success("Portal pushed", data.walledGarden?.length ? `Walled garden allows ${data.walledGarden.join(", ")}` : data.message);
+    } catch (e) { toast.error("Push failed", e.response?.data?.error || e.message); }
     finally { setPushing(false); }
   };
 

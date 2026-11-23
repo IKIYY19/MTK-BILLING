@@ -684,7 +684,7 @@ router.post('/bank-paybill/confirm', async (req, res) => {
 async function handleMpesaCallback(req, res) {
   try {
     const callback = req.body;
-    const body = callback.Body?.stkCallback;
+    const body = callback?.Body?.stkCallback;
     if (!body) {
       return res.json({ ResultCode: 0, ResultDesc: 'Success' });
     }
@@ -693,28 +693,49 @@ async function handleMpesaCallback(req, res) {
     if (!checkoutRequestId) {
       return res.json({ ResultCode: 0, ResultDesc: 'Success' });
     }
-    const mpesa = await getMpesaService();
-    const verification = await mpesa.checkStkStatus(checkoutRequestId);
 
-    const captiveHotspot = require("../services/captiveHotspot");
+    // Safaricom sends Amount/MpesaReceiptNumber inside CallbackMetadata.Item[],
+    // both here and in the STK query response. Normalize before any decision.
+    let verification = MpesaService.normalizeStkResult(callback, checkoutRequestId);
+    if (verification.success) {
+      // A callback is not authenticated. Confirm it against Daraja; if the
+      // query is still pending, leave the session for status polling.
+      try {
+        const mpesa = await getMpesaService();
+        const queried = await mpesa.checkStkStatus(checkoutRequestId);
+        if (queried.checkoutRequestId === checkoutRequestId && queried.resultCode !== null) {
+          verification = queried;
+        } else {
+          verification = { ...verification, success: false, resultCode: null, description: 'Provider query still pending' };
+        }
+      } catch (queryError) {
+        console.error('M-Pesa callback verification error:', queryError.message);
+        verification = { ...verification, success: false, resultCode: null, description: queryError.message };
+      }
+    }
+    const finalResult = verification.success
+      ? Boolean(verification.mpesaReceipt)
+      : verification.resultCode !== null;
+    if (!finalResult) {
+      return res.json({ ResultCode: 0, ResultDesc: 'Success' });
+    }
+
+    const captiveHotspot = require('../services/captiveHotspot');
     const hotspotSession =
       await captiveHotspot.findByCheckoutRequestId(checkoutRequestId);
     if (hotspotSession) {
-      await captiveHotspot.handleProviderVerification(
-        checkoutRequestId,
-        verification,
-      );
+      await captiveHotspot.handleProviderVerification(checkoutRequestId, verification);
       return res.json({ ResultCode: 0, ResultDesc: 'Success' });
     }
 
     const pending = await paymentSessions.findByCheckoutRequestId(checkoutRequestId);
-    if (pending && verification.resultCode !== undefined && String(verification.resultCode) !== '0') {
+    if (pending && !verification.success) {
       await paymentSessions.markFailed(checkoutRequestId, {
         status: 'failed',
         provider_response: verification,
       });
       require('../services/opsAlertService').paymentFailed(
-        checkoutRequestId, pending.amount, verification.resultDescription || verification.resultCode,
+        checkoutRequestId, pending.amount, verification.description || verification.resultCode,
       ).catch(() => {});
     } else if (
       pending &&

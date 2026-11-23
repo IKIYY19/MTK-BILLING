@@ -5,9 +5,60 @@ const { v4: uuidv4 } = require("uuid");
 const { resellerValidation } = require("../middleware/validation");
 const logger = require("../utils/logger");
 const { decrypt } = require("../utils/encryption");
+const routerConnectionManager = require("../services/routerConnectionManager");
+
+const WALLED_GARDEN_COMMENT = "LB-PORTAL";
 
 function decryptPassword(encrypted) {
   return decrypt(encrypted) || encrypted;
+}
+
+// Guests must reach the hosted sign-in page and API before RouterOS
+// authenticates them, so both hosts have to be in the walled garden.
+function validatePortalUrl(value) {
+  let url;
+  try { url = new URL(String(value || "")); } catch { return null; }
+  if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) {return null;}
+  if (url.protocol === "http:") {
+    const hostname = url.hostname.toLowerCase();
+    const localHttp =
+      hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" ||
+      /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(hostname);
+    if (!localHttp || process.env.ALLOW_INSECURE_PORTAL_URL !== "true") {return null;}
+  }
+  return url;
+}
+
+async function provisionWalledGarden(connectionId, portalUrl) {
+  const hosts = new Set([portalUrl.hostname.toLowerCase()]);
+  try {
+    const apiUrl = new URL(process.env.VITE_API_URL || "/api", portalUrl);
+    if (apiUrl.hostname) {hosts.add(apiUrl.hostname.toLowerCase());}
+  } catch {
+    // Relative API URL means the portal host also serves the API.
+  }
+  const existing = await routerConnectionManager
+    .print(connectionId, "/ip/hotspot/walled-garden", ".id,comment,dst-host")
+    .catch(() => []);
+  for (const row of existing) {
+    if (String(row.comment || "").startsWith(WALLED_GARDEN_COMMENT)) {
+      await routerConnectionManager.executeCommand(
+        connectionId,
+        "/ip/hotspot/walled-garden/remove",
+        { numbers: row[".id"] || row.id },
+      ).catch(() => {});
+    }
+  }
+  const added = [];
+  for (const host of hosts) {
+    await routerConnectionManager.executeCommand(
+      connectionId,
+      "/ip/hotspot/walled-garden/add",
+      { "dst-host": host, comment: `${WALLED_GARDEN_COMMENT}-${host}` },
+    );
+    added.push(host);
+  }
+  return added;
 }
 
 // Helper: host portal HTML on our server and return URL
@@ -92,6 +143,14 @@ router.post("/captive-portals/push", async (req, res) => {
     if (!connection_id)
       {return res.status(400).json({ error: "Connection ID required" });}
     if (!html) {return res.status(400).json({ error: "HTML content required" });}
+    const portalUrl = validatePortalUrl(
+      req.body.portal_url || process.env.VITE_PUBLIC_APP_URL || process.env.APP_URL,
+    );
+    if (!portalUrl) {
+      return res.status(400).json({
+        error: "A public HTTPS hosted portal URL is required. Set VITE_PUBLIC_APP_URL to the app's public /hotspot URL.",
+      });
+    }
 
     // Fetch connection from DB
     const connResult = await db.query(
@@ -127,11 +186,22 @@ router.post("/captive-portals/push", async (req, res) => {
       );
       mikrotikRest.removeConnection(restConn.id);
       if (restResult.success) {
+        let walledGarden;
+        try {
+          walledGarden = await provisionWalledGarden(connection_id, portalUrl);
+        } catch (gardenError) {
+          return res.status(502).json({
+            error: `Portal uploaded, but the walled garden could not be configured: ${gardenError.message}`,
+            method: "rest",
+            details: restResult.results,
+          });
+        }
         return res.json({
           method: "rest",
           success: true,
           details: restResult.results,
-          message: "Portal pushed directly to router via REST API.",
+          walledGarden,
+          message: "Portal pushed directly to router via REST API. Walled garden updated.",
         });
       }
       results.details = { restError: restResult.error };
@@ -139,45 +209,27 @@ router.post("/captive-portals/push", async (req, res) => {
       results.details = { restError: restErr.message };
     }
 
-    // ── Tier 2: SSH (RouterOS v6) ──
+    // ── Fallback: host the handoff page on this server ──
+    // The previous SSH tier wrote the HTML into a RouterOS script without
+    // installing it as login.html, so it reported success without working.
+    const hostedUrl = hostPortalLocally(html, portal_name);
+    let walledGarden;
     try {
-      const mikrotikSSH = require("../services/mikrotikSSH");
-      const sshConn = await mikrotikSSH.createConnection({
-        host: conn.ip_address,
-        port: conn.ssh_port || 22,
-        username: conn.username,
-        password,
+      walledGarden = await provisionWalledGarden(connection_id, portalUrl);
+    } catch (gardenError) {
+      return res.status(502).json({
+        error: `Portal hosted, but the walled garden could not be configured: ${gardenError.message}`,
+        method: "hosted",
+        details: results.details,
       });
-      const safeHtml = html
-        .replace(/\\/g, "\\\\")
-        .replace(/`/g, "\\`")
-        .replace(/\$/g, "\\$");
-      const sshScript = [
-        ':do { /file remove [find name="hotspot/login.html"] } on-error={}',
-        ":delay 500ms",
-        `/system script add name=__portal_gen source="${safeHtml}"`,
-      ].join("\n");
-      await mikrotikSSH.executeCommand(sshConn.id, sshScript);
-      await mikrotikSSH.removeConnection(sshConn.id);
-      return res.json({
-        method: "ssh",
-        success: true,
-        details: { ...results.details, uploaded: ["login.html"], via: "ssh" },
-        message: "Portal pushed to router via SSH.",
-      });
-    } catch (sshErr) {
-      results.details = { ...results.details, sshError: sshErr.message };
     }
-
-    // ── Tier 3: Host on our server ──
-    const portalUrl = hostPortalLocally(html, portal_name);
     return res.json({
       method: "hosted",
       success: true,
-      portalUrl,
+      portalUrl: hostedUrl,
       details: results.details,
-      message:
-        "Portal hosted on server (direct push failed). Add this URL to your hotspot walled garden.",
+      walledGarden,
+      message: "Handoff page hosted on server. Walled garden allows the hosted sign-in page and API.",
     });
   } catch (e) {
     console.error("Captive portal push error:", e);

@@ -57,14 +57,15 @@ router.get("/plans", async (req, res) => {
     if (!macAddress) {
       return res.status(400).json({ error: "The router did not provide a valid client MAC address." });
     }
-    const { router: routerRecord, plans } = await captiveHotspot.listPlans(
-      routerId,
-      req.tenantId || null,
-    );
-    const activeSession = await captiveHotspot.findActiveSession(routerId, macAddress);
+    const [{ router: routerRecord, plans }, activeSession, paymentsEnabled] = await Promise.all([
+      captiveHotspot.listPlans(routerId, req.tenantId || null),
+      captiveHotspot.findActiveSession(routerId, macAddress),
+      paymentsRouter.isMpesaConfigured(),
+    ]);
     res.set("Cache-Control", "no-store");
     return res.json({
       router: { name: routerRecord.name },
+      paymentsEnabled,
       plans: plans.map((plan) => ({
         ...plan,
         price: Number(plan.price),

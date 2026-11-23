@@ -681,7 +681,24 @@ async function expireHotspotSessions() {
   }
 }
 
+async function reconcileStaleExpirations() {
+  // A crash between marking a session expiration_pending and removing the
+  // RouterOS user would otherwise strand it forever. Make those rows eligible
+  // for the existing cleanup retry path on startup.
+  await database().query(
+    `UPDATE captive_hotspot_sessions
+     SET status = 'expiration_cleanup_failed',
+         updated_at = CURRENT_TIMESTAMP - INTERVAL '6 minutes'
+     WHERE status = 'expiration_pending'`,
+  );
+}
+
 function startExpiryWorker() {
+  reconcileStaleExpirations().catch((error) => {
+    logger.error("Captive hotspot expiry reconciliation failed", {
+      error: error.message,
+    });
+  });
   const timer = setInterval(() => {
     expireHotspotSessions().catch((error) => {
       logger.error("Captive hotspot expiry worker failed", {

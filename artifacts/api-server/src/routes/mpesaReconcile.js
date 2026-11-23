@@ -146,12 +146,6 @@ router.post("/reconcile", async (req, res) => {
   }
 });
 
-// GET /api/mpesa/unmatched — Get unmatched transactions
-router.get("/unmatched", async (req, res) => {
-  // Return list of recently reconciled but unmatched transactions for manual review
-  res.json([]);
-});
-
 // GET /api/mpesa/recent — Get recent M-Pesa reconciled payments
 router.get("/recent", async (req, res) => {
   try {

@@ -441,38 +441,59 @@ router.get('/network/vouchers', async (req, res) => {
 router.post('/network/vouchers', async (req, res) => {
   try {
     const { vouchers, connection_id } = req.body;
-    console.log('Received voucher creation request:', { voucherCount: vouchers?.length, connection_id });
-    
+    if (!Array.isArray(vouchers) || vouchers.length === 0) {
+      return res.status(400).json({ error: 'At least one voucher is required' });
+    }
+    if (vouchers.length > 200) {
+      return res.status(400).json({ error: 'A batch may contain at most 200 vouchers' });
+    }
+
     const db = global.db || require('../db/memory');
     const { v4: uuidv4 } = require('uuid');
+    const inserted = [];
 
     for (const v of vouchers) {
       const id = uuidv4();
-      console.log('Inserting voucher:', { username: v.username, id });
-      await db.query(
+      const result = await db.query(
         `INSERT INTO hotspot_vouchers (id, username, password, profile, valid_for, rate_limit, data_limit, price, company_name, connection_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
         [id, v.username, v.password, v.profile, v.valid_for, v.rate_limit, v.data_limit, v.price, v.company_name, v.connection_id || connection_id || null, new Date().toISOString()]
       );
+      inserted.push({ id: result.rows[0]?.id || id, voucher: v });
     }
 
-    // Push to Mikrotik if connection selected
-    if (connection_id && vouchers.length > 0) {
+    // Never report a voucher as created when the router rejected it.
+    const routerFailures = [];
+    if (connection_id) {
       const device = await getMikrotikConnection(connection_id);
-      for (const v of vouchers) {
+      for (const entry of inserted) {
+        const v = entry.voucher;
         const args = { name: v.username, password: v.password };
         if (v.profile) {args.profile = v.profile;}
         if (v.rate_limit) {args['rate-limit'] = v.rate_limit;}
         if (v.comment) {args.comment = v.comment;}
-        try { await executeCommand(device, '/ip/hotspot/user/add', args); } catch (e) { console.error(`Failed to create user ${v.username}:`, e.message); }
+        try {
+          await executeCommand(device, '/ip/hotspot/user/add', args);
+        } catch (e) {
+          routerFailures.push({ username: v.username, error: e.message });
+          await db.query('DELETE FROM hotspot_vouchers WHERE id = $1', [entry.id]).catch(() => {});
+        }
       }
     }
 
-    for (const v of vouchers) {
-      require('../services/networkAlertService').recordVoucher('created', v.username, `${vouchers.length} vouchers in batch`).catch(() => {});
+    const created = inserted.length - routerFailures.length;
+    for (const entry of inserted) {
+      if (routerFailures.some((failure) => failure.username === entry.voucher.username)) {continue;}
+      require('../services/networkAlertService').recordVoucher('created', entry.voucher.username, `${created} vouchers in batch`).catch(() => {});
     }
-    console.log('Vouchers created successfully');
-    res.json({ success: true, count: vouchers.length });
+    res.json({
+      success: created > 0,
+      count: created,
+      routerFailures,
+      message: routerFailures.length
+        ? `${created} voucher(s) created on the router; ${routerFailures.length} failed and were not saved.`
+        : `${created} voucher(s) created successfully.`,
+    });
   } catch (e) {
     console.error('Failed to create vouchers:', e);
     res.status(500).json({ error: e.message });

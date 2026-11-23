@@ -205,9 +205,7 @@ export function HotspotVouchers() {
 
   const fetchVouchers = async () => {
     try {
-      console.log('Fetching vouchers from:', `${API}/network/vouchers`);
       const { data } = await axios.get(`${API}/network/vouchers`).catch(() => ({ data: [] }));
-      console.log('Fetched vouchers:', data);
       setVouchers(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error('Failed to fetch vouchers:', e);
@@ -250,10 +248,13 @@ export function HotspotVouchers() {
     }
 
     try {
-      console.log('Generating vouchers:', newVouchers);
-      const response = await axios.post(`${API}/network/vouchers`, { vouchers: newVouchers, connection_id: selectedConnection });
-      console.log('Voucher generation response:', response.data);
+      const { data } = await axios.post(`${API}/network/vouchers`, { vouchers: newVouchers, connection_id: selectedConnection });
       await fetchVouchers();
+      if (data.routerFailures?.length) {
+        alert(`${data.message}\n\nFailed: ${data.routerFailures.map((f) => `${f.username} (${f.error})`).join('\n')}`);
+      } else if (!data.success) {
+        alert(data.message || 'No vouchers were created.');
+      }
     } catch (e) {
       console.error('Failed to generate vouchers:', e);
       alert(`Failed to generate vouchers: ${e.response?.data?.error || e.message}`);

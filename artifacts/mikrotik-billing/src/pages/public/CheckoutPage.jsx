@@ -49,14 +49,16 @@ export function CheckoutPage() {
         mpesa_code: mpesaCode.trim(),
       });
 
-      // Store credentials for welcome page
-      sessionStorage.setItem("pppoe_username", data.credentials.username);
-      sessionStorage.setItem("pppoe_password", data.credentials.password);
-      sessionStorage.setItem("welcome_plan_name", data.credentials.plan_name);
+      // Only real, provisioned credentials are ever returned by the API.
+      if (data.credentials?.username && data.credentials?.password) {
+        sessionStorage.setItem("pppoe_username", data.credentials.username);
+        sessionStorage.setItem("pppoe_password", data.credentials.password);
+        sessionStorage.setItem("welcome_plan_name", data.credentials.plan_name || "Your Plan");
+      }
 
       setSuccess(true);
       setTimeout(() => {
-        navigate("/welcome");
+        navigate(data.credentials ? "/welcome" : "/portal/login");
       }, 1500);
     } catch (err) {
       setError(err.response?.data?.error || "Payment confirmation failed. Please try again.");

@@ -186,8 +186,8 @@ GET    /api/features/monitoring/dashboard # Real monitoring data
 
 1. In **Billing Plans**, create a plan with service type **Hotspot package**, a whole-KES price, validity in days, upload/download speeds, and an optional data quota.
 2. In **Captive Portal Builder**, select the linked MikroTik router and set the public HTTPS URL of this app ending in `/hotspot`. Push the generated login bridge to the router.
-3. Allow the hosted portal and API hostnames in the router's Hotspot Walled Garden. The guest must be able to load the page and reach the API before hotspot authentication.
-4. Configure M-Pesa with a public callback URL of `https://<your-host>/api/payments/mpesa/callback`. The callback is provider-verified server-to-server before a hotspot user is created.
+3. Pushing the portal now also provisions the router's Hotspot Walled Garden for the hosted portal and API hosts. This requires `VITE_PUBLIC_APP_URL` to point at a public HTTPS URL. For local testing only, set `ALLOW_INSECURE_PORTAL_URL=true`.
+4. Configure M-Pesa with a public callback URL of `https://<your-host>/api/payments/mpesa/callback`. The callback is parsed from `CallbackMetadata.Item[]` and re-verified with Daraja server-to-server before a hotspot user is created. Credentials go in the M-Pesa integration record (or the `MPESA_*` variables in `.env.example`).
 
 The hosted page reads the router ID, client MAC/IP, login gateway, and original destination from the RouterOS redirect. It only uses the configured router record for API access; client-supplied IPs are never used as server-side router destinations. A successful provider-confirmed payment creates a MAC-bound RouterOS hotspot account with the selected speed, time, and optional byte limit. Expired users are removed by the API worker; failed router connections remain retryable without requesting another payment.
 

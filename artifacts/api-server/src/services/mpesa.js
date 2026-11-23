@@ -5,6 +5,35 @@
 
 const axios = require('axios');
 
+/**
+ * Safaricom returns successful STK details inside CallbackMetadata.Item[] for
+ * both the callback and the STK query response. Older code read those fields
+ * from the top level, so every real payment ended up in payment_review.
+ */
+function normalizeStkResult(payload, checkoutRequestId = '') {
+  const stk = payload?.Body?.stkCallback || payload || {};
+  const items = stk.CallbackMetadata?.Item;
+  const metadata = {};
+  if (Array.isArray(items)) {
+    for (const item of items) {
+      if (item && typeof item.Name === 'string') {metadata[item.Name] = item.Value;}
+    }
+  }
+  const rawCode = stk.ResultCode !== undefined ? stk.ResultCode : payload?.ResultCode;
+  const resultCode = rawCode === undefined || rawCode === null ? null : String(rawCode);
+  const receipt = metadata.MpesaReceiptNumber ?? stk.MpesaReceiptNumber ?? '';
+  return {
+    success: resultCode === '0',
+    resultCode,
+    description: stk.ResultDesc || payload?.ResponseDescription || '',
+    amount: metadata.Amount ?? stk.Amount,
+    mpesaReceipt: receipt === null || receipt === undefined ? '' : String(receipt),
+    phone: metadata.PhoneNumber ?? stk.PhoneNumber,
+    transactionDate: metadata.TransactionDate ?? stk.TransactionDate,
+    checkoutRequestId: stk.CheckoutRequestID || checkoutRequestId || '',
+  };
+}
+
 class MpesaService {
   constructor(config = {}) {
     this.consumerKey = config.consumerKey || process.env.MPESA_CONSUMER_KEY || '';
@@ -117,15 +146,7 @@ class MpesaService {
         payload,
         { headers: { Authorization: `Bearer ${this.accessToken}` } }
       );
-      return {
-        success: response.data.ResultCode === '0',
-        resultCode: response.data.ResultCode,
-        description: response.data.ResultDesc,
-        amount: response.data.Amount,
-        mpesaReceipt: response.data.MpesaReceiptNumber,
-        phone: response.data.PhoneNumber,
-        transactionDate: response.data.TransactionDate,
-      };
+      return normalizeStkResult(response.data, checkoutRequestId);
     } catch (error) {
       return {
         success: false,
@@ -202,5 +223,7 @@ class MpesaService {
       String(now.getSeconds()).padStart(2, '0');
   }
 }
+
+MpesaService.normalizeStkResult = normalizeStkResult;
 
 module.exports = MpesaService;

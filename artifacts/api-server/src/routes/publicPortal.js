@@ -13,21 +13,26 @@ router.get("/hotspot-plans", async (req, res) => {
     const db = getDb();
     let routerId = String(req.query.router_id || "");
     let routerName = "";
+    let tenantId = DEFAULT_TENANT_ID;
     if (routerId) {
-      const found = await db.query("SELECT id, name FROM mikrotik_connections WHERE id = $1", [routerId]);
+      const found = await db.query("SELECT id, name, tenant_id FROM mikrotik_connections WHERE id = $1", [routerId]);
       if (found.rows.length === 0) {return res.status(404).json({ error: "Router not found" });}
       routerName = found.rows[0].name;
+      tenantId = found.rows[0].tenant_id || DEFAULT_TENANT_ID;
     } else {
-      const found = await db.query("SELECT id, name FROM mikrotik_connections ORDER BY name LIMIT 1");
+      const found = await db.query("SELECT id, name, tenant_id FROM mikrotik_connections ORDER BY name LIMIT 1");
       if (found.rows.length === 0) {return res.json({ router: { name: "" }, plans: [] });}
       routerId = found.rows[0].id;
       routerName = found.rows[0].name;
+      tenantId = found.rows[0].tenant_id || DEFAULT_TENANT_ID;
     }
     const result = await db.query(
       `SELECT id, name, speed_up, speed_down, price, quota_gb, validity_days
        FROM service_plans
-       WHERE is_active = true AND plan_type = 'hotspot' AND price > 0 AND price = TRUNC(price)
+       WHERE tenant_id = $1 AND is_active = true AND plan_type = 'hotspot'
+         AND price > 0 AND price = TRUNC(price)
        ORDER BY price ASC, name ASC`,
+      [tenantId],
     );
     res.json({
       router: { name: routerName },
@@ -181,7 +186,7 @@ router.post("/register", async (req, res) => {
     }
 
     const billing = require("../services/billingData");
-    const plan = billing.getPlanById(plan_id);
+    const plan = await billing.getPlanById(plan_id);
     if (!plan) {return res.status(404).json({ error: "Plan not found" });}
 
     const bcrypt = require("bcryptjs");
@@ -219,19 +224,17 @@ router.post("/register", async (req, res) => {
       created_at: new Date().toISOString(),
     });
 
-    const bcrypt2 = require("bcryptjs");
-    const pinHashStored = await bcrypt2.hash(pin, 10);
     if (!global.dbAvailable) {
       const store = getDb()._getStore ? getDb()._getStore() : {};
       if (store.customers) {
         const c = store.customers.find((c) => c.id === customer.id);
-        if (c) {c.portal_pin_hash = pinHashStored;}
+        if (c) {c.portal_pin_hash = pinHash;}
       }
     } else {
       try {
         await getDb().query(
           `UPDATE customers SET portal_pin_hash = $1 WHERE id = $2`,
-          [pinHashStored, customer.id],
+          [pinHash, customer.id],
         );
       } catch (dbErr) {
         // portal_pin_hash column might not exist yet
@@ -317,18 +320,23 @@ router.post("/confirm-payment", async (req, res) => {
       ? await billing.getPlanById(sub.plan_id)
       : null;
 
-    const pppoeUsername = customer ? `isp-${customer.phone}` : null;
-    const pppoePassword = require('crypto').randomBytes(6).toString('hex');
+    // Never invent credentials. Only return the real PPPoE credentials that
+    // were provisioned on the subscription (and therefore in RADIUS).
+    const credentials = sub?.pppoe_username && sub?.pppoe_password
+      ? {
+          username: sub.pppoe_username,
+          password: sub.pppoe_password,
+          plan_name: plan?.name || "",
+          speed: plan?.speed || "",
+        }
+      : null;
 
     res.json({
       success: true,
-      message: "Payment confirmed. Your service is now active!",
-      credentials: {
-        username: pppoeUsername,
-        password: pppoePassword,
-        plan_name: plan?.name || "",
-        speed: plan?.speed || "",
-      },
+      message: credentials
+        ? "Payment confirmed. Your service is now active!"
+        : "Payment confirmed. Your account is active; your service credentials will be provided by the operator.",
+      credentials,
       customer: customer ? { id: customer.id, name: customer.name } : null,
     });
   } catch (e) {

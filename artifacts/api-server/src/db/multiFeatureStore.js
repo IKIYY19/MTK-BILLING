@@ -345,21 +345,8 @@ async function updateGraceConfig(data) {
   return { ..._graceConfig };
 }
 
-// ─── Seed sample vouchers ───
-const seedVouchers = () => {};
-seedVouchers();
-
-// ─── Seed network metrics ───
-// Real metrics are collected from MikroTik API via realMonitoringService.
-// The in-memory fallback starts empty; data populates once routers connect.
-const seedMetrics = () => {};
-seedMetrics();
-
-// ─── Seed PPPoE sessions ───
-// Real PPPoE sessions are fetched from the MikroTik router via the API.
-// The in-memory fallback starts empty when no real router is connected.
-const seedPPPoE = () => {};
-seedPPPoE();
+// Vouchers, network metrics and PPPoE sessions are never seeded with sample
+// data. They come from RouterOS/RADIUS once a real router is connected.
 
 module.exports = {
   getBranches,
