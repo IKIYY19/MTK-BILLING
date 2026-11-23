@@ -7,6 +7,7 @@ import {
   Plus, Trash2, Eye, EyeOff, TrendingUp,
   Cpu, HardDrive, Wifi, Zap, Mail, MessageSquare, Phone
 } from 'lucide-react';
+import './monitoring.css';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
@@ -291,7 +292,7 @@ export function Monitoring() {
   };
 
   return (
-    <div className="relative min-h-full p-8 animate-fade-in">
+    <div className="mon-page relative min-h-full p-8 animate-fade-in">
       <div className="absolute inset-0 bg-mesh" />
       <div className="absolute inset-0 bg-noise" />
 
