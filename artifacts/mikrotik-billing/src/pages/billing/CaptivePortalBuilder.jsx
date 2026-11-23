@@ -160,6 +160,12 @@ export default function CaptivePortalBuilder() {
       const url = configured.host === window.location.host
         ? configured
         : new URL("/hotspot", window.location.origin);
+      url.searchParams.set("router_id", selectedConn || connections[0]?.id || "");
+      url.searchParams.set("mac", "00:11:22:33:44:55");
+      url.searchParams.set("ip", "172.31.0.2");
+      url.searchParams.set("gateway_ip", "172.31.0.1");
+      url.searchParams.set("link_login_only", "http://172.31.0.1/login");
+      url.searchParams.set("original_url", "http://example.com");
       url.searchParams.set("theme", selectedTemplate);
       if (welcomeText) {url.searchParams.set("welcome", welcomeText);}
       if (phoneNumber) {url.searchParams.set("support", phoneNumber);}
@@ -169,7 +175,7 @@ export default function CaptivePortalBuilder() {
       }
       return url.toString();
     } catch {
-      return `${window.location.origin}/hotspot?theme=${selectedTemplate}`;
+      return `${window.location.origin}/hotspot?theme=${selectedTemplate}&router_id=${selectedConn || connections[0]?.id || ""}&mac=00:11:22:33:44:55&gateway_ip=172.31.0.1&link_login_only=${encodeURIComponent("http://172.31.0.1/login")}`;
     }
   };
 
