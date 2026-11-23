@@ -3,6 +3,24 @@ const logger = require("../utils/logger");
 const COMMAND_TIMEOUT_MS = 12000;
 const CONNECT_TIMEOUT_MS = 10000;
 
+// node-routeros 1.6.9 throws on RouterOS' `!empty` reply (an empty print
+// result). Complete those commands with an empty array instead of crashing.
+try {
+  const { Channel } = require("node-routeros/dist/Channel");
+  if (Channel && !Channel.prototype.__ikiyyEmptyPatch) {
+    const original = Channel.prototype.processPacket;
+    Channel.prototype.processPacket = function (packet) {
+      // RouterOS sends `!empty` before the final `!done` for empty prints.
+      // Skip that packet so the channel remains registered for `!done`.
+      if (Array.isArray(packet) && packet[0] === "!empty") {return;}
+      return original.call(this, packet);
+    };
+    Channel.prototype.__ikiyyEmptyPatch = true;
+  }
+} catch {
+  // Older node-routeros versions expose a different layout; ignore.
+}
+
 function withTimeout(promise, timeoutMs, message) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
@@ -174,6 +192,13 @@ class RouterConnectionManager {
       tls: isSSL ? { rejectUnauthorized: false } : undefined,
     });
 
+    // node-routeros emits `error` for harmless `!empty` print replies; without
+    // a listener that becomes an uncaught exception and crashes the process.
+    api.on("error", (error) => {
+      if (/unknown reply:\s*!empty/i.test(error?.message || "")) {return;}
+      logger.warn(`MikroTik API error on ${effectiveConfig.ip_address}: ${this.describeError(error)}`);
+    });
+
     try {
       await withTimeout(
         api.connect(),
@@ -263,6 +288,11 @@ class RouterConnectionManager {
           connObj.lastUsed = Date.now();
           return result;
         } catch (error) {
+          // node-routeros throws on RouterOS' `!empty` reply instead of
+          // resolving with an empty result. Treat it as an empty print result.
+          if (/unknown reply:\s*!empty/i.test(error?.message || "")) {
+            return [];
+          }
           const errorMessage = this.describeError(error);
           logger.warn(`Command execution failed on router ${routerId}: ${errorMessage}. Retries left: ${retries}`);
           this.closeConnection(routerId);

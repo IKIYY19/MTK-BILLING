@@ -94,7 +94,7 @@ async function createSource(tid,item){const url=validateSource(item.url);const n
 async function updateSource(tid,id,item){const url=item.url===undefined?undefined:validateSource(item.url);const r=await db().query("UPDATE dns_adblock_sources SET name=COALESCE($1,name),url=COALESCE($2,url),enabled=COALESCE($3,enabled),domain_limit=COALESCE($4,domain_limit),updated_at=NOW() WHERE id=$5 AND tenant_id=$6 RETURNING id,name,url,enabled,domain_limit,domain_count,last_successful_at,last_error",[item.name===undefined?null:String(item.name).slice(0,160),url||null,item.enabled===undefined?null:Boolean(item.enabled),item.domain_limit===undefined?null:Math.min(MAX_DOMAINS,Math.max(1,Number(item.domain_limit)||100000)),id,tid]);if(!r.rows?.[0])throw Object.assign(new Error("Blocklist source not found"),{status:404});return r.rows[0];}
 async function deleteSource(tid,id){const r=await db().query("DELETE FROM dns_adblock_sources WHERE id=$1 AND tenant_id=$2 AND url<>$3 RETURNING id",[id,tid,DEFAULT_FEED]);if(!r.rows?.length)throw Object.assign(new Error("Source not found or protected default"),{status:404});return{success:true};}
 async function publish(tid,routerConfigId,domains,userId,httpsBase){
-  if(!httpsBase||!/^https:\/\//i.test(httpsBase))throw new Error("DNS_ADBLOCK_PUBLIC_BASE_URL must be a public HTTPS base URL for router feeds");
+  const hasFeed=Boolean(httpsBase&&/^https:\/\//i.test(httpsBase));
   const conf=(await db().query("SELECT id,domain_limit,active_version_id FROM dns_adblock_router_configs WHERE id=$1 AND tenant_id=$2",[routerConfigId,tid])).rows?.[0];if(!conf)throw new Error("Router config not found");
   const cap=Math.min(Number(conf.domain_limit)||MAX_DOMAINS,MAX_DOMAINS);if(domains.length>cap)throw new Error(`Domain count ${domains.length} exceeds router cap ${cap}`);
   const max=(await db().query("SELECT COALESCE(MAX(version),0)::bigint AS version FROM dns_adblock_versions WHERE router_config_id=$1",[routerConfigId])).rows?.[0]?.version||0;
@@ -103,19 +103,34 @@ async function publish(tid,routerConfigId,domains,userId,httpsBase){
     VALUES($1,$2,$3,'staged',$4,$5::jsonb,$6,'pending',$7) RETURNING id`,[tid,routerConfigId,version,domains.length,JSON.stringify(domains),sha,userId||null]);
   const id=result.rows[0].id; const token=feedSecret(id);
   await db().query("UPDATE dns_adblock_versions SET feed_signature=$1,status='published' WHERE id=$2",[digest(token),id]);
-  return {id,version,sha256:sha,domain_count:domains.length,feedUrl:`${httpsBase.replace(/\/$/,"")}/api/dns-adblock/feed/${id}/${token}`};
+  return {
+    id,version,sha256:sha,domain_count:domains.length,
+    feedUrl:hasFeed?`${httpsBase.replace(/\/$/,"")}/api/dns-adblock/feed/${id}/${token}`:null,
+    mode:hasFeed?"adlist":"static",
+  };
 }
 async function verifyFeed(id,token){const r=await db().query("SELECT feed_signature,domains,sha256 FROM dns_adblock_versions WHERE id=$1 AND status IN ('published','active')",[id]);const v=r.rows?.[0];if(!v||!secureEq(v.feed_signature,digest(token)))return null;const content=makeFeedBody(v.domains||[]);return{sha256:v.sha256,text:content};}
 function ipNetwork(value){const x=String(value||"").trim();const ip=x.split("/")[0];return net.isIP(ip)===4&&(!x.includes("/")||/^\d{1,3}(?:\.\d{1,3}){3}\/\d{1,2}$/.test(x))?x:null;}
+async function autoProtectedSubnets(router){
+  const addresses=await rowsAt(router,"/ip/address","address,network,interface").catch(()=>[]);
+  const found=[];
+  for(const row of addresses){
+    const cidr=ipNetwork(row.network||row.address);
+    if(cidr&&privateAddress(cidr.split("/")[0]))found.push(cidr);
+  }
+  return [...new Set(found)].slice(0,8).join(",");
+}
 function routerConfigName(id,kind){return `IKIYY-DNS-${kind}-${String(id).replace(/-/g,"").slice(0,12)}`;}
 function apiRows(data){return Array.isArray(data)?data:[];}
 async function detectRouter(router){
   const resources=apiRows(await routerExec(router,"/system/resource/print",{".proplist":"version,board-name,architecture-name,total-memory,free-memory"}));
-  const boards=apiRows(await routerExec(router,"/system/routerboard/print",{".proplist":"model,board-name,firmware-type"}));
+  const boards=apiRows(await routerExec(router,"/system/routerboard/print",{".proplist":"model,board-name,firmware-type"}).catch(()=>[]));
   const version=String(resources[0]?.version||"").match(/\d+(?:\.\d+){1,3}/)?.[0]||null;
   const model=boards[0]?.model||resources[0]?.["board-name"]||"Unknown";
-  const compatible=Boolean(version&&minVersion(version,MIN_ROUTEROS));
-  return{version,model,compatible,minimum:MIN_ROUTEROS,free_memory:resources[0]?.["free-memory"]||null};
+  const adlistSupport=Boolean(version&&minVersion(version,MIN_ROUTEROS));
+  const configuredMode=["auto","adlist","static"].includes(String(process.env.DNS_ADBLOCK_MODE||"").toLowerCase())?String(process.env.DNS_ADBLOCK_MODE).toLowerCase():"auto";
+  const mode=configuredMode==="auto"?(adlistSupport?"adlist":"static"):configuredMode;
+  return{version,model,adlist_support:adlistSupport,compatible:true,mode,minimum:MIN_ROUTEROS,free_memory:resources[0]?.["free-memory"]||null};
 }
 function privateAddress(value) {
   const ip=String(value||"").split("/")[0];
@@ -183,38 +198,40 @@ async function ensureFilterRule(router,rules,attrs){
   const exists=rules.some(r=>r.comment===attrs.comment&&r.chain===attrs.chain&&r.protocol===attrs.protocol&&String(r["dst-port"])===String(attrs["dst-port"])&&r.action===attrs.action&&String(r["src-address"]||"")===String(attrs["src-address"]||"")&&String(r["in-interface-list"]||"")===String(attrs["in-interface-list"]||""));
   if(!exists)await routerExec(router,"/ip/firewall/filter/add",{...attrs,"place-before":"0"});
 }
-async function applyFirewall(router,config,policyIps){
-  const nat=await rowsAt(router,"/ip/firewall/nat",".id,chain,action,protocol,dst-port,src-address,src-address-list,to-addresses,to-ports,comment,disabled");
-  const filters=await rowsAt(router,"/ip/firewall/filter",".id,chain,action,protocol,dst-port,in-interface-list,src-address,comment,disabled");
-  const list=String(config.lan_interface_list||"LAN");
-  const wanList=String(config.wan_interface_list||"WAN");
+async function applyFirewall(router,config,policyIps,availability={}){
+  const nat=await rowsAt(router,"/ip/firewall/nat",".id,chain,action,protocol,dst-port,src-address,src-address-list,to-addresses,to-ports,comment,disabled").catch(()=>[]);
+  const filters=await rowsAt(router,"/ip/firewall/filter",".id,chain,action,protocol,dst-port,in-interface-list,src-address,comment,disabled").catch(()=>[]);
+  const list=availability.lanAvailable===false?null:String(config.lan_interface_list||"LAN");
+  const wanList=availability.wanAvailable===false?null:String(config.wan_interface_list||"WAN");
   const configuredSources=String(config.protected_ipv4_subnets||"").split(/[\s,;]+/).map(ipNetwork).filter(Boolean);
   if(config.network_wide&&configuredSources.length===0)throw new Error("Set explicit Protected IPv4 Subnets before enabling network-wide DNS enforcement; no WAN/global catch-all is added");
   const sourceNetworks=config.network_wide?configuredSources:[...(policyIps.blockIps||[])];
-  if(!config.network_wide&&sourceNetworks.length===0)throw new Error("No enabled subscriber sessions are currently available for individual-only DNS filtering");
+  if(!config.network_wide&&sourceNetworks.length===0)return{skipped:"No active subscriber sessions; no DNS redirect rules installed"};
   const tag=`${MANAGED}:${config.id}`;
   const desiredNatKeys=new Set();
   for(const subnet of sourceNetworks){
     for(const proto of ["udp","tcp"]){
       const matchList=config.network_wide?`!${policyIps.bypassName}`:"";
       desiredNatKeys.add([proto,subnet,matchList].join("|"));
+      const lanAttr=list?{"in-interface-list":list}:{};
       if(config.network_wide){
-        await ensureNatRule(router,nat,{chain:"dstnat","in-interface-list":list,"src-address":subnet,"src-address-list":`!${policyIps.bypassName}`,protocol:proto,"dst-port":"53",action:"redirect","to-ports":"53","place-before":"0",comment:tag});
+        await ensureNatRule(router,nat,{chain:"dstnat",...lanAttr,"src-address":subnet,"src-address-list":`!${policyIps.bypassName}`,protocol:proto,"dst-port":"53",action:"redirect","to-ports":"53","place-before":"0",comment:tag});
       } else {
-        await ensureNatRule(router,nat,{chain:"dstnat","in-interface-list":list,"src-address":subnet,protocol:proto,"dst-port":"53",action:"redirect","to-ports":"53","place-before":"0",comment:tag});
+        await ensureNatRule(router,nat,{chain:"dstnat",...lanAttr,"src-address":subnet,protocol:proto,"dst-port":"53",action:"redirect","to-ports":"53","place-before":"0",comment:tag});
       }
       // Guard the router resolver itself. Allow only the explicitly protected subscriber prefixes.
-      await ensureFilterRule(router,filters,{chain:"input","in-interface-list":list,"src-address":subnet,protocol:proto,"dst-port":"53",action:"accept","place-before":"0",comment:tag});
+      await ensureFilterRule(router,filters,{chain:"input",...lanAttr,"src-address":subnet,protocol:proto,"dst-port":"53",action:"accept","place-before":"0",comment:tag});
     }
   }
   for(const row of nat.filter(r=>r.comment===tag&&String(r["dst-port"])==="53")){
     const key=[row.protocol,row["src-address"]||"",row["src-address-list"]||""].join("|");
     if(!desiredNatKeys.has(key)) await routerExec(router,"/ip/firewall/nat/remove",{numbers:row[".id"]});
   }
-  // Explicitly reject WAN DNS access; no remote recursive resolver is exposed.
-  for(const proto of ["udp","tcp"]) await ensureFilterRule(router,filters,{chain:"input","in-interface-list":wanList,protocol:proto,"dst-port":"53",action:"drop","place-before":"0",comment:tag});
+  // Explicitly reject WAN DNS access; skipped when no WAN interface list exists
+  // so we never accidentally block all DNS on routers without interface lists.
+  if(wanList)for(const proto of ["udp","tcp"]) await ensureFilterRule(router,filters,{chain:"input","in-interface-list":wanList,protocol:proto,"dst-port":"53",action:"drop","place-before":"0",comment:tag});
   if(config.block_dot){
-    for(const proto of ["tcp","udp"])await ensureFilterRule(router,filters,{chain:"forward","in-interface-list":list,protocol:proto,"dst-port":"853",action:"drop","place-before":"0",comment:tag});
+    for(const proto of ["tcp","udp"])await ensureFilterRule(router,filters,{chain:"forward",...(list?{"in-interface-list":list}:{}),protocol:proto,"dst-port":"853",action:"drop","place-before":"0",comment:tag});
   } else {
     for(const row of filters.filter(r=>r.comment===tag&&String(r["dst-port"])==="853"))await routerExec(router,"/ip/firewall/filter/remove",{numbers:row[".id"]});
   }
@@ -231,9 +248,30 @@ async function applyFirewall(router,config,policyIps){
     for(const proto of ["udp","tcp"])if(!filter6.some(r=>r.comment===tag&&r.chain==="input"&&r.protocol===proto&&String(r["dst-port"])==="53"&&r["in-interface-list"]===wanList))await routerExec(router,"/ipv6/firewall/filter/add",{chain:"input","in-interface-list":wanList,protocol:proto,"dst-port":"53",action:"drop","place-before":"0",comment:tag});
   }
 }
+const STATIC_MAX=Math.min(50000,Math.max(100,Number(process.env.DNS_ADBLOCK_STATIC_MAX_DOMAINS)||5000));
+
+async function applyStaticDns(router,id,domains){
+  const tag=`${MANAGED}:${id}`;
+  const existing=await rowsAt(router,"/ip/dns/static",".id,name,comment");
+  const unmanagedNames=new Set(existing.filter(r=>r.comment!==tag).map(r=>r.name).filter(Boolean));
+  for(const row of existing.filter(r=>r.comment===tag||String(r.comment||"").startsWith(MANAGED))){
+    await routerExec(router,"/ip/dns/static/remove",{numbers:row[".id"]}).catch(()=>{});
+  }
+  const selected=domains.filter(domain=>!unmanagedNames.has(domain)).slice(0,STATIC_MAX);
+  // Sequential writes avoid connection churn and node-routeros channel errors.
+  for(const domain of selected){
+    await routerExec(router,"/ip/dns/static/add",{
+      name:domain,address:"127.0.0.1",comment:tag,
+    }).catch(()=>{});
+  }
+  const after=await rowsAt(router,"/ip/dns/static",".id,name,comment");
+  const imported=after.filter(r=>r.comment===tag).length;
+  return{imported,expected:selected.length,truncated:domains.length>selected.length,mode:"static"};
+}
+
 async function removeManaged(router,config){
   const tag=`${MANAGED}:${config.id}`;
-  for(const [path,comment]of [["/ip/firewall/nat",tag],["/ip/firewall/filter",tag],["/ip/firewall/address-list",tag],["/ipv6/firewall/nat",tag],["/ipv6/firewall/filter",tag]]){
+  for(const [path,comment]of [["/ip/firewall/nat",tag],["/ip/firewall/filter",tag],["/ip/firewall/address-list",tag],["/ipv6/firewall/nat",tag],["/ipv6/firewall/filter",tag],["/ip/dns/static",tag]]){
     try{const data=await rowsAt(router,path,".id,comment");for(const row of data.filter(r=>r.comment===comment))await routerExec(router,`${path}/remove`,{numbers:row[".id"]});}catch(error){if(!/no such command|not enough permissions|invalid/i.test(error.message))throw error;}
   }
   const ads=await rowsAt(router,"/ip/dns/adlist",".id,comment");for(const ad of ads.filter(r=>r.comment===MANAGED||r.comment===`${MANAGED}:${config.id}`))await routerExec(router,"/ip/dns/adlist/remove",{numbers:ad[".id"]});
@@ -247,51 +285,77 @@ async function syncRouter(req,id,{snapshot,reason="manual"}={}){
     if(!global.dbAvailable)throw new Error("Router synchronization requires PostgreSQL persistence");
     ({config,router}=await loadRouter(tid,id));if(!config.enabled)throw new Error("Enable DNS filtering before synchronization");
     if(!snapshot)snapshot=await fetchSources(tid);
-    const published=await publish(tid,id,snapshot.domains,req?.user?.id,process.env.DNS_ADBLOCK_PUBLIC_BASE_URL||process.env.APP_URL||process.env.BASE_URL);
-    candidate=published;
     const info=await detectRouter(router);
-    if(!info.compatible)throw new Error(`RouterOS ${info.version||"unknown"} is below ${MIN_ROUTEROS}; native Adlist deployment is refused`);
-    const adlists=await rowsAt(router,"/ip/dns/adlist",".id,url,disabled,name-count,match-count,comment");
-    const dns=await rowsAt(router,"/ip/dns",".id,allow-remote-requests,cache-size,servers");
-    const intfs=await rowsAt(router,"/interface/list",".id,name");
-    if(!intfs.some(x=>x.name===String(config.lan_interface_list||"LAN")))throw new Error(`Router lacks configured LAN interface list ${config.lan_interface_list||"LAN"}`);
-    if(!intfs.some(x=>x.name===String(config.wan_interface_list||"WAN")))throw new Error(`Router lacks configured WAN interface list ${config.wan_interface_list||"WAN"}; resolver exposure guard not safely configurable`);
+    const httpsBase=process.env.DNS_ADBLOCK_PUBLIC_BASE_URL||process.env.APP_URL||process.env.BASE_URL;
+    const useAdlist=info.mode==="adlist"&&Boolean(httpsBase&&/^https:\/\//i.test(httpsBase));
+    const mode=useAdlist?"adlist":"static";
+    const published=await publish(tid,id,snapshot.domains,req?.user?.id,useAdlist?httpsBase:null);
+    candidate=published;
+    const dns=await rowsAt(router,"/ip/dns",".id,allow-remote-requests,cache-size,servers").catch(()=>[]);
+    const intfs=await rowsAt(router,"/interface/list",".id,name").catch(()=>[]);
+    const lanAvailable=intfs.some(x=>x.name===String(config.lan_interface_list||"LAN"));
+    const wanAvailable=intfs.some(x=>x.name===String(config.wan_interface_list||"WAN"));
     if(!config.dns_baseline)await db().query("UPDATE dns_adblock_router_configs SET dns_baseline=$1::jsonb WHERE id=$2",[JSON.stringify({"allow-remote-requests":dns[0]?.["allow-remote-requests"]||"no","cache-size":dns[0]?.["cache-size"]||null}),id]);
     const desiredCache=Math.max(16384,Math.ceil(published.domain_count*0.16));
     const currentCache=Number(String(dns[0]?.["cache-size"]||"2048").replace(/[^0-9]/g,""))||2048;
     const dnsSet={"allow-remote-requests":"yes"};if(currentCache<desiredCache)dnsSet["cache-size"]=String(desiredCache);
     await routerExec(router,"/ip/dns/set",dnsSet);
-    const previous=adlists.filter(a=>a.comment===MANAGED||a.comment===`${MANAGED}:${id}`);
-    const same=previous.find(a=>a.url===published.feedUrl);
-    if(same)await routerExec(router,"/ip/dns/adlist/set",{numbers:same[".id"],"ssl-verify":"yes",disabled:"no"});
-    else await routerExec(router,"/ip/dns/adlist/add",{url:esc(published.feedUrl),"ssl-verify":"yes",comment:`${MANAGED}:${id}`});
-    await routerExec(router,"/ip/dns/adlist/reload");
-    let active=null;let imported=0;
-    for(let attempt=0;attempt<10;attempt++){
-      const after=await rowsAt(router,"/ip/dns/adlist",".id,url,disabled,name-count,match-count,comment");
-      active=after.find(a=>a.url===published.feedUrl&&a.comment===`${MANAGED}:${id}`&&!["yes","true"].includes(String(a.disabled)));
-      imported=Number(active?.["name-count"]||0);
-      if(active&&imported>=Math.max(1,Math.floor(published.domain_count*0.5)))break;
-      await new Promise(resolve=>setTimeout(resolve,1500));
+
+    let imported=0;
+    let deploymentNote="";
+    if(useAdlist){
+      const adlists=await rowsAt(router,"/ip/dns/adlist",".id,url,disabled,name-count,match-count,comment").catch(()=>[]);
+      const previous=adlists.filter(a=>a.comment===MANAGED||a.comment===`${MANAGED}:${id}`);
+      const same=previous.find(a=>a.url===published.feedUrl);
+      if(same)await routerExec(router,"/ip/dns/adlist/set",{numbers:same[".id"],"ssl-verify":"yes",disabled:"no"});
+      else await routerExec(router,"/ip/dns/adlist/add",{url:esc(published.feedUrl),"ssl-verify":"yes",comment:`${MANAGED}:${id}`});
+      await routerExec(router,"/ip/dns/adlist/reload").catch(()=>{});
+      for(let attempt=0;attempt<10;attempt++){
+        const after=await rowsAt(router,"/ip/dns/adlist",".id,url,disabled,name-count,match-count,comment").catch(()=>[]);
+        const active=after.find(a=>a.url===published.feedUrl&&a.comment===`${MANAGED}:${id}`&&!["yes","true"].includes(String(a.disabled)));
+        imported=Number(active?.["name-count"]||0);
+        if(imported>=Math.max(1,Math.floor(published.domain_count*0.5)))break;
+        await new Promise(resolve=>setTimeout(resolve,1500));
+      }
+      if(imported<Math.max(1,Math.floor(published.domain_count*0.5)))throw new Error(`New Adlist not verified (${imported}/${published.domain_count}); previous managed version retained`);
+      for(const old of previous)if(old.url!==published.feedUrl)await routerExec(router,"/ip/dns/adlist/remove",{numbers:old[".id"]}).catch(()=>{});
+    }else{
+      const deployed=await applyStaticDns(router,id,snapshot.domains);
+      imported=deployed.imported;
+      if(imported<Math.max(1,Math.floor(deployed.expected*0.5)))throw new Error(`Static DNS entries not verified (${imported}/${deployed.expected})`);
+      deploymentNote=deployed.truncated?`Blocklist capped at ${STATIC_MAX} static entries`:`RouterOS ${info.version||"unknown"} does not support Adlist; used static DNS entries`;
     }
-    if(!active||imported<Math.max(1,Math.floor(published.domain_count*0.5)))throw new Error(`New Adlist not verified (${imported}/${published.domain_count}); previous managed version retained`);
+
+    if(config.network_wide&&!String(config.protected_ipv4_subnets||"").trim()){
+      const detected=await autoProtectedSubnets(router);
+      if(detected){
+        config.protected_ipv4_subnets=detected;
+        await db().query("UPDATE dns_adblock_router_configs SET protected_ipv4_subnets=$1 WHERE id=$2",[detected,id]);
+      }
+    }
     const policy=await syncCustomerIps(router,config);
-    if(config.enforce_dns)await applyFirewall(router,config,policy);
-    // Only remove the previous active feeds after candidate import and managed enforcement succeeded.
-    for(const old of previous)if(old.url!==published.feedUrl)await routerExec(router,"/ip/dns/adlist/remove",{numbers:old[".id"]});
+    if(config.enforce_dns){
+      const guard=await applyFirewall(router,config,policy,{lanAvailable,wanAvailable});
+      if(guard?.skipped)deploymentNote=`${deploymentNote} ${guard.skipped}`.trim();
+    }
     await db().query("UPDATE dns_adblock_versions SET status='retired',retired_at=NOW() WHERE router_config_id=$1 AND status='active' AND id<>$2",[id,published.id]);
     await db().query("UPDATE dns_adblock_versions SET status='active',activated_at=NOW() WHERE id=$1",[published.id]);
-    await db().query("UPDATE dns_adblock_router_configs SET active_version_id=$1,routeros_version=$2,hardware_model=$3,compatibility='compatible',last_successful_sync=NOW(),last_sync_status='synced',last_sync_error=NULL,updated_at=NOW() WHERE id=$4",[published.id,info.version,info.model,id]);
-    await recordLog(tid,id,reason,"success",`Adlist v${published.version} imported ${imported} domains`,{version:published.version,sha256:published.sha256,managed_blocked_sessions:policy.blocked_count,customer_optouts:policy.optout_count,feed_failures:snapshot.failures||[]});
-    return{success:true,status:"synced",version:published.version,domain_count:published.domain_count,imported_count:imported,routeros_version:info.version,model:info.model};
+    await db().query("UPDATE dns_adblock_router_configs SET active_version_id=$1,routeros_version=$2,hardware_model=$3,enforcement_mode=$4,compatibility='compatible',last_successful_sync=NOW(),last_sync_status='synced',last_sync_error=NULL,updated_at=NOW() WHERE id=$5",[published.id,info.version,info.model,mode,id]);
+    await recordLog(tid,id,reason,"success",`v${published.version} imported ${imported} domains via ${mode}`,{version:published.version,sha256:published.sha256,mode,imported_domains:imported,blocked_clients:policy.blocked_clients,bypass_clients:policy.bypass_clients,feed_failures:snapshot.failures||[],note:deploymentNote});
+    return{success:true,status:"synced",version:published.version,domain_count:published.domain_count,imported_count:imported,routeros_version:info.version,model:info.model,mode,note:deploymentNote};
   }catch(error){
     if(candidate) {
       try {
         if(router){
-          const entries=await rowsAt(router,"/ip/dns/adlist",".id,url,comment");
-          for(const entry of entries.filter(row=>row.url===candidate.feedUrl&&row.comment===`${MANAGED}:${id}`))await routerExec(router,"/ip/dns/adlist/remove",{numbers:entry[".id"]});
+          if(candidate.mode==="static"){
+            const entries=await rowsAt(router,"/ip/dns/static",".id,comment").catch(()=>[]);
+            for(const entry of entries.filter(row=>row.comment===`${MANAGED}:${id}`))await routerExec(router,"/ip/dns/static/remove",{numbers:entry[".id"]}).catch(()=>{});
+          }else{
+            const entries=await rowsAt(router,"/ip/dns/adlist",".id,url,comment").catch(()=>[]);
+            for(const entry of entries.filter(row=>row.url===candidate.feedUrl&&row.comment===`${MANAGED}:${id}`))await routerExec(router,"/ip/dns/adlist/remove",{numbers:entry[".id"]}).catch(()=>{});
+          }
         }
-      } catch(rollbackError) { error.message += `; staged Adlist rollback also failed: ${rollbackError.message}`; }
+      } catch(rollbackError) { error.message += `; staged rollback also failed: ${rollbackError.message}`; }
       await db().query("UPDATE dns_adblock_versions SET status='failed' WHERE id=$1 AND status='published'",[candidate.id]).catch(()=>{});
     }
     await db().query("UPDATE dns_adblock_router_configs SET last_sync_status='failed',last_sync_error=$1,updated_at=NOW() WHERE id=$2",[error.message.slice(0,1500),id]).catch(()=>{});
@@ -311,10 +375,10 @@ async function dashboard(tid){
  return{...(s.rows[0]||{}),...(r.rows[0]||{}),...(v.rows[0]||{}),customers_enabled:p.rows[0]?.enabled||0,last_successful_update:u.rows[0]?.updated||null,logs:l.rows||[]};
 }async function routerStatus(tid){return(await db().query(`SELECT COALESCE(c.id,m.id) AS id,c.id AS config_id,m.id AS connection_id,c.tenant_id,c.enabled,c.network_wide,c.enforce_dns,c.block_dot,c.enforce_ipv6,c.lan_interface_list,c.wan_interface_list,c.protected_ipv4_subnets,c.protected_ipv6_prefixes,c.domain_limit,c.routeros_version,c.hardware_model,c.compatibility,c.active_version_id,c.last_successful_sync,c.last_sync_status,c.last_sync_error,m.name AS router_name,m.ip_address AS router_ip,m.is_online FROM mikrotik_connections m LEFT JOIN dns_adblock_router_configs c ON c.connection_id=m.id AND c.tenant_id=$1 WHERE ($1::uuid IS NULL OR m.tenant_id=$1 OR m.tenant_id IS NULL) ORDER BY m.name`,[tid])).rows||[];}
 async function getRouterConfig(tid,connectionId){const row=(await db().query("SELECT * FROM dns_adblock_router_configs WHERE tenant_id=$1 AND connection_id=$2",[tid,connectionId])).rows?.[0];return row||{connection_id:connectionId,enabled:false,network_wide:true,enforce_dns:true,block_dot:false,enforce_ipv6:false,lan_interface_list:"LAN",wan_interface_list:"WAN",protected_ipv4_subnets:"",protected_ipv6_prefixes:"",domain_limit:200000};}
-async function discoverRouter(req,connectionId){const tid=tenant(req);const row=(await db().query("SELECT * FROM mikrotik_connections WHERE id=$1 AND ($2::uuid IS NULL OR tenant_id=$2)",[connectionId,req.tenantId||req.user?.tenant_id||null])).rows?.[0];if(!row)throw Object.assign(new Error("MikroTik router not found"),{status:404});const tunnel=Boolean(row.use_tunnel&&row.wireguard_tunnel_ip);const tls=String(row.connection_type||"").toLowerCase()==="api-ssl"||Number(row.api_port)===8729;if(!tunnel&&!tls&&!privateAddress(row.ip_address))throw Object.assign(new Error("Refusing unencrypted RouterOS API over a public management address; use WireGuard or api-ssl"),{status:403});const router={id:row.id,name:row.name,ip_address:row.ip_address,api_port:row.api_port,ssh_port:row.ssh_port,username:row.username,password_encrypted:row.password_encrypted,connection_type:row.connection_type,use_tunnel:row.use_tunnel,wireguard_tunnel_ip:row.wireguard_tunnel_ip,wireguard_public_key:row.wireguard_public_key,wireguard_interface_name:row.wireguard_interface_name};const info=await detectRouter(router);const ads=info.compatible?await rowsAt(router,"/ip/dns/adlist",".id,url,disabled,name-count,match-count,comment"):[];const saved=await db().query("SELECT id FROM dns_adblock_router_configs WHERE tenant_id=$1 AND connection_id=$2",[tid,connectionId]);if(saved.rows?.[0])await db().query("UPDATE dns_adblock_router_configs SET routeros_version=$1,hardware_model=$2,compatibility=$3,updated_at=NOW() WHERE id=$4",[info.version,info.model,info.compatible?"compatible":"unsupported",saved.rows[0].id]);return{connection_id:row.id,router_name:row.name,router_ip:row.ip_address,is_online:row.is_online,config_id:saved.rows?.[0]?.id||null,...info,adlists:ads};}
+async function discoverRouter(req,connectionId){const tid=tenant(req);const row=(await db().query("SELECT * FROM mikrotik_connections WHERE id=$1 AND ($2::uuid IS NULL OR tenant_id=$2)",[connectionId,req.tenantId||req.user?.tenant_id||null])).rows?.[0];if(!row)throw Object.assign(new Error("MikroTik router not found"),{status:404});const tunnel=Boolean(row.use_tunnel&&row.wireguard_tunnel_ip);const tls=String(row.connection_type||"").toLowerCase()==="api-ssl"||Number(row.api_port)===8729;if(!tunnel&&!tls&&!privateAddress(row.ip_address))throw Object.assign(new Error("Refusing unencrypted RouterOS API over a public management address; use WireGuard or api-ssl"),{status:403});const router={id:row.id,name:row.name,ip_address:row.ip_address,api_port:row.api_port,ssh_port:row.ssh_port,username:row.username,password_encrypted:row.password_encrypted,connection_type:row.connection_type,use_tunnel:row.use_tunnel,wireguard_tunnel_ip:row.wireguard_tunnel_ip,wireguard_public_key:row.wireguard_public_key,wireguard_interface_name:row.wireguard_interface_name};const info=await detectRouter(router);const ads=info.adlist_support?await rowsAt(router,"/ip/dns/adlist",".id,url,disabled,name-count,match-count,comment").catch(()=>[]):[];const saved=await db().query("SELECT id FROM dns_adblock_router_configs WHERE tenant_id=$1 AND connection_id=$2",[tid,connectionId]);if(saved.rows?.[0])await db().query("UPDATE dns_adblock_router_configs SET routeros_version=$1,hardware_model=$2,compatibility=$3,updated_at=NOW() WHERE id=$4",[info.version,info.model,info.compatible?"compatible":"unsupported",saved.rows[0].id]);return{connection_id:row.id,router_name:row.name,router_ip:row.ip_address,is_online:row.is_online,config_id:saved.rows?.[0]?.id||null,...info,adlists:ads};}
 async function listPolicies(tid){return(await db().query(`SELECT p.*,c.name AS customer_name,g.name AS group_name,m.name AS router_name FROM dns_adblock_policies p JOIN customers c ON c.id=p.customer_id JOIN dns_adblock_router_configs r ON r.id=p.router_config_id JOIN mikrotik_connections m ON m.id=r.connection_id LEFT JOIN dns_adblock_groups g ON g.id=p.group_id WHERE p.tenant_id=$1 ORDER BY c.name`,[tid])).rows||[];}
 async function eligibleCustomers(tid){const result=await db().query(`SELECT c.id,c.name,c.phone,s.pppoe_username,s.hotspot_username,s.status AS subscription_status,m.id AS connection_id,m.name AS router_name,dc.id AS router_config_id FROM customers c JOIN subscriptions s ON s.customer_id=c.id AND s.status='active' JOIN mikrotik_connections m ON m.id=s.mikrotik_connection_id LEFT JOIN dns_adblock_router_configs dc ON dc.connection_id=m.id AND dc.tenant_id=$1 WHERE ($2::uuid IS NULL OR c.tenant_id=$2) ORDER BY c.name`,[tid,tid===DEFAULT_TENANT?null:tid]);return result.rows||[];}
-async function disableRouter(req,id){const tid=tenant(req);const{config,router}=await loadRouter(tid,id);await removeManaged(router,config);await db().query("UPDATE dns_adblock_versions SET status='retired',retired_at=NOW() WHERE router_config_id=$1 AND status='active'",[id]);const result=await db().query("UPDATE dns_adblock_router_configs SET enabled=false,last_sync_status='disabled',last_sync_error=NULL,updated_at=NOW() WHERE id=$1 RETURNING *",[id]);await recordLog(tid,id,"disable","success","Removed only DNS Adblock-managed rules and Adlists");return result.rows[0];}
+async function disableRouter(req,id){const tid=tenant(req);const{config,router}=await loadRouter(tid,id);await removeManaged(router,config);const policies=(await db().query("SELECT username FROM dns_adblock_policies WHERE router_config_id=$1 AND tenant_id=$2",[id,tid])).rows||[];for(const policy of policies)await db().query("DELETE FROM radreply WHERE username=$1 AND attribute='Mikrotik-Address-List' AND value LIKE 'IKIYY-DNS-%'",[policy.username]).catch(()=>{});await db().query("UPDATE dns_adblock_versions SET status='retired',retired_at=NOW() WHERE router_config_id=$1 AND status='active'",[id]);const result=await db().query("UPDATE dns_adblock_router_configs SET enabled=false,last_sync_status='disabled',last_sync_error=NULL,updated_at=NOW() WHERE id=$1 RETURNING *",[id]);await recordLog(tid,id,"disable","success","Removed only DNS Adblock-managed rules and Adlists");return result.rows[0];}
 async function setRouter(req,connectionId,b={}){
  const tid=tenant(req);const conn=await db().query("SELECT id,name,ip_address FROM mikrotik_connections WHERE id=$1 AND ($2::uuid IS NULL OR tenant_id=$2)",[connectionId,req.tenantId||req.user?.tenant_id||null]);if(!conn.rows?.[0])throw Object.assign(new Error("MikroTik router not found in this tenant"),{status:404});
  const old=(await db().query("SELECT * FROM dns_adblock_router_configs WHERE tenant_id=$1 AND connection_id=$2",[tid,connectionId])).rows?.[0];
@@ -324,7 +388,7 @@ async function setRouter(req,connectionId,b={}){
  else if(values[0])await syncRouter(req,result.rows[0].id,{reason:"configure"});
  return{config:result.rows[0],router:conn.rows[0]};
 }
-async function checkRouter(req,id){const{config,router}=await loadRouter(tenant(req),id);const info=await detectRouter(router);const adlists=await rowsAt(router,"/ip/dns/adlist",".id,url,disabled,name-count,match-count,comment");await db().query("UPDATE dns_adblock_router_configs SET routeros_version=$1,hardware_model=$2,compatibility=$3,updated_at=NOW() WHERE id=$4",[info.version,info.model,info.compatible?"compatible":"unsupported",id]);return{...info,adlists:adlists.map(a=>({url:a.url,managed:a.comment===`${MANAGED}:${id}`,active:!["true","yes"].includes(String(a.disabled)),imported_domains:Number(a["name-count"]||0),matched_queries:Number(a["match-count"]||0)})),sync_status:config.last_sync_status};}
+async function checkRouter(req,id){const{config,router}=await loadRouter(tenant(req),id);const info=await detectRouter(router);const adlists=info.adlist_support?await rowsAt(router,"/ip/dns/adlist",".id,url,disabled,name-count,match-count,comment").catch(()=>[]):[];await db().query("UPDATE dns_adblock_router_configs SET routeros_version=$1,hardware_model=$2,compatibility=$3,enforcement_mode=$4,updated_at=NOW() WHERE id=$5",[info.version,info.model,info.adlist_support?"adlist-capable":"static-mode",info.mode,id]);return{...info,adlists:adlists.map(a=>({url:a.url,managed:a.comment===`${MANAGED}:${id}`,active:!["true","yes"].includes(String(a.disabled)),imported_domains:Number(a["name-count"]||0),matched_queries:Number(a["match-count"]||0)})),sync_status:config.last_sync_status};}
 async function updatePolicy(req,id,b){const tid=tenant(req);const old=(await db().query("SELECT * FROM dns_adblock_policies WHERE id=$1 AND tenant_id=$2",[id,tid])).rows?.[0];if(!old)throw Object.assign(new Error("Customer policy not found"),{status:404});const enabled=Boolean(b.enabled);await db().query("UPDATE dns_adblock_policies SET enabled=$1,updated_at=NOW() WHERE id=$2 AND tenant_id=$3",[enabled,id,tid]);const synced=await syncRouter(req,old.router_config_id,{reason:"customer_policy"});await db().query("UPDATE dns_adblock_policies SET last_sync_status=$1,last_sync_error=$2 WHERE id=$3",[synced.success?"synced":"failed",synced.error||null,id]);return{policy:{...old,enabled,last_sync_status:synced.success?"synced":"failed"},sync:synced};}
 async function upsertPolicy(req,p){const tid=tenant(req);const access=p.access_type==="hotspot"?"hotspot":p.access_type==="pppoe"?"pppoe":null;if(!access)throw Object.assign(new Error("access_type must be pppoe or hotspot"),{status:400});const username=String(p.username||"").trim().slice(0,100);if(!username)throw Object.assign(new Error("Subscriber username is required"),{status:400});const c=(await db().query("SELECT id FROM customers WHERE id=$1 AND ($2::uuid IS NULL OR tenant_id=$2)",[p.customer_id,req.tenantId||req.user?.tenant_id||null])).rows?.[0];if(!c)throw Object.assign(new Error("Customer not found"),{status:404});const r=(await db().query("SELECT id FROM dns_adblock_router_configs WHERE id=$1 AND tenant_id=$2 AND enabled=true",[p.router_config_id,tid])).rows?.[0];if(!r)throw Object.assign(new Error("Choose an enabled router DNS filter"),{status:400});const row=await db().query(`INSERT INTO dns_adblock_policies(tenant_id,customer_id,router_config_id,access_type,username,enabled,self_service_allowed,group_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(router_config_id,access_type,username) DO UPDATE SET customer_id=EXCLUDED.customer_id,enabled=EXCLUDED.enabled,self_service_allowed=EXCLUDED.self_service_allowed,group_id=EXCLUDED.group_id,updated_at=NOW() RETURNING *`,[tid,p.customer_id,p.router_config_id,access,username,p.enabled!==false,Boolean(p.self_service_allowed),p.group_id||null]);return row.rows[0];}
 async function listGroups(tid){return(await db().query("SELECT * FROM dns_adblock_groups WHERE tenant_id=$1 ORDER BY name",[tid])).rows||[];}
@@ -341,6 +405,4 @@ async function setCustomerSelfService(customerId,enabled){const policies=(await 
 async function dailyUpdate(){if(!global.dbAvailable)return{skipped:true};const rows=(await db().query("SELECT id,tenant_id FROM dns_adblock_router_configs WHERE enabled=true")).rows||[];const outcomes=[];for(const tid of [...new Set(rows.map(x=>x.tenant_id))]){let snapshot;try{snapshot=await fetchSources(tid);}catch(error){for(const c of rows.filter(x=>x.tenant_id===tid)){await db().query("UPDATE dns_adblock_router_configs SET last_sync_status='failed',last_sync_error=$1 WHERE id=$2",[error.message.slice(0,1000),c.id]);await recordLog(tid,c.id,"daily_update","failed",error.message);}continue;}for(const c of rows.filter(x=>x.tenant_id===tid))outcomes.push(await syncRouter({tenantId:tid,user:{tenant_id:tid,role:"system"}},c.id,{snapshot,reason:"daily_update"}));}return{routers:outcomes.length,succeeded:outcomes.filter(x=>x.success).length,failed:outcomes.filter(x=>!x.success).length};}
 async function checkHealth(){const configs=(await db().query("SELECT id,tenant_id FROM dns_adblock_router_configs WHERE enabled=true")).rows||[];const results=[];for(const item of configs){try{results.push({id:item.id,status:await checkRouter({tenantId:item.tenant_id,user:{tenant_id:item.tenant_id,role:"system"}},item.id)});}catch(error){await db().query("UPDATE dns_adblock_router_configs SET last_sync_status='unreachable',last_sync_error=$1 WHERE id=$2",[error.message.slice(0,1000),item.id]).catch(()=>{});await recordLog(item.tenant_id,item.id,"health_check","failed",error.message).catch(()=>{});results.push({id:item.id,error:error.message});}}return{checked:configs.length,results};}
 async function retryFailed(){const configs=(await db().query("SELECT id,tenant_id FROM dns_adblock_router_configs WHERE enabled=true AND last_sync_status IN ('failed','queued','unreachable')")).rows||[];const results=[];for(const tid of [...new Set(configs.map(c=>c.tenant_id))]){let snapshot;try{snapshot=await fetchSources(tid);}catch(error){continue;}for(const item of configs.filter(c=>c.tenant_id===tid))results.push(await syncRouter({tenantId:tid,user:{tenant_id:tid,role:"system"}},item.id,{snapshot,reason:"retry"}));}return{attempted:results.length,succeeded:results.filter(r=>r.success).length};}
-async function recordLog(tid,id,operation,status,message,details={}){await db().query("INSERT INTO dns_adblock_sync_logs(tenant_id,router_config_id,operation,status,message,details) VALUES($1,$2,$3,$4,$5,$6::jsonb)",[tid,id||null,operation,status,message||null,JSON.stringify(details)]);}
-
 module.exports={DEFAULT_FEED,MAX_DOMAINS,MANAGED,safeDomain,parseHosts,validateSource,toRouterOSArgs,fetchSources,publish,verifyFeed,syncRouter,dailyUpdate,dashboard,routerStatus,getRouterConfig,discoverRouter,listPolicies,eligibleCustomers,disableRouter,listSources,createSource,updateSource,deleteSource,sourceHistory,setRouter,checkRouter,upsertPolicy,updatePolicy,listGroups,createGroup,updateGroup,listDomains,upsertDomain,deleteDomain,syncLogs,getCustomerPolicy,getCustomerPolicySummary,setCustomerSelfService,deleteGroup,checkHealth,retryFailed,recordLog};

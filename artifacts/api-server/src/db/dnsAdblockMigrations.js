@@ -34,6 +34,7 @@ const dnsAdblockMigrations = [
     last_successful_sync TIMESTAMP, last_sync_status VARCHAR(24) NOT NULL DEFAULT 'never', last_sync_error TEXT,
     created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW(), UNIQUE (tenant_id, connection_id)
   )`,
+  `ALTER TABLE dns_adblock_router_configs ADD COLUMN IF NOT EXISTS enforcement_mode VARCHAR(12) NOT NULL DEFAULT 'auto'`,
   `CREATE INDEX IF NOT EXISTS idx_dns_adblock_router_tenant ON dns_adblock_router_configs(tenant_id, enabled)`,
   `CREATE TABLE IF NOT EXISTS dns_adblock_versions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID, router_config_id UUID NOT NULL REFERENCES dns_adblock_router_configs(id) ON DELETE CASCADE,
