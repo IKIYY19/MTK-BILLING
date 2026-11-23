@@ -8,6 +8,19 @@ const routerConnectionManager = require("./routerConnectionManager");
 const PING_TARGET = "1.1.1.1";
 const MAX_SCAN_INTERFACES = 12;
 
+function bitsPerSecond(first, second, seconds) {
+  const delta = Math.max(0, Number(second || 0) - Number(first || 0));
+  return Math.round((delta * 8) / seconds);
+}
+
+function formatRate(bps) {
+  if (!Number.isFinite(bps) || bps <= 0) {return "0 bps";}
+  if (bps >= 1_000_000_000) {return `${(bps / 1_000_000_000).toFixed(2)} Gbps`;}
+  if (bps >= 1_000_000) {return `${(bps / 1_000_000).toFixed(2)} Mbps`;}
+  if (bps >= 1_000) {return `${(bps / 1_000).toFixed(1)} Kbps`;}
+  return `${bps} bps`;
+}
+
 function fail(message) {
   return Object.assign(new Error(message), { status: 400 });
 }
@@ -51,8 +64,8 @@ async function testInternet(routerId, interfaceName, target) {
     const rows = await routerConnectionManager.executeCommand(
       routerId,
       "/ping",
-      { address: target || PING_TARGET, interface: interfaceName, count: "3" },
-      { timeoutMs: 15000 },
+      { address: target || PING_TARGET, interface: interfaceName, count: "2" },
+      { timeoutMs: 6000 },
     );
     return parsePing(rows);
   } catch (error) {
@@ -61,8 +74,13 @@ async function testInternet(routerId, interfaceName, target) {
 }
 
 async function scanInterfaces(routerId, options = {}) {
+  const scanStarted = Date.now();
   const [rawInterfaces, addresses, routes, dhcpClients] = await Promise.all([
-    routerConnectionManager.print(routerId, "/interface").catch(() => []),
+    routerConnectionManager.print(
+      routerId,
+      "/interface",
+      "name,type,mac-address,disabled,running,comment,rx-byte,tx-byte",
+    ).catch(() => []),
     routerConnectionManager.print(routerId, "/ip/address").catch(() => []),
     routerConnectionManager.print(routerId, "/ip/route").catch(() => []),
     routerConnectionManager.print(routerId, "/ip/dhcp-client").catch(() => []),
@@ -103,12 +121,12 @@ async function scanInterfaces(routerId, options = {}) {
   const candidates = (preferred.length > 0 ? preferred : usable).slice(0, MAX_SCAN_INTERFACES);
 
   const interfaces = [];
+  const pingTargets = [];
   for (const iface of candidates) {
     const name = iface.name || iface["default-name"];
     const interfaceAddresses = addressByInterface.get(name) || [];
     const gateway = defaultByInterface.get(name) || dhcpByInterface.get(name) || "";
-    const pingResult = await testInternet(routerId, name, options.target);
-    interfaces.push({
+    const entry = {
       name,
       type: iface.type || "unknown",
       running: iface.running === "true" || iface.running === true,
@@ -119,16 +137,55 @@ async function scanInterfaces(routerId, options = {}) {
       gateway,
       has_default_route: defaultByInterface.has(name),
       has_dhcp_client: dhcpByInterface.has(name),
-      internet: pingResult.internet,
-      packet_loss: pingResult.packetLoss,
-      latency_ms: pingResult.latencyMs,
-      ping_error: pingResult.error || null,
-    });
+      rx_bytes: iface["rx-byte"] || "0",
+      tx_bytes: iface["tx-byte"] || "0",
+      internet: false,
+      packet_loss: 100,
+      latency_ms: null,
+      ping_error: null,
+      skipped: null,
+    };
+    // Only interfaces with a usable gateway can carry internet traffic.
+    if (gateway) {pingTargets.push(entry);}
+    else {entry.skipped = "no gateway configured";}
+    interfaces.push(entry);
+  }
+
+  await Promise.all(pingTargets.map(async (entry) => {
+    const pingResult = await testInternet(routerId, entry.name, options.target);
+    entry.internet = pingResult.internet;
+    entry.packet_loss = pingResult.packetLoss;
+    entry.latency_ms = pingResult.latencyMs;
+    entry.ping_error = pingResult.error || null;
+  }));
+
+  const sampleSeconds = Math.max((Date.now() - scanStarted) / 1000, 0.1);
+  const secondSample = await routerConnectionManager
+    .print(routerId, "/interface", "name,rx-byte,tx-byte")
+    .catch(() => []);
+  const secondByName = new Map(secondSample.map((item) => [item.name, item]));
+  for (const entry of interfaces) {
+    const later = secondByName.get(entry.name) || {};
+    const rxBps = bitsPerSecond(
+      entry.rx_bytes,
+      later["rx-byte"] ?? entry.rx_bytes,
+      sampleSeconds,
+    );
+    const txBps = bitsPerSecond(
+      entry.tx_bytes,
+      later["tx-byte"] ?? entry.tx_bytes,
+      sampleSeconds,
+    );
+    entry.rx_bps = rxBps;
+    entry.tx_bps = txBps;
+    entry.rx_rate = formatRate(rxBps);
+    entry.tx_rate = formatRate(txBps);
   }
 
   return {
     target: options.target || PING_TARGET,
     scanned_at: new Date().toISOString(),
+    sample_seconds: Number(sampleSeconds.toFixed(2)),
     interfaces,
     detected_wans: interfaces.filter((item) => item.internet).map((item) => item.name),
   };

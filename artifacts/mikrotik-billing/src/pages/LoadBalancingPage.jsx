@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { BondingPanel } from './loadBalancing/BondingPanel';
+import { Traffic } from './loadBalancing/Traffic';
 import './loadBalancing.css';
 
 const API = import.meta.env.VITE_API_URL || '/api';
@@ -151,6 +152,10 @@ export function LoadBalancingPage() {
   };
 
   const internetCount = (scan?.detected_wans || []).length;
+  const maxTraffic = Math.max(
+    1,
+    ...(scan?.interfaces || []).flatMap((iface) => [iface.rx_bps || 0, iface.tx_bps || 0]),
+  );
 
   return (
     <div className="lb-page">
@@ -265,6 +270,7 @@ export function LoadBalancingPage() {
                         <th>Type</th>
                         <th>Address / subnet</th>
                         <th>Gateway</th>
+                        <th>Traffic</th>
                         <th>Internet</th>
                         <th>Latency</th>
                         <th>Weight</th>
@@ -305,8 +311,17 @@ export function LoadBalancingPage() {
                               </td>
                               <td className="lb-mono">{iface.gateway || '—'}</td>
                               <td>
+                                <Traffic
+                                  rxBps={iface.rx_bps}
+                                  txBps={iface.tx_bps}
+                                  rxRate={iface.rx_rate}
+                                  txRate={iface.tx_rate}
+                                  max={maxTraffic}
+                                />
+                              </td>
+                              <td>
                                 <span className={`lb-pill ${iface.internet ? 'lb-pill--ok' : 'lb-pill--bad'}`}>
-                                  <i className="lb-pill__dot" /> {iface.internet ? 'Online' : 'No route'}
+                                  <i className="lb-pill__dot" /> {iface.internet ? 'Online' : iface.skipped || 'No route'}
                                 </span>
                               </td>
                               <td className="lb-mono">{iface.latency_ms != null ? `${iface.latency_ms} ms` : '—'}</td>
@@ -328,7 +343,7 @@ export function LoadBalancingPage() {
                             </tr>
                             {isOpen && (
                               <tr>
-                                <td colSpan={8} className="lb-detail">
+                                <td colSpan={9} className="lb-detail">
                                   <span><b>MAC:</b> {iface.mac_address || '—'}</span>
                                   <span><b>Link:</b> {iface.running ? 'up' : 'down'}</span>
                                   <span><b>Packet loss:</b> {iface.packet_loss ?? '—'}%</span>

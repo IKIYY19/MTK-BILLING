@@ -5,6 +5,7 @@ import {
   RefreshCw, Rocket, Search, ShieldCheck,
 } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
+import { Traffic } from './Traffic';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
@@ -21,24 +22,6 @@ function Stat({ label, value, hint }) {
       <span className="lb-stat__label">{label}</span>
       <span className="lb-stat__value">{value}</span>
       {hint && <span className="lb-stat__hint">{hint}</span>}
-    </div>
-  );
-}
-
-function Traffic({ rxBps, txBps, rxRate, txRate, max }) {
-  const width = (value) => `${Math.min(100, Math.round((value / (max || 1)) * 100))}%`;
-  return (
-    <div className="lb-traffic">
-      <div className="lb-traffic__row">
-        <span>↓</span>
-        <div className="lb-bar"><i style={{ width: width(rxBps || 0) }} /></div>
-        <span>{rxRate || '0 bps'}</span>
-      </div>
-      <div className="lb-traffic__row">
-        <span>↑</span>
-        <div className="lb-bar"><i style={{ width: width(txBps || 0) }} /></div>
-        <span>{txRate || '0 bps'}</span>
-      </div>
     </div>
   );
 }
