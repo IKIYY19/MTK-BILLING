@@ -162,9 +162,11 @@ router.post("/run", async (req, res) => {
       latency_ms: measuredNumber(req.body.latency_ms) ?? ping?.latency_ms ?? 0,
       jitter_ms: measuredNumber(req.body.jitter_ms) ?? ping?.jitter_ms ?? 0,
       packet_loss_pct: measuredNumber(req.body.packet_loss_pct) ?? ping?.packet_loss_pct ?? 0,
-      note: protocol === "browser-stream"
-        ? "Throughput measured from this browser to the server; latency measured from the router"
-        : "Download measured from the router to a public speed-test server",
+      note: protocol === "browser-public"
+        ? "Throughput measured from this browser to a public internet server over the router WAN; latency from the router"
+        : protocol === "browser-stream"
+          ? "Throughput measured from this browser to the local server; latency measured from the router"
+          : "Download measured from the router to a public speed-test server",
       timestamp: new Date().toISOString(),
     };
 

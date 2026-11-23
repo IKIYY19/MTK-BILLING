@@ -14,6 +14,8 @@ import './speedtest.css';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 const ORIGIN = API.replace(/\/api\/?$/, '');
+const PUBLIC_DOWNLOAD = (mb) => `https://speed.cloudflare.com/__down?bytes=${mb * 1024 * 1024}`;
+const PUBLIC_UPLOAD = 'https://speed.cloudflare.com/__up';
 
 function pad(value) { return String(value).padStart(2, '0'); }
 
@@ -29,6 +31,19 @@ function formatSpeed(mbps) {
 
 function speedUnit(mbps) {
   return (Number(mbps) || 0) >= 1000 ? 'Gbps' : 'Mbps';
+}
+
+async function usePublicMeasurement(signal) {
+  try {
+    const response = await fetch('https://speed.cloudflare.com/__down?bytes=1000', {
+      mode: 'cors',
+      cache: 'no-store',
+      signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 function useChartColors() {
@@ -48,11 +63,12 @@ function useChartColors() {
   }, [theme, mode]);
 }
 
-async function measureDownload(mb, onSample, onProgress, signal) {
+async function measureDownload(url, expectedBytes, onSample, onProgress, signal) {
   const started = performance.now();
-  const response = await fetch(`${ORIGIN}/speedtest/payload?mb=${Math.min(20, Math.max(1, mb))}`, {
+  const response = await fetch(url, {
     signal,
     cache: 'no-store',
+    mode: 'cors',
   });
   if (!response.ok || !response.body) {
     throw new Error('Download endpoint is unavailable');
@@ -61,7 +77,7 @@ async function measureDownload(mb, onSample, onProgress, signal) {
   let total = 0;
   let previousBytes = 0;
   let previousAt = started;
-  const expected = mb * 1024 * 1024;
+  const expected = expectedBytes;
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -88,7 +104,7 @@ async function measureDownload(mb, onSample, onProgress, signal) {
   };
 }
 
-function measureUpload(mb, onSample, onProgress, signal) {
+function measureUpload(url, mb, onSample, onProgress, signal) {
   return new Promise((resolve, reject) => {
     const payload = new Uint8Array(Math.round(mb * 1024 * 1024));
     const xhr = new XMLHttpRequest();
@@ -96,7 +112,7 @@ function measureUpload(mb, onSample, onProgress, signal) {
     let previousLoaded = 0;
     let previousAt = started;
 
-    xhr.open('POST', `${ORIGIN}/speedtest/upload`);
+    xhr.open('POST', url);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.upload.onprogress = (event) => {
       const now = performance.now();
@@ -229,25 +245,40 @@ export function SpeedTest() {
     };
 
     try {
+      const isPublic = await usePublicMeasurement(controller.signal);
+      const source = isPublic ? 'public internet' : 'local server';
       await samplePing();
       pingTimerRef.current = setInterval(samplePing, 1200);
 
-      setPhase('download');
-      const down = await measureDownload(
-        payloadMb,
-        pushSample,
-        (bytes, expected) => setProgress(Math.min(99, Math.round((bytes / expected) * 100))),
-        controller.signal,
-      );
+      let down = { mbps: 0, seconds: 0 };
+      let up = { mbps: 0, seconds: 0 };
 
-      setPhase('upload');
-      setProgress(0);
-      const up = await measureUpload(
-        2,
-        pushSample,
-        (bytes, total) => setProgress(Math.min(99, Math.round((bytes / total) * 100))),
-        controller.signal,
-      );
+      if (direction !== 'upload') {
+        setPhase('download');
+        const expectedBytes = payloadMb * 1024 * 1024;
+        const downloadUrl = isPublic
+          ? PUBLIC_DOWNLOAD(payloadMb)
+          : `${ORIGIN}/speedtest/payload?mb=${payloadMb}`;
+        down = await measureDownload(
+          downloadUrl,
+          expectedBytes,
+          pushSample,
+          (bytes, expected) => setProgress(Math.min(99, Math.round((bytes / expected) * 100))),
+          controller.signal,
+        );
+      }
+
+      if (direction !== 'download') {
+        setPhase('upload');
+        setProgress(0);
+        up = await measureUpload(
+          isPublic ? PUBLIC_UPLOAD : `${ORIGIN}/speedtest/upload`,
+          2,
+          pushSample,
+          (bytes, total) => setProgress(Math.min(99, Math.round((bytes / total) * 100))),
+          controller.signal,
+        );
+      }
 
       setPhase('saving');
       setProgress(100);
@@ -258,9 +289,9 @@ export function SpeedTest() {
 
       const { data } = await axios.post(`${API}/speedtest/run`, {
         connection_id: selectedConnection,
-        test_to: 'browser stream',
+        test_to: isPublic ? 'cloudflare' : 'local server',
         direction,
-        protocol: 'browser-stream',
+        protocol: isPublic ? 'browser-public' : 'browser-stream',
         download_mbps: down.mbps,
         upload_mbps: up.mbps,
         latency_ms: latency,
@@ -316,8 +347,8 @@ export function SpeedTest() {
           <span className="st-eyebrow"><Gauge size={13} /> Network diagnostics</span>
           <h1 className="st-title">Speed Test</h1>
           <p className="st-subtitle">
-            Measure real throughput with live, per-sample charts. Download and upload are streamed
-            through this server; latency is measured from the selected MikroTik router.
+            Measure your real internet throughput with live, per-sample charts. Traffic goes through
+            the router's WAN to a public speed-test endpoint; latency is measured from the router itself.
           </p>
         </div>
         <span className={`st-live-badge ${running ? 'st-live-badge--on' : ''}`}>
@@ -367,8 +398,9 @@ export function SpeedTest() {
           )}
           <div className="st-callout" style={{ marginTop: 0, flex: '1 1 100%' }}>
             <Info size={15} />
-            Throughput is measured from real bytes transferred to and from this server. No estimated
-            or hardcoded values are used; latency comes from a router-side ping.
+            Throughput is measured from real bytes exchanged with a public internet server over the
+            router's WAN link. If that endpoint is unreachable, the page falls back to this server
+            and labels the result accordingly. No estimated or hardcoded values are used.
           </div>
         </div>
       </div>
@@ -453,7 +485,7 @@ export function SpeedTest() {
       {result && (
         <div className="st-metrics">
           <Metric icon={ArrowDownRight} label="Download" value={formatSpeed(result.download_mbps)} unit={speedUnit(result.download_mbps)} hint="streamed bytes" />
-          <Metric icon={ArrowUpRight} label="Upload" value={formatSpeed(result.upload_mbps)} unit={speedUnit(result.upload_mbps)} hint="browser → server" />
+          <Metric icon={ArrowUpRight} label="Upload" value={formatSpeed(result.upload_mbps)} unit={speedUnit(result.upload_mbps)} hint="browser → internet" />
           <Metric icon={Wifi} label="Latency" value={(result.latency_ms || 0).toFixed(1)} unit="ms" hint="from router" />
           <Metric icon={Activity} label="Jitter" value={(result.jitter_ms || 0).toFixed(1)} unit="ms" hint="variation" />
           <Metric icon={Network} label="Packet loss" value={(result.packet_loss_pct || 0).toFixed(2)} unit="%" hint="ICMP ping" />
