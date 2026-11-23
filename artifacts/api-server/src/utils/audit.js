@@ -5,6 +5,7 @@
 
 const { v4: uuidv4 } = require("uuid");
 const logger = require("./logger");
+const { getTenantId } = require("../db/tenantScope");
 
 const SECRET_FIELD =
   /(password|passkey|pin|secret|token|authorization|cookie|credential|private[_-]?key|two[_-]?factor|otp)/i;
@@ -71,8 +72,8 @@ async function logAudit({
     await global.db.query(
       `INSERT INTO audit_logs
        (id, action, entity_type, entity_id, user_id, user_name, user_role,
-        ip_address, user_agent, details, before_data, after_data, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+         ip_address, user_agent, details, before_data, after_data, created_at, tenant_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         entry.id,
         entry.action,
@@ -87,6 +88,7 @@ async function logAudit({
         entry.before_data ? JSON.stringify(entry.before_data) : null,
         entry.after_data ? JSON.stringify(entry.after_data) : null,
         entry.created_at,
+        getTenantId() || null,
       ],
     );
     logger.debug("Audit log created", {

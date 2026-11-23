@@ -801,7 +801,12 @@ const startServer = async () => {
     app.use("/api/qos", authenticate, require("./routes/qos"));
 
     // Audit Log routes
-    app.use("/api/audit", authenticate, require("./routes/audit"));
+    app.use(
+      "/api/audit",
+      authenticate,
+      requireRole(ROLES.ADMIN),
+      require("./routes/audit"),
+    );
 
     // Tenant management routes
     app.use("/api/tenants", authenticate, require("./routes/tenants"));

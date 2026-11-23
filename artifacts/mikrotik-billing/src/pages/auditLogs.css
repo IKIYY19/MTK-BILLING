@@ -1,0 +1,125 @@
+/* Audit Logs — theme-aware restyle, scoped to this page. */
+
+.audit-page { color: var(--text-primary); }
+
+.light .audit-page .text-white,
+.dark .audit-page .text-white,
+.audit-page .text-white { color: var(--text-primary) !important; }
+.light .audit-page .text-zinc-400,
+.dark .audit-page .text-zinc-400,
+.audit-page .text-zinc-400 { color: var(--text-muted) !important; }
+.light .audit-page .text-zinc-500,
+.dark .audit-page .text-zinc-500,
+.audit-page .text-zinc-500 { color: var(--text-dim) !important; }
+.audit-page .text-blue-400 { color: var(--accent-blue) !important; }
+.audit-page .text-emerald-400,
+.audit-page .text-green-400,
+.audit-page .text-teal-400 { color: var(--accent-emerald) !important; }
+.audit-page .text-amber-400,
+.audit-page .text-yellow-400 { color: var(--accent-amber) !important; }
+.audit-page .text-red-400 { color: var(--accent-rose) !important; }
+.audit-page .text-violet-400,
+.audit-page .text-purple-400 { color: var(--accent-violet) !important; }
+.audit-page .text-cyan-400 { color: var(--accent-cyan, var(--accent-blue)) !important; }
+.audit-page .text-indigo-400 { color: var(--accent-blue) !important; }
+
+.audit-page .bg-card,
+.audit-page [class*="bg-zinc-900"] {
+  background: var(--bg-card) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-subtle) !important;
+}
+.audit-page [class*="bg-zinc-900/60"],
+.audit-page [class*="bg-zinc-900/40"] {
+  background: var(--bg-surface) !important;
+}
+.audit-page [class*="border-zinc-700"] { border-color: var(--border-medium) !important; }
+.audit-page [class*="border-zinc-800"] { border-color: var(--border-subtle) !important; }
+.audit-page [class*="hover:bg-zinc-800"]:hover { background: var(--bg-surface) !important; }
+.audit-page [class*="bg-zinc-700/50"] { background: var(--bg-tertiary) !important; }
+
+.audit-page button[class*="border-input"],
+.audit-page button[class*="variant-outline"] {
+  border-color: var(--border-medium) !important;
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+  border-radius: 10px;
+}
+
+.audit-page input,
+.audit-page select {
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-medium) !important;
+  border-radius: 9px;
+  outline: none;
+}
+.audit-page input:focus,
+.audit-page select:focus {
+  border-color: var(--accent-blue) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue) 18%, transparent);
+}
+
+.audit-page table { width: 100%; border-collapse: collapse; }
+.audit-page thead th {
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--text-muted) !important;
+  background: var(--bg-surface) !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+}
+.audit-page tbody tr { transition: background .15s; }
+.audit-page tbody tr:hover { background: var(--bg-surface) !important; }
+.audit-page tbody td { border-bottom-color: var(--border-subtle) !important; }
+.audit-page pre {
+  background: var(--bg-surface) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 10px;
+}
+
+.audit-page [class*="bg-blue-500/20"],
+.audit-page [class*="bg-indigo-500/20"],
+.audit-page [class*="bg-cyan-500/20"] {
+  background: color-mix(in srgb, var(--accent-blue) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent-blue) 28%, transparent) !important;
+  color: var(--accent-blue) !important;
+}
+.audit-page [class*="bg-green-500/20"],
+.audit-page [class*="bg-emerald-500/20"],
+.audit-page [class*="bg-teal-500/20"] {
+  background: color-mix(in srgb, var(--accent-emerald) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent-emerald) 28%, transparent) !important;
+  color: var(--accent-emerald) !important;
+}
+.audit-page [class*="bg-amber-500/20"],
+.audit-page [class*="bg-yellow-500/20"] {
+  background: color-mix(in srgb, var(--accent-amber) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent-amber) 28%, transparent) !important;
+  color: var(--accent-amber) !important;
+}
+.audit-page [class*="bg-red-500/20"] {
+  background: color-mix(in srgb, var(--accent-rose) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent-rose) 28%, transparent) !important;
+  color: var(--accent-rose) !important;
+}
+.audit-page [class*="bg-violet-500/20"],
+.audit-page [class*="bg-purple-500/20"],
+.audit-page [class*="bg-pink-500/20"] {
+  background: color-mix(in srgb, var(--accent-violet) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent-violet) 28%, transparent) !important;
+  color: var(--accent-violet) !important;
+}
+.audit-page [class*="bg-zinc-500/20"] {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-medium) !important;
+  color: var(--text-muted) !important;
+}
+
+.audit-page [class*="rounded-lg"] { border-radius: 10px; }
+.audit-page [class*="rounded-xl"] { border-radius: 14px; }
+
+@media (max-width: 640px) {
+  .audit-page { padding: 14px; }
+}

@@ -25,6 +25,8 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 
+import "./auditLogs.css";
+
 const API = import.meta.env.VITE_API_URL || "/api";
 
 const PAGE_SIZE = 50;
@@ -212,7 +214,7 @@ export function AuditLogs() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="audit-page p-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
