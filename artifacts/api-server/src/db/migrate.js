@@ -237,6 +237,7 @@ const coreMigrations = [
   `CREATE INDEX IF NOT EXISTS idx_tr069_devices_serial ON tr069_devices(serial_number)`,
   `CREATE INDEX IF NOT EXISTS idx_tr069_devices_status ON tr069_devices(status)`,
   `CREATE INDEX IF NOT EXISTS idx_tr069_devices_connection ON tr069_devices(connection_id)`,
+  `ALTER TABLE tr069_devices ADD COLUMN IF NOT EXISTS acs_device_id VARCHAR(255)`,
 
   // Add missing columns to customers table for portal credentials
   `ALTER TABLE customers ADD COLUMN IF NOT EXISTS portal_username VARCHAR(100)`,

@@ -1,145 +1,190 @@
 /**
- * TR-069 ACS Service using GenieACS
- * Handles CPE device management and provisioning via CWMP protocol
+ * TR-069 ACS service backed by GenieACS.
  *
- * NOTE: TR-069 requires a separate GenieACS ACS process (with MongoDB + Redis).
- * Set TR069_ACS_URL to your GenieACS NBI URL (e.g. http://localhost:7557)
- * to enable real device management. Until configured, all methods return a
- * "not configured" response so the UI can display the correct status.
+ * TR069_ACS_URL = the URL CPEs use to reach the CWMP server (http://host:7547)
+ * TR069_NBI_URL = GenieACS Northbound API used by this app (http://host:7557)
+ *
+ * Until an NBI URL is configured every method returns configured:false so the
+ * UI can show an honest "not configured" state instead of a false success.
  */
 
+const axios = require('axios');
 const logger = require('../utils/logger');
 
-const ACS_URL = process.env.TR069_ACS_URL || null;
+const ACS_URL = process.env.TR069_ACS_URL || process.env.TR069_NBI_URL || null;
+const NBI_URL = process.env.TR069_NBI_URL || process.env.TR069_ACS_URL || null;
 
 function notConfigured() {
   return {
     success: false,
     configured: false,
-    message: 'TR-069 ACS is not configured. Set TR069_ACS_URL in your .env to enable device management.',
+    message: 'TR-069 ACS is not configured. Set TR069_NBI_URL (and TR069_ACS_URL for CPEs) in your .env.',
   };
+}
+
+function failure(error, action) {
+  logger.error(`GenieACS ${action} failed`, { error: error.message });
+  return { success: false, configured: true, message: error.message };
+}
+
+function flattenParameters(node, prefix = '', target = {}) {
+  for (const [key, value] of Object.entries(node || {})) {
+    if (key.startsWith('_') && key !== '_value') {continue;}
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      if ('_value' in value) {target[path] = value._value;}
+      else {flattenParameters(value, path, target);}
+    } else if (typeof value !== 'object') {
+      target[path] = value;
+    }
+  }
+  return target;
 }
 
 class TR069Service {
   constructor() {
     this.port = process.env.TR069_PORT || 7547;
     this.isRunning = false;
+    this.reachable = false;
   }
 
-  /** Check whether ACS is configured */
-  supported() {
-    return !!ACS_URL;
+  supported() { return !!NBI_URL; }
+
+  get acsUrl() { return ACS_URL; }
+  get nbiUrl() { return NBI_URL; }
+
+  async request(method, path, data) {
+    const base = String(NBI_URL).replace(/\/$/, '');
+    const response = await axios({
+      method,
+      url: `${base}${path}`,
+      data,
+      timeout: 20000,
+    });
+    return response.data;
   }
 
-  /**
-   * Initialize and start the TR-069 ACS server
-   */
   async start() {
-    if (!ACS_URL) {
-      logger.warn('TR-069 ACS not configured (TR069_ACS_URL not set). Device management will be unavailable.');
+    if (!NBI_URL) {
+      logger.warn('TR-069 ACS not configured (TR069_NBI_URL not set). Device management unavailable.');
       return false;
     }
-    logger.info('TR-069 ACS configured', { acsUrl: ACS_URL, port: this.port });
-    this.isRunning = true;
-    return true;
+    const status = await this.status();
+    this.isRunning = status.configured && status.reachable;
+    this.reachable = this.isRunning;
+    if (this.isRunning) {
+      logger.info('TR-069 GenieACS NBI reachable', { acsUrl: ACS_URL, nbiUrl: NBI_URL });
+    } else {
+      logger.warn('TR-069 GenieACS NBI configured but unreachable', { nbiUrl: NBI_URL, error: status.message });
+    }
+    return this.isRunning;
   }
 
-  /**
-   * Stop the TR-069 ACS server
-   */
   async stop() {
     this.isRunning = false;
-    logger.info('TR-069 ACS service stopped');
+    this.reachable = false;
   }
 
-  /**
-   * Send Reboot RPC to a CPE device
-   * @param {string} deviceId - Device serial number or ID
-   */
-  async rebootDevice(deviceId) {
-    if (!ACS_URL) { return notConfigured(); }
+  async status() {
+    if (!NBI_URL) {return { ...notConfigured(), reachable: false }; }
     try {
-      logger.info('Sending Reboot RPC to device via GenieACS NBI', { deviceId, acsUrl: ACS_URL });
-      // GenieACS NBI: POST /devices/<id>/tasks  { name: "reboot" }
-      const axios = require('axios');
-      await axios.post(`${ACS_URL}/devices/${encodeURIComponent(deviceId)}/tasks?connection_request`, { name: 'reboot' }, { timeout: 10000 });
-      return { success: true, configured: true, message: 'Reboot command sent to GenieACS' };
+      const devices = await this.request('get', '/devices?limit=1');
+      return {
+        success: true,
+        configured: true,
+        reachable: true,
+        acsUrl: ACS_URL,
+        nbiUrl: NBI_URL,
+        deviceCount: Array.isArray(devices) ? devices.length : 0,
+      };
     } catch (error) {
-      logger.error('Failed to send Reboot RPC', { deviceId, error: error.message });
-      return { success: false, configured: true, message: error.message };
+      return { ...failure(error, 'status'), reachable: false, acsUrl: ACS_URL, nbiUrl: NBI_URL };
     }
   }
 
-  /**
-   * Send FactoryReset RPC to a CPE device
-   * @param {string} deviceId - Device serial number or ID
-   */
-  async factoryResetDevice(deviceId) {
-    if (!ACS_URL) { return notConfigured(); }
-    try {
-      logger.info('Sending FactoryReset RPC to device via GenieACS NBI', { deviceId });
-      const axios = require('axios');
-      await axios.post(`${ACS_URL}/devices/${encodeURIComponent(deviceId)}/tasks?connection_request`, { name: 'factoryReset' }, { timeout: 10000 });
-      return { success: true, configured: true, message: 'Factory reset command sent to GenieACS' };
-    } catch (error) {
-      logger.error('Failed to send FactoryReset RPC', { deviceId, error: error.message });
-      return { success: false, configured: true, message: error.message };
-    }
+  parseDevice(device) {
+    const identity = device._deviceId || {};
+    return {
+      serial: String(
+        flattenParameters(device.Device || {}, "Device")['Device.SerialNumber'] ||
+        identity._SerialNumber || device._id || '',
+      ),
+      manufacturer: String(identity._Manufacturer || '').slice(0, 100),
+      model: String(identity._ProductClass || '').slice(0, 100),
+      firmware: String(flattenParameters(device.Device || {}, "Device")['Device.SoftwareVersion'] || '').slice(0, 50),
+      parameters: flattenParameters(device.Device || {}, "Device"),
+    };
   }
 
-  /**
-   * Get device parameters from CPE
-   * @param {string} deviceId - Device serial number or ID
-   * @param {Array} parameterNames - Array of parameter paths to retrieve
-   */
-  async getParameters(deviceId, parameterNames) {
-    if (!ACS_URL) { return notConfigured(); }
+  async listDevices(limit = 500) {
+    if (!NBI_URL) {return notConfigured();}
     try {
-      logger.info('Getting parameters from device via GenieACS NBI', { deviceId, parameterNames });
-      const axios = require('axios');
-      const task = { name: 'getParameterValues', parameterNames };
-      const res = await axios.post(`${ACS_URL}/devices/${encodeURIComponent(deviceId)}/tasks?connection_request`, task, { timeout: 10000 });
-      return { success: true, configured: true, parameters: res.data || {} };
-    } catch (error) {
-      logger.error('Failed to get parameters', { deviceId, error: error.message });
-      return { success: false, configured: true, message: error.message };
-    }
+      const devices = await this.request('get', `/devices?limit=${Number(limit) || 500}`);
+      return { success: true, configured: true, devices: Array.isArray(devices) ? devices : [] };
+    } catch (error) { return failure(error, 'list devices'); }
   }
 
-  /**
-   * Set device parameters on CPE
-   * @param {string} deviceId - Device serial number or ID
-   * @param {Object} parameters - Object with parameter paths and values
-   */
+  async getDevice(deviceId) {
+    if (!NBI_URL) {return notConfigured();}
+    try {
+      const device = await this.request('get', `/devices/${encodeURIComponent(deviceId)}`);
+      return { success: true, configured: true, device };
+    } catch (error) { return failure(error, 'get device'); }
+  }
+
+  async queryDevice(deviceId) {
+    const query = encodeURIComponent(JSON.stringify({ _id: String(deviceId) }));
+    const devices = await this.request('get', `/devices?query=${query}&limit=1`);
+    return Array.isArray(devices) ? devices[0] : null;
+  }
+
+  async getParameters(deviceId) {
+    if (!NBI_URL) {return notConfigured();}
+    try {
+      const device = await this.queryDevice(deviceId);
+      if (!device) {return { success: false, configured: true, message: 'Device not found in GenieACS' };}
+      const values = flattenParameters(device.Device || {}, "Device");
+      const parameters = Object.entries(values).map(([name, value]) => ({ name, value }));
+      return { success: true, configured: true, parameters };
+    } catch (error) { return failure(error, 'get parameters'); }
+  }
+
+  async queueTask(deviceId, task) {
+    if (!NBI_URL) {return notConfigured();}
+    try {
+      await this.request('post', `/devices/${encodeURIComponent(deviceId)}/tasks`, task);
+      return { success: true, configured: true, message: `${task.name} task queued in GenieACS` };
+    } catch (error) { return failure(error, task.name); }
+  }
+
+  async rebootDevice(deviceId) { return this.queueTask(deviceId, { name: 'reboot' }); }
+
+  async factoryResetDevice(deviceId) { return this.queueTask(deviceId, { name: 'factoryReset' }); }
+
   async setParameters(deviceId, parameters) {
-    if (!ACS_URL) { return notConfigured(); }
-    try {
-      logger.info('Setting parameters on device via GenieACS NBI', { deviceId });
-      const axios = require('axios');
-      const parameterValues = Object.entries(parameters).map(([name, value]) => [name, value, 'xsd:string']);
-      const task = { name: 'setParameterValues', parameterValues };
-      await axios.post(`${ACS_URL}/devices/${encodeURIComponent(deviceId)}/tasks?connection_request`, task, { timeout: 10000 });
-      return { success: true, configured: true, message: 'Parameters queued for update in GenieACS' };
-    } catch (error) {
-      logger.error('Failed to set parameters', { deviceId, error: error.message });
-      return { success: false, configured: true, message: error.message };
+    const parameterValues = Object.entries(parameters || {}).map(([name, value]) => {
+      if (Array.isArray(value) && value.length === 3) {return value;}
+      return [name, value, 'xsd:string'];
+    });
+    if (!parameterValues.length) {
+      return { success: false, configured: this.supported(), message: 'No parameters supplied' };
     }
+    return this.queueTask(deviceId, { name: 'setParameterValues', parameterValues });
   }
 
-  /**
-   * Get device status and information
-   * @param {string} deviceId - Device serial number or ID
-   */
+  async downloadFirmware(deviceId, fileUrl) {
+    const url = String(fileUrl || '').trim();
+    if (!/^https?:\/\//i.test(url)) {
+      return { success: false, configured: this.supported(), message: 'Firmware URL must be http(s)' };
+    }
+    return this.queueTask(deviceId, { name: 'download', file: url });
+  }
+
   async getDeviceStatus(deviceId) {
-    if (!ACS_URL) { return notConfigured(); }
+    if (!NBI_URL) {return notConfigured();}
     try {
-      logger.info('Getting device status from GenieACS NBI', { deviceId });
-      const axios = require('axios');
-      const res = await axios.get(`${ACS_URL}/devices?query=${encodeURIComponent(JSON.stringify({ _id: deviceId }))}`, { timeout: 10000 });
-      const device = (res.data || [])[0];
-      if (!device) {
-        return { success: false, configured: true, message: 'Device not found in GenieACS' };
-      }
+      const device = await this.queryDevice(deviceId);
+      if (!device) {return { success: false, configured: true, message: 'Device not found in GenieACS' };}
       return {
         success: true,
         configured: true,
@@ -150,13 +195,8 @@ class TR069Service {
           parameters: device,
         },
       };
-    } catch (error) {
-      logger.error('Failed to get device status', { deviceId, error: error.message });
-      return { success: false, configured: true, message: error.message };
-    }
+    } catch (error) { return failure(error, 'device status'); }
   }
 }
 
-const tr069Service = new TR069Service();
-
-module.exports = tr069Service;
+module.exports = new TR069Service();

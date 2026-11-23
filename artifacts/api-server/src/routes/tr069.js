@@ -20,6 +20,108 @@ router.get('/', async (req, res) => {
   }
 });
 
+async function findDeviceRow(id) {
+  const db = global.db || require('../db/memory');
+  const result = await db.query('SELECT * FROM tr069_devices WHERE id = $1', [id]);
+  return result.rows[0] || null;
+}
+
+function acsId(row) {
+  return row.acs_device_id || row.serial_number;
+}
+
+function respondWithTask(res, result) {
+  if (!result.configured) {return res.status(503).json(result);}
+  if (!result.success) {return res.status(502).json(result);}
+  return res.json(result);
+}
+
+// GenieACS connection status
+router.get('/acs/status', async (req, res) => {
+  const status = await tr069Service.status();
+  res.status(status.configured && !status.reachable ? 502 : 200).json(status);
+});
+
+// Import devices discovered by GenieACS
+router.post('/sync', async (req, res) => {
+  try {
+    if (!global.dbAvailable) {return res.status(503).json({ error: 'Device sync requires PostgreSQL storage' });}
+    const outcome = await tr069Service.listDevices(Number(req.body?.limit) || 500);
+    if (!outcome.configured) {return res.status(503).json(outcome);}
+    if (!outcome.success) {return res.status(502).json(outcome);}
+
+    const db = global.db || require('../db/memory');
+    let created = 0;
+    let updated = 0;
+    for (const device of outcome.devices) {
+      const acsDeviceId = String(device._id || device._deviceId || '').trim();
+      if (!acsDeviceId) {continue;}
+      const parsed = tr069Service.parseDevice(device);
+      const serial = parsed.serial.slice(0, 255) || acsDeviceId;
+      const manufacturer = parsed.manufacturer;
+      const model = parsed.model;
+      const firmware = parsed.firmware;
+      const lastInform = device._lastInform ? new Date(device._lastInform) : null;
+      const status = lastInform && Date.now() - lastInform.getTime() < 5 * 60 * 1000 ? 'online' : 'offline';
+      const parameters = parsed.parameters;
+      const exists = await db.query('SELECT id FROM tr069_devices WHERE serial_number = $1', [serial]);
+      if (exists.rows.length) {updated += 1;} else {created += 1;}
+      await db.query(
+        `INSERT INTO tr069_devices (serial_number, manufacturer, model, firmware_version, ip_address, status, last_inform, parameters, acs_device_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)
+         ON CONFLICT (serial_number) DO UPDATE SET
+           manufacturer = EXCLUDED.manufacturer,
+           model = EXCLUDED.model,
+           firmware_version = EXCLUDED.firmware_version,
+           ip_address = EXCLUDED.ip_address,
+           status = EXCLUDED.status,
+           last_inform = EXCLUDED.last_inform,
+           parameters = EXCLUDED.parameters,
+           acs_device_id = EXCLUDED.acs_device_id,
+           updated_at = CURRENT_TIMESTAMP`,
+        [serial, manufacturer, model, firmware, device._ip || null, status,
+         lastInform ? lastInform.toISOString() : null, JSON.stringify(parameters), acsDeviceId],
+      );
+    }
+    res.json({ success: true, configured: true, discovered: outcome.devices.length, created, updated });
+  } catch (e) {
+    logger.error('TR-069 sync failed', { error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Read parameters from the device via GenieACS
+router.get('/:id/parameters', async (req, res) => {
+  try {
+    const row = await findDeviceRow(req.params.id);
+    if (!row) {return res.status(404).json({ error: 'Device not found' });}
+    const result = await tr069Service.getParameters(acsId(row));
+    if (!result.configured) {return res.status(503).json(result);}
+    if (!result.success) {return res.status(502).json(result);}
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Write parameters to the device via GenieACS
+router.put('/:id/parameters', async (req, res) => {
+  try {
+    const row = await findDeviceRow(req.params.id);
+    if (!row) {return res.status(404).json({ error: 'Device not found' });}
+    const result = await tr069Service.setParameters(acsId(row), req.body?.parameters || {});
+    respondWithTask(res, result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Firmware upgrade via TR-069 Download RPC
+router.post('/:id/download', async (req, res) => {
+  try {
+    const row = await findDeviceRow(req.params.id);
+    if (!row) {return res.status(404).json({ error: 'Device not found' });}
+    const result = await tr069Service.downloadFirmware(acsId(row), req.body?.file_url);
+    respondWithTask(res, result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Get single TR-069 device
 router.get('/:id', async (req, res) => {
   try {
@@ -145,11 +247,9 @@ router.post('/:id/reboot', async (req, res) => {
 
     const device = result.rows[0];
     
-    // Send reboot command via TR-069 service
-    const rebootResult = await tr069Service.rebootDevice(device.serial_number);
-    
+    const rebootResult = await tr069Service.rebootDevice(acsId(device));
     logger.info('TR-069 device reboot requested', { id: req.params.id, serial: device.serial_number });
-    res.json({ success: true, message: 'Reboot command sent to device', ...rebootResult });
+    respondWithTask(res, rebootResult);
   } catch (e) {
     logger.error('Failed to reboot TR-069 device', { error: e.message, id: req.params.id });
     res.status(500).json({ error: e.message });
@@ -165,11 +265,9 @@ router.post('/:id/factory-reset', async (req, res) => {
 
     const device = result.rows[0];
     
-    // Send factory reset command via TR-069 service
-    const resetResult = await tr069Service.factoryResetDevice(device.serial_number);
-    
+    const resetResult = await tr069Service.factoryResetDevice(acsId(device));
     logger.info('TR-069 device factory reset requested', { id: req.params.id, serial: device.serial_number });
-    res.json({ success: true, message: 'Factory reset command sent to device', ...resetResult });
+    respondWithTask(res, resetResult);
   } catch (e) {
     logger.error('Failed to factory reset TR-069 device', { error: e.message, id: req.params.id });
     res.status(500).json({ error: e.message });

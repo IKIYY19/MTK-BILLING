@@ -86,8 +86,52 @@ services:
     networks:
       - mikrotik-net
 
+  mongo:
+    image: mongo:4.4
+    container_name: mtk-tr069-mongo
+    volumes:
+      - tr069-mongo-data:/data/db
+    restart: unless-stopped
+    networks:
+      - mikrotik-net
+
+  redis:
+    image: redis:6-alpine
+    container_name: mtk-tr069-redis
+    restart: unless-stopped
+    networks:
+      - mikrotik-net
+
+  genieacs:
+    image: drumsergio/genieacs:latest
+    container_name: mtk-tr069-genieacs
+    environment:
+      GENIEACS_MONGODB_CONNECTION_URL: mongodb://mongo:27017/genieacs
+      GENIEACS_REDIS_HOST: redis
+      GENIEACS_REDIS_PORT: 6379
+      GENIEACS_CWMP_INTERFACE: 0.0.0.0
+      GENIEACS_NBI_INTERFACE: 0.0.0.0
+      GENIEACS_FS_INTERFACE: 0.0.0.0
+      GENIEACS_UI_INTERFACE: 0.0.0.0
+      GENIEACS_UI_JWT_SECRET: ${GENIEACS_UI_JWT_SECRET:-change-me}
+    ports:
+      - "17547:7547"
+      - "17557:7557"
+      - "17567:7567"
+      - "13000:3000"
+    volumes:
+      - tr069-firmware:/opt/genieacs/firmware
+    depends_on:
+      - mongo
+      - redis
+    restart: unless-stopped
+    networks:
+      - mikrotik-net
+
 volumes:
   pgdata:
+  tr069-mongo-data:
+  tr069-firmware:
 
 networks:
   mikrotik-net:

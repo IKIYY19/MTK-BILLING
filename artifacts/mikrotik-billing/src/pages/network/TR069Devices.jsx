@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   Router, Plus, Edit, Trash2, RefreshCw, Power, Settings,
-  CheckCircle
+  CheckCircle, Download, SlidersHorizontal, Server
 } from 'lucide-react';
+import { useToast } from '../../hooks/useToast';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
@@ -13,6 +14,14 @@ export function TR069Devices() {
   const [editing, setEditing] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [connections, setConnections] = useState([]);
+  const [acsStatus, setAcsStatus] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const [paramDevice, setParamDevice] = useState(null);
+  const [parameters, setParameters] = useState([]);
+  const [newParam, setNewParam] = useState({ name: '', value: '' });
+  const [firmwareDevice, setFirmwareDevice] = useState(null);
+  const [firmwareUrl, setFirmwareUrl] = useState('');
+  const toast = useToast();
 
   const [form, setForm] = useState({
     serial_number: '',
@@ -27,7 +36,17 @@ export function TR069Devices() {
   useEffect(() => {
     fetchDevices();
     fetchConnections();
+    fetchAcsStatus();
   }, []);
+
+  const fetchAcsStatus = async () => {
+    try {
+      const { data } = await axios.get(`${API}/tr069/acs/status`);
+      setAcsStatus(data);
+    } catch (e) {
+      setAcsStatus(e.response?.data || { configured: false, reachable: false });
+    }
+  };
 
   const fetchDevices = async () => {
     try {
@@ -95,20 +114,68 @@ export function TR069Devices() {
   const handleReboot = async (id) => {
     if (!confirm('Reboot this device?')) {return;}
     try {
-      await axios.post(`${API}/tr069/${id}/reboot`);
-      alert('Reboot command sent successfully');
+      const { data } = await axios.post(`${API}/tr069/${id}/reboot`);
+      toast.success('Reboot queued', data.message);
     } catch (e) {
-      alert('Failed to reboot device');
+      toast.error('Reboot failed', e.response?.data?.message || e.response?.data?.error || e.message);
     }
   };
 
   const handleFactoryReset = async (id) => {
     if (!confirm('Factory reset this device? This will restore all settings to default.')) {return;}
     try {
-      await axios.post(`${API}/tr069/${id}/factory-reset`);
-      alert('Factory reset command sent successfully');
+      const { data } = await axios.post(`${API}/tr069/${id}/factory-reset`);
+      toast.success('Factory reset queued', data.message);
     } catch (e) {
-      alert('Failed to factory reset device');
+      toast.error('Factory reset failed', e.response?.data?.message || e.response?.data?.error || e.message);
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const { data } = await axios.post(`${API}/tr069/sync`, {});
+      toast.success('ACS sync complete', `${data.created} new, ${data.updated} updated`);
+      await fetchDevices();
+      await fetchAcsStatus();
+    } catch (e) {
+      toast.error('ACS sync failed', e.response?.data?.message || e.response?.data?.error || e.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleViewParameters = async (device) => {
+    try {
+      const { data } = await axios.get(`${API}/tr069/${device.id}/parameters`);
+      setParameters(data.parameters || []);
+      setParamDevice(device);
+    } catch (e) {
+      toast.error('Could not read parameters', e.response?.data?.message || e.response?.data?.error || e.message);
+    }
+  };
+
+  const handleSetParameter = async () => {
+    if (!newParam.name.trim()) {toast.warning('Enter a parameter name'); return;}
+    try {
+      const { data } = await axios.put(`${API}/tr069/${paramDevice.id}/parameters`, {
+        parameters: { [newParam.name.trim()]: newParam.value },
+      });
+      toast.success('Parameter queued', data.message);
+      setNewParam({ name: '', value: '' });
+    } catch (e) {
+      toast.error('Could not set parameter', e.response?.data?.message || e.response?.data?.error || e.message);
+    }
+  };
+
+  const handleDownload = async () => {
+    try {
+      const { data } = await axios.post(`${API}/tr069/${firmwareDevice.id}/download`, { file_url: firmwareUrl });
+      toast.success('Firmware upgrade queued', data.message);
+      setFirmwareDevice(null);
+      setFirmwareUrl('');
+    } catch (e) {
+      toast.error('Firmware upgrade failed', e.response?.data?.message || e.response?.data?.error || e.message);
     }
   };
 
@@ -158,10 +225,33 @@ export function TR069Devices() {
           </h1>
           <p className="text-zinc-400 mt-1">Manage and provision CPE devices via TR-069 protocol</p>
         </div>
-        <button onClick={() => setShowForm(true)} className="btn-primary">
-          <Plus className="w-4 h-4" /> Register Device
-        </button>
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs border ${
+            acsStatus?.reachable
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+              : 'bg-zinc-800/60 border-zinc-700/50 text-zinc-400'
+          }`}>
+            <Server className="w-3.5 h-3.5" />
+            {acsStatus?.reachable ? 'GenieACS online' : acsStatus?.configured ? 'GenieACS unreachable' : 'ACS not configured'}
+          </span>
+          <button onClick={handleSync} disabled={syncing} className="btn-ghost">
+            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} /> Sync from ACS
+          </button>
+          <button onClick={() => setShowForm(true)} className="btn-primary">
+            <Plus className="w-4 h-4" /> Register Device
+          </button>
+        </div>
       </div>
+
+      {acsStatus && (
+        <div className="relative glass rounded-xl p-4 mb-6 flex flex-wrap items-center gap-x-8 gap-y-2 text-xs text-zinc-400">
+          <span><span className="text-zinc-500">ACS URL (for CPEs):</span> <code className="text-cyan-300">{acsStatus.acsUrl || 'not set'}</code></span>
+          <span><span className="text-zinc-500">NBI URL:</span> <code className="text-cyan-300">{acsStatus.nbiUrl || 'not set'}</code></span>
+          {!acsStatus.configured && (
+            <span className="text-amber-400">Set TR069_NBI_URL and start the GenieACS containers to manage real devices.</span>
+          )}
+        </div>
+      )}
 
       {/* Form */}
       {showForm && (
@@ -301,6 +391,12 @@ export function TR069Devices() {
                 </td>
                 <td>
                   <div className="flex items-center justify-end gap-1">
+                    <button onClick={() => handleViewParameters(device)} className="btn-ghost p-2" title="Parameters">
+                      <SlidersHorizontal className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => { setFirmwareDevice(device); setFirmwareUrl(''); }} className="btn-ghost p-2" title="Firmware upgrade">
+                      <Download className="w-4 h-4" />
+                    </button>
                     <button onClick={() => handleReboot(device.id)} className="btn-ghost p-2" title="Reboot">
                       <Power className="w-4 h-4" />
                     </button>
@@ -330,6 +426,65 @@ export function TR069Devices() {
           </div>
         )}
       </div>
+
+      {paramDevice && (
+        <div className="modal-backdrop" onClick={() => setParamDevice(null)}>
+          <div className="glass-strong rounded-2xl w-full max-w-2xl max-h-[80vh] overflow-auto" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-zinc-800/50 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-white">Device parameters</h3>
+                <p className="text-xs text-zinc-400 mt-1">{paramDevice.serial_number}</p>
+              </div>
+              <button onClick={() => setParamDevice(null)} className="btn-ghost p-2"><Trash2 className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs text-zinc-400 mb-1.5">Parameter path</label>
+                  <input className="modern-input" value={newParam.name} onChange={e => setNewParam({ ...newParam, name: e.target.value })} placeholder="Device.ManagementServer.URL" />
+                </div>
+                <div className="flex-1 min-w-[160px]">
+                  <label className="block text-xs text-zinc-400 mb-1.5">Value</label>
+                  <input className="modern-input" value={newParam.value} onChange={e => setNewParam({ ...newParam, value: e.target.value })} placeholder="http://192.168.100.8:7547" />
+                </div>
+                <button onClick={handleSetParameter} className="btn-primary">Set</button>
+              </div>
+              {parameters.length > 0 ? (
+                <div className="overflow-x-auto rounded-xl border border-zinc-800/60">
+                  <table className="modern-table">
+                    <thead><tr><th>Name</th><th>Value</th></tr></thead>
+                    <tbody>
+                      {parameters.map((p, i) => (
+                        <tr key={i}>
+                          <td className="font-mono text-xs text-zinc-300">{p.name}</td>
+                          <td className="font-mono text-xs text-cyan-300 break-all">{String(p.value ?? '')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-500">No parameters reported by this device yet.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {firmwareDevice && (
+        <div className="modal-backdrop" onClick={() => setFirmwareDevice(null)}>
+          <div className="glass-strong rounded-2xl w-full max-w-lg p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-white mb-1">Firmware upgrade</h3>
+            <p className="text-xs text-zinc-400 mb-5">{firmwareDevice.serial_number}</p>
+            <label className="block text-xs text-zinc-400 mb-1.5">Firmware file URL</label>
+            <input className="modern-input" value={firmwareUrl} onChange={e => setFirmwareUrl(e.target.value)} placeholder="https://example.com/firmware.bin" />
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setFirmwareDevice(null)} className="btn-ghost">Cancel</button>
+              <button onClick={handleDownload} className="btn-primary"><Download className="w-4 h-4" /> Upgrade</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
