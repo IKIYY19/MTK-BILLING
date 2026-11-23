@@ -161,7 +161,9 @@ export function BondingPanel({ routers }) {
             <div className="p-4 border-b border-zinc-700/50 text-sm text-zinc-200 flex items-center gap-2">
               <Link2 className="w-4 h-4 text-cyan-400" />
               Interfaces on {scan.router?.name}
-              <span className="text-xs text-zinc-500">({scan.candidates?.length || 0} bondable)</span>
+              <span className="text-xs text-zinc-500">
+                ({scan.candidates?.length || 0} selectable — ports with an IP or a down link can still be chosen)
+              </span>
             </div>
             <div className="overflow-x-auto">
               <table className="modern-table w-full">
@@ -170,13 +172,15 @@ export function BondingPanel({ routers }) {
                     <th className="w-10">Use</th>
                     <th>Interface</th>
                     <th>Type</th>
-                    <th>Status</th>
+                    <th>Link</th>
                     <th>Addresses</th>
+                    <th>Traffic (2s)</th>
+                    <th>Notes</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(scan.interfaces || []).map((iface) => (
-                    <tr key={iface.name} className={iface.candidate ? '' : 'opacity-50'}>
+                    <tr key={iface.name} className={iface.candidate ? '' : 'opacity-60'}>
                       <td>
                         <input
                           type="checkbox"
@@ -193,14 +197,18 @@ export function BondingPanel({ routers }) {
                         {iface.is_bond
                           ? <span className="text-cyan-400">bond</span>
                           : iface.in_bond
-                            ? <span className="text-amber-400">already a slave</span>
-                            : iface.addresses?.length
-                              ? <span className="text-amber-400">has IP</span>
-                              : iface.candidate
-                                ? <span className="inline-flex items-center gap-1 text-emerald-400"><CheckCircle className="w-3 h-3" /> available</span>
-                                : <span className="inline-flex items-center gap-1 text-rose-400"><XCircle className="w-3 h-3" /> not eligible</span>}
+                            ? <span className="text-cyan-400">slave</span>
+                            : iface.running
+                              ? <span className="inline-flex items-center gap-1 text-emerald-400"><CheckCircle className="w-3 h-3" /> up{iface.speed ? ` ${iface.speed}` : ''}</span>
+                              : <span className="inline-flex items-center gap-1 text-rose-400"><XCircle className="w-3 h-3" /> down</span>}
                       </td>
                       <td className="text-xs text-zinc-400">{iface.addresses?.join(', ') || '—'}</td>
+                      <td className="text-xs text-zinc-300 whitespace-nowrap">
+                        ↓ {iface.rx_rate || '0 bps'} · ↑ {iface.tx_rate || '0 bps'}
+                      </td>
+                      <td className="text-xs text-amber-400">
+                        {(iface.warnings || []).join('; ') || (iface.candidate ? 'available' : 'not bondable')}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
