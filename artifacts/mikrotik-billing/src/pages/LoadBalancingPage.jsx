@@ -5,6 +5,7 @@ import {
   Download, Network, RefreshCw, Rocket, Search, ShieldCheck, XCircle,
 } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
+import { BondingPanel } from './loadBalancing/BondingPanel';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
@@ -19,6 +20,7 @@ export function LoadBalancingPage() {
   const [busy, setBusy] = useState('');
   const [showScript, setShowScript] = useState(false);
   const [expanded, setExpanded] = useState(null);
+  const [tab, setTab] = useState('pcc');
 
   useEffect(() => {
     let active = true;
@@ -158,11 +160,30 @@ export function LoadBalancingPage() {
             Scan a router, pick the interfaces that have internet, then generate and push a PCC configuration
           </p>
         </div>
-        <button className="btn-ghost flex items-center gap-2 text-xs" onClick={runScan} disabled={busy === 'scan'}>
-          <RefreshCw className={`w-4 h-4 ${busy === 'scan' ? 'animate-spin' : ''}`} /> Rescan
+        {tab === 'pcc' && (
+          <button className="btn-ghost flex items-center gap-2 text-xs" onClick={runScan} disabled={busy === 'scan'}>
+            <RefreshCw className={`w-4 h-4 ${busy === 'scan' ? 'animate-spin' : ''}`} /> Rescan
+          </button>
+        )}
+      </div>
+
+      <div className="relative flex gap-2 border-b border-zinc-700/50 pb-2">
+        <button
+          onClick={() => setTab('pcc')}
+          className={`px-4 py-2 text-xs rounded-lg transition-colors ${tab === 'pcc' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/40' : 'text-zinc-400 hover:text-zinc-200 border border-transparent'}`}
+        >
+          PCC Load Balancing
+        </button>
+        <button
+          onClick={() => setTab('bonding')}
+          className={`px-4 py-2 text-xs rounded-lg transition-colors ${tab === 'bonding' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/40' : 'text-zinc-400 hover:text-zinc-200 border border-transparent'}`}
+        >
+          Link Bonding
         </button>
       </div>
 
+      {tab === 'pcc' ? (
+      <>
       <div className="relative glass rounded-xl p-4 border border-amber-500/30 flex items-start gap-3">
         <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
         <div className="text-xs text-zinc-400 leading-relaxed">
@@ -339,6 +360,10 @@ export function LoadBalancingPage() {
             {script}
           </pre>
         </div>
+      )}
+      </>
+      ) : (
+        <BondingPanel routers={routers} />
       )}
     </div>
   );

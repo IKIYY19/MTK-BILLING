@@ -3,6 +3,7 @@ const { getDb } = require("../db");
 const { requirePermission } = require("../middleware/auth");
 const routerConnectionManager = require("../services/routerConnectionManager");
 const loadBalancing = require("../services/loadBalancing");
+const bonding = require("../services/bonding");
 
 const router = express.Router();
 
@@ -117,6 +118,33 @@ router.post("/push", requirePermission("network:write"), async (req, res) => {
       message: `Load balancing configuration pushed to ${connection.name}`,
       backup,
     });
+  } catch (error) {
+    handle(error, res);
+  }
+});
+
+router.post("/bonding/scan", requirePermission("network:read"), async (req, res) => {
+  try {
+    const connection = await resolveRouter(req, req.body?.connection_id);
+    const result = await bonding.scanBondCandidates(connection.id);
+    await markOnline(connection.id);
+    res.json({
+      success: true,
+      router: { id: connection.id, name: connection.name, ip_address: connection.ip_address },
+      ...result,
+    });
+  } catch (error) {
+    handle(error, res);
+  }
+});
+
+router.post("/bonding/generate", requirePermission("network:read"), async (req, res) => {
+  try {
+    if (req.body?.connection_id) {
+      await resolveRouter(req, req.body.connection_id);
+    }
+    const script = bonding.generateBondScript(req.body || {});
+    res.json({ success: true, script, lines: script.split("\n").length });
   } catch (error) {
     handle(error, res);
   }
