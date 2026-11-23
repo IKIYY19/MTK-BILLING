@@ -1,5 +1,6 @@
 const express = require("express");
 const { getDb } = require("../db");
+const { getTenantId } = require("../db/tenantScope");
 const router = express.Router();
 const { v4: uuidv4 } = require("uuid");
 
@@ -40,6 +41,9 @@ async function withTransaction(fn) {
   const client = await db.pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [
+      getTenantId(),
+    ]);
     const result = await fn(client);
     await client.query("COMMIT");
     return result;

@@ -5,6 +5,7 @@ import {
   Server, Activity, ChevronDown, ChevronUp, Search, Bell,
 } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
+import { getUser } from '../../lib/auth';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
@@ -64,10 +65,8 @@ export function Alerts() {
   const fetchAlerts = async (silent = false) => {
     if (!silent) {setLoading(true);}
     try {
-      const token = localStorage.getItem('token');
       const { data } = await axios.get(`${API}/mikrotik/alerts/all`, {
         params: { limit: 200 },
-        headers: { Authorization: `Bearer ${token}` },
       });
       setAlerts(Array.isArray(data) ? data : []);
       setLastUpdated(new Date());
@@ -86,12 +85,10 @@ export function Alerts() {
 
   const updateAlert = async (id, action) => {
     try {
-      const token = localStorage.getItem('token');
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const user = getUser();
       await axios.post(
         `${API}/mikrotik/alerts/${id}/${action}`,
-        action === 'acknowledge' ? { userId: user.id } : {},
-        { headers: { Authorization: `Bearer ${token}` } },
+        action === 'acknowledge' ? { userId: user?.id } : {},
       );
       info('Success', action === 'acknowledge' ? 'Alert acknowledged' : 'Alert resolved');
       fetchAlerts(true);

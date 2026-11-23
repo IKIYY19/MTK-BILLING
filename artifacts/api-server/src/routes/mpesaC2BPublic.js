@@ -5,12 +5,39 @@
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const billing = require('../services/billingData');
 const notificationService = require('../services/notificationService');
 const alertSystem = require('../services/alertSystem');
 const autoProvision = require('../services/autoProvision');
 
 const router = express.Router();
+
+// Safaricom sends no auth headers, so the callback URL must carry a shared
+// secret (e.g. https://host/api/payments/mpesa/c2b/confirm?key=<secret>).
+function isAuthorized(req) {
+  const expected = process.env.MPESA_C2B_SECRET;
+  if (!expected) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[C2B] MPESA_C2B_SECRET is not configured; callbacks rejected');
+      return false;
+    }
+    return true;
+  }
+  const provided = req.query.key || req.headers['x-mpesa-secret'] || '';
+  const a = Buffer.from(String(provided));
+  const b = Buffer.from(String(expected));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function requireSecret(req, res, next) {
+  if (!isAuthorized(req)) {
+    return res.status(403).json({ ResultCode: 1, ResultDesc: 'Unauthorized' });
+  }
+  next();
+}
+
+router.use(requireSecret);
 
 // ── 1. Validation URL ────────────────────────────────────────────────────────
 // Safaricom calls this before processing payment. Must respond within 8 s.
@@ -38,7 +65,11 @@ router.post('/confirm', async (req, res) => {
 
     if (!TransID || !TransAmount) return;
 
-    const amount   = parseFloat(TransAmount);
+    const amount   = Number(TransAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      console.warn(`[C2B] Rejected invalid amount ${TransAmount} for ${TransID}`);
+      return;
+    }
     const phone    = (MSISDN || '').replace(/\D/g, '');
     const ref      = (BillRefNumber || '').trim();
     const senderName = [FirstName, MiddleName, LastName].filter(Boolean).join(' ');

@@ -1,6 +1,13 @@
 const pg = require("pg");
 const { Pool } = pg;
 const { loadEnv } = require("../config/loadEnv");
+const { getTenantId } = require("./tenantScope");
+
+// PostgreSQL superusers and BYPASSRLS roles ignore RLS policies. Scoped
+// requests therefore run as a dedicated non-superuser role; system work
+// (migrations, startup, background jobs) keeps the configured connection role.
+const APP_ROLE = "mtk_billing_app";
+let appRoleAvailable = false;
 
 pg.types.setTypeParser(1114, (value) => (value ? new Date(`${value}Z`) : null));
 loadEnv();
@@ -102,15 +109,89 @@ pool.on("error", (err) => {
   console.error("⚠️  Database pool error:", err.message);
 });
 
+/**
+ * Runs a query on a dedicated client inside a transaction whose tenant
+ * setting matches the current request context. `set_config(..., true)` is
+ * transaction-local, so the setting cannot leak between pooled connections.
+ */
+async function scopedQuery(text, params) {
+  const tenantId = getTenantId();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (tenantId && appRoleAvailable) {
+      await client.query(`SET LOCAL ROLE ${APP_ROLE}`);
+    }
+    await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [
+      tenantId,
+    ]);
+    const result = await client.query(text, params);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // The connection may already be closed; release() still returns it.
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Creates (if needed) and grants privileges to the non-superuser role used
+ * for tenant-scoped queries. Must be called after migrations so that tables
+ * created by this startup are covered by the grants.
+ */
+async function ensureAppRole() {
+  try {
+    const existing = await pool.query(
+      "SELECT 1 FROM pg_roles WHERE rolname = $1",
+      [APP_ROLE],
+    );
+    if (existing.rows.length === 0) {
+      await pool.query(
+        `CREATE ROLE ${APP_ROLE} NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`,
+      );
+    }
+    await pool.query(`GRANT ${APP_ROLE} TO CURRENT_USER`);
+    await pool.query(`
+      DO $$
+      DECLARE t record;
+      BEGIN
+        FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
+          EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO ${APP_ROLE}', t.tablename);
+        END LOOP;
+        FOR t IN SELECT sequencename FROM pg_sequences WHERE schemaname = 'public' LOOP
+          EXECUTE format('GRANT USAGE, SELECT, UPDATE ON SEQUENCE public.%I TO ${APP_ROLE}', t.sequencename);
+        END LOOP;
+      END $$;
+    `);
+    appRoleAvailable = true;
+    console.log("Tenant isolation role ready:", APP_ROLE);
+  } catch (err) {
+    appRoleAvailable = false;
+    console.error(
+      "WARNING: could not configure tenant isolation role. Scoped requests will run as the connection role;",
+      "if it is a superuser, RLS will not isolate tenants.",
+      err.message,
+    );
+  }
+}
+
 module.exports = {
   query: async (text, params) => {
     try {
-      return await pool.query(text, params);
+      return await scopedQuery(text, params);
     } catch (err) {
       console.error("⚠️  Database query error:", err.message);
       throw err;
     }
   },
+  scopedQuery,
+  ensureAppRole,
   pool,
   /**
    * Returns the active database (PostgreSQL or in-memory fallback).

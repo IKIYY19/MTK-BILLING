@@ -152,8 +152,9 @@ function createCorsOriginHandler() {
     // In development, allow all origins (Replit preview, localhost, etc.)
     if (!isProductionEnv) return callback(null, true);
 
-    // Static allowed origins (from env / config) with wildcard support
-    if (allowedOrigins.length === 0 || allowedOrigins.some(pattern => matchesPattern(origin, pattern))) {
+    // Static allowed origins (from env / config) with wildcard support.
+    // An empty allow-list must never mean "allow everyone" in production.
+    if (allowedOrigins.some(pattern => matchesPattern(origin, pattern))) {
       return callback(null, true);
     }
 
@@ -317,6 +318,7 @@ const startServer = async () => {
       const { runMigrations } = require("./db/migrate");
       await runMigrations();
       logger.info("Database migrations done");
+      await db.ensureAppRole();
       require("./services/captiveHotspot").startExpiryWorker();
       db.query("SELECT 1")
         .then(() => logger.info("DB pool warmed"))
@@ -454,7 +456,11 @@ const startServer = async () => {
     app.use("/api/auth", authLimiter, require("./routes/auth"));
     app.use("/mikrotik", mikrotikLimiter, require("./routes/provision"));
     app.use("/metrics", require("./routes/metrics"));
-    app.use("/api/portal/auth", require("./routes/customerAuth"));
+    app.use(
+      "/api/portal/auth",
+      authLimiter,
+      require("./routes/customerAuth"),
+    );
     app.use("/api/public", require("./routes/publicPortal"));
     app.use("/api/captive-hotspot", require("./routes/captiveHotspot"));
 
@@ -575,7 +581,10 @@ const startServer = async () => {
     app.use(
       "/api/billing",
       authenticate,
-      requirePermission("billing:read"),
+      (req, res, next) =>
+        requirePermission(
+          req.method === "GET" ? "billing:read" : "billing:write",
+        )(req, res, next),
       require("./routes/billing"),
     );
 
@@ -743,7 +752,12 @@ const startServer = async () => {
       req.customerId = customerIdentity.customerId;
       next();
     }, customerPortalRouter);
-    app.use("/api/advanced", authenticate, require("./routes/advanced"));
+    app.use(
+      "/api/advanced",
+      authenticate,
+      requireRole(ROLES.ADMIN),
+      require("./routes/advanced"),
+    );
     app.use("/api/inventory", authenticate, require("./routes/inventory"));
     app.use("/api/analytics", authenticate, require("./routes/analytics"));
     app.use("/api/radius", authenticate, requireRole(ROLES.ADMIN), require("./routes/radius"));
@@ -790,7 +804,12 @@ const startServer = async () => {
     app.use("/api/ipam", authenticate, requireRole(ROLES.ADMIN), require("./routes/ipam"));
 
     // Webhook routes
-    app.use("/api/webhooks", authenticate, require("./routes/webhooks"));
+    app.use(
+      "/api/webhooks",
+      authenticate,
+      requireRole(ROLES.ADMIN),
+      require("./routes/webhooks"),
+    );
 
     // Sentry error handler (MUST be before global error handler)
     app.use(sentryErrorHandler());

@@ -65,8 +65,11 @@ const authenticate = async (req, res, next) => {
 
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    // Attach user info to request
+    // Attach user info to request. The tenant comes from the verified token,
+    // never from a client-controlled Host header.
     req.user = decoded;
+    req.tenantId = decoded.tenant_id || null;
+    req.isSuperAdmin = decoded.role === 'admin' && !decoded.tenant_id;
     logger.debug('Auth successful', { userId: decoded.id, email: decoded.email });
     next();
   } catch (error) {

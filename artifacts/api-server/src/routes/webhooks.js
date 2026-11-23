@@ -11,8 +11,62 @@ const { getDb } = require("../db");
 const router = express.Router();
 const { v4: uuidv4 } = require("uuid");
 const axios = require("axios");
+const crypto = require("crypto");
 
+function isPrivateHost(hostname) {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host === "0.0.0.0" || host.endsWith(".localhost")) {
+    return true;
+  }
+  const octets = host.split(".").map(Number);
+  if (octets.length === 4 && octets.every((n) => Number.isInteger(n))) {
+    const [a, b] = octets;
+    if (a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
+        (a === 100 && b >= 64 && b <= 127)) {
+      return true;
+    }
+  }
+  return host.startsWith("fc") || host.startsWith("fd") || host === "::1";
+}
 
+function validateWebhookUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return "Webhook URL must be a valid absolute URL";
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    return "Webhook URL must use http or https";
+  }
+  if (parsed.username || parsed.password) {
+    return "Webhook URL must not contain credentials";
+  }
+  if (isPrivateHost(parsed.hostname) && process.env.ALLOW_PRIVATE_WEBHOOKS !== "true") {
+    return "Webhook URL must not target a private or loopback address";
+  }
+  return null;
+}
+
+function signedHeaders(webhook, body) {
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Webhook-ID": webhook.id,
+  };
+  if (webhook.secret) {
+    headers["X-Webhook-Signature"] =
+      "sha256=" +
+      crypto.createHmac("sha256", webhook.secret).update(body).digest("hex");
+  }
+  return headers;
+}
+
+function publicWebhook(row) {
+  if (!row) {return row;}
+  const { secret, ...safe } = row;
+  return { ...safe, has_secret: Boolean(secret) };
+}
 
 // ──────────────────────────────────────
 // GET /api/webhooks — List all webhooks
@@ -23,7 +77,7 @@ router.get("/", async (req, res) => {
     const result = await getDb().query(
       "SELECT * FROM webhooks ORDER BY created_at DESC"
     );
-    res.json(result.rows);
+    res.json(result.rows.map(publicWebhook));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -37,6 +91,10 @@ router.post("/", async (req, res) => {
     const { url, events, name, secret, enabled } = req.body;
     if (!url || !events || events.length === 0) {
       return res.status(400).json({ error: "URL and events are required" });
+    }
+    const urlError = validateWebhookUrl(url);
+    if (urlError) {
+      return res.status(400).json({ error: urlError });
     }
     const id = uuidv4();
 
@@ -57,9 +115,9 @@ router.post("/", async (req, res) => {
       `INSERT INTO webhooks (id, url, events, name, secret, enabled)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [id, url, JSON.stringify(events), name || "", secret || "", enabled !== false]
-    );
-    res.status(201).json(result.rows[0]);
+       [id, url, JSON.stringify(events), name || "", secret || "", enabled !== false]
+     );
+    res.status(201).json(publicWebhook(result.rows[0]));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -71,6 +129,12 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { url, events, name, secret, enabled } = req.body;
+    if (url !== undefined) {
+      const urlError = validateWebhookUrl(url);
+      if (urlError) {
+        return res.status(400).json({ error: urlError });
+      }
+    }
 
     if (!global.dbAvailable) {
       return res.json({ id: req.params.id, ...req.body, updated_at: new Date().toISOString() });
@@ -98,7 +162,7 @@ router.put("/:id", async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Webhook not found" });
     }
-    res.json(result.rows[0]);
+    res.json(publicWebhook(result.rows[0]));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -141,15 +205,10 @@ router.post("/:id/test", async (req, res) => {
       data: { message: "This is a test payload from your MikroTik billing platform" },
     };
 
-    const headers = {
-      "Content-Type": "application/json",
-      "X-Webhook-ID": webhook.id,
-    };
-    if (webhook.secret) {
-      headers["X-Webhook-Secret"] = webhook.secret;
-    }
+    const body = JSON.stringify(payload);
+    const headers = signedHeaders(webhook, body);
 
-    const response = await axios.post(webhook.url, payload, {
+    const response = await axios.post(webhook.url, body, {
       headers,
       timeout: 10000,
     });
@@ -180,22 +239,21 @@ module.exports.triggerWebhook = async (event, data) => {
         try { events = JSON.parse(events); } catch { events = []; }
       }
       if (!events.includes(event) && !events.includes("*")) {continue;}
+      if (validateWebhookUrl(webhook.url)) {
+        console.error("Webhook skipped: invalid or unsafe URL", webhook.id);
+        continue;
+      }
 
       const payload = {
         event,
         timestamp: new Date().toISOString(),
         data,
       };
-      const headers = {
-        "Content-Type": "application/json",
-        "X-Webhook-ID": webhook.id,
-      };
-      if (webhook.secret) {
-        headers["X-Webhook-Secret"] = webhook.secret;
-      }
+      const body = JSON.stringify(payload);
+      const headers = signedHeaders(webhook, body);
       // Fire-and-forget — never block caller
       axios
-        .post(webhook.url, payload, { headers, timeout: 5000 })
+        .post(webhook.url, body, { headers, timeout: 5000 })
         .catch((e) => {
           console.error('webhooks.js async op failed:', e?.message || e);
           require('../services/opsAlertService').webhookFailure(webhook.url, e?.message || e).catch(() => {});

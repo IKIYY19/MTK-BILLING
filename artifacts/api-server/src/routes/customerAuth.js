@@ -11,6 +11,7 @@ const { JWT_SECRET } = require("../middleware/auth");
 const billingData = require("../services/billingData");
 const { audit } = require("../utils/audit");
 const opsAlertService = require("../services/opsAlertService");
+const { passwordResetLimiter } = require("../middleware/rateLimiter");
 
 const crypto = require("crypto");
 const CUSTOMER_JWT_SECRET = crypto
@@ -287,7 +288,7 @@ async function updateCustomerFields(customerId, fields) {
 }
 
 // POST /api/portal/auth/forgot-pin
-router.post("/forgot-pin", async (req, res) => {
+router.post("/forgot-pin", passwordResetLimiter, async (req, res) => {
   try {
     const { phone } = req.body;
     if (!phone) {
@@ -303,7 +304,7 @@ router.post("/forgot-pin", async (req, res) => {
     req.customer = customer;
 
     // Generate 6-digit reset code
-    const resetCode = String(Math.floor(100000 + Math.random() * 900000));
+    const resetCode = String(crypto.randomInt(100000, 1000000));
     const resetExpiry = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 minutes
 
     await updateCustomerFields(customer.id, {
@@ -348,7 +349,7 @@ router.post("/forgot-pin", async (req, res) => {
 });
 
 // POST /api/portal/auth/reset-pin
-router.post("/reset-pin", async (req, res) => {
+router.post("/reset-pin", passwordResetLimiter, async (req, res) => {
   try {
     const { phone, resetCode, newPIN } = req.body;
 

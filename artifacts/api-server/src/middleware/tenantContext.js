@@ -1,90 +1,52 @@
 /**
  * Tenant Context Middleware
- * Resolves tenant from JWT user and auto-filters DB queries.
  *
- * Usage:
- *   app.use(tenantContext);
+ * Resolves the tenant from the verified JWT (authoritative for authenticated
+ * requests). For public requests a tenant resolved from a registered custom
+ * domain is used; otherwise the request runs as system context so existing
+ * public flows keep working.
  *
- * After this middleware runs:
- *   req.tenantId  - the current tenant UUID (null for super admins)
- *   req.isSuperAdmin - true if user has no tenant (sees all data)
- *
- * Super admins can override with X-Tenant-ID header.
- * Custom domains are resolved upstream by domainResolver middleware.
+ * The resolved value is stored in AsyncLocalStorage and applied to every SQL
+ * query by db/index.js, so it is always set on the connection and transaction
+ * that actually executes the query.
  */
+
+const jwt = require("jsonwebtoken");
+const { JWT_SECRET } = require("./auth");
+const { runWithTenant, SYSTEM_TENANT_ID } = require("../db/tenantScope");
 
 const DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001";
 
-/**
- * Sets the PostgreSQL session variable used by RLS policies.
- * Must be called within a transaction or at query time.
- * Pass tenantId=null or '' for super-admin (sees all rows).
- *
- * @param {object} db  - pg Pool or Client
- * @param {string|null} tenantId
- */
-async function setTenantSession(db, tenantId) {
-  try {
-    await db.query(
-      "SELECT set_config('app.current_tenant_id', $1, true)",
-      [tenantId || ""]
-    );
-  } catch {
-    // Non-fatal — RLS still works via app-layer filtering
+function resolveTenant(req) {
+  const authHeader = req.headers.authorization;
+
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    try {
+      const decoded = jwt.verify(authHeader.split(" ")[1], JWT_SECRET);
+      // A super-admin has no tenant and is allowed to see every tenant.
+      if (decoded.role === "admin" && !decoded.tenant_id) {
+        return SYSTEM_TENANT_ID;
+      }
+      return decoded.tenant_id || DEFAULT_TENANT_ID;
+    } catch {
+      // Let authenticate() produce the auth error; do not trust the token.
+      return SYSTEM_TENANT_ID;
+    }
   }
+
+  // Unauthenticated request: only a registered custom domain may scope it.
+  return req.tenantId || SYSTEM_TENANT_ID;
 }
 
 function tenantContext(req, res, next) {
-  // Tenant already resolved (e.g. by domainResolver)
-  // Still need to set the RLS session variable
-  if (req.tenantId !== undefined) {
-    if (global.dbAvailable && global.db) {
-      setTenantSession(global.db, req.tenantId).catch(() => {});
-    }
-    return next();
-  }
-
-  const user = req.user;
-
-  // No user = public route
-  if (!user) {
-    req.tenantId     = null;
-    req.isSuperAdmin = false;
-    return next();
-  }
-
-  // Super admin: no tenant_id = sees everything
-  if (user.role === "admin" && !user.tenant_id) {
-    const overrideHeader = req.headers["x-tenant-id"];
-    if (overrideHeader && overrideHeader !== "all") {
-      req.tenantId     = overrideHeader;
-      req.isSuperAdmin = true;
-    } else {
-      req.tenantId     = null;   // '' in RLS = see all
-      req.isSuperAdmin = true;
-    }
-  } else {
-    // Regular user: scoped to their tenant
-    req.tenantId     = user.tenant_id || DEFAULT_TENANT_ID;
-    req.isSuperAdmin = false;
-  }
-
-  // Set RLS session variable so PostgreSQL policies take effect
-  if (global.dbAvailable && global.db) {
-    setTenantSession(global.db, req.tenantId).catch(() => {});
-  }
-
-  next();
+  const tenantId = resolveTenant(req);
+  req.tenantId = tenantId === SYSTEM_TENANT_ID ? null : tenantId;
+  req.isSuperAdmin = tenantId === SYSTEM_TENANT_ID;
+  return runWithTenant(tenantId, next);
 }
 
 /**
- * Returns SQL WHERE clause fragment and params for tenant filtering.
- * Use in route handlers that build dynamic queries.
- *
- * @param {object} req - Express request
- * @param {string} tableAlias - e.g. "c" for customers
- * @param {number} startParamIdx - starting $N index
- * @returns {{ clause: string, params: array, nextIdx: number }}
+ * Returns a SQL WHERE clause fragment and params for tenant filtering.
  */
 function tenantFilter(req, tableAlias = "", startParamIdx = 1) {
   if (!req.tenantId || req.isSuperAdmin) {
@@ -98,9 +60,6 @@ function tenantFilter(req, tableAlias = "", startParamIdx = 1) {
   };
 }
 
-/**
- * Middleware that restricts to super admin only.
- */
 function requireSuperAdmin(req, res, next) {
   if (!req.user || req.user.role !== "admin" || req.user.tenant_id) {
     return res.status(403).json({ error: "Super admin access required" });
@@ -108,9 +67,6 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
-/**
- * Middleware that requires a tenant context (blocks super admins viewing "all").
- */
 function requireTenant(req, res, next) {
   if (!req.tenantId) {
     return res.status(400).json({
@@ -125,6 +81,5 @@ module.exports = {
   tenantFilter,
   requireSuperAdmin,
   requireTenant,
-  setTenantSession,
   DEFAULT_TENANT_ID,
 };

@@ -254,28 +254,56 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// POST /api/public/confirm-payment - Confirm payment and activate
+// POST /api/public/confirm-payment - Activate only after a verified provider payment exists.
+// The M-Pesa callback (server-to-server) creates the payments row with the
+// provider transaction ID as its reference. A client-supplied code alone can
+// never mark an invoice paid.
 router.post("/confirm-payment", async (req, res) => {
   try {
     const { invoice_id, mpesa_code } = req.body;
-    if (!invoice_id)
-      {return res.status(400).json({ error: "Invoice ID required" });}
+    if (!invoice_id || !mpesa_code) {
+      return res.status(400).json({
+        error: "Invoice ID and M-Pesa confirmation code are required",
+      });
+    }
+
+    const code = String(mpesa_code).trim().toUpperCase();
+    if (!/^[A-Z0-9]{6,40}$/.test(code)) {
+      return res.status(400).json({ error: "Invalid M-Pesa confirmation code" });
+    }
+
+    if (!global.dbAvailable) {
+      return res.status(503).json({
+        error: "Payment confirmation requires persistent storage",
+      });
+    }
 
     const billing = require("../services/billingData");
+    const invoice = await billing.getInvoiceById(invoice_id);
+    if (!invoice) {
+      return res.status(404).json({ error: "Invoice not found" });
+    }
 
-    const invoice = await billing.updateInvoice(invoice_id, {
-      status: "paid",
-      paid_at: new Date().toISOString(),
-      payment_method: mpesa_code ? "mpesa" : "cash",
-      payment_reference: mpesa_code || "self-service",
-    });
+    const payment = await global.db.query(
+      `SELECT id, amount FROM payments
+       WHERE invoice_id = $1 AND UPPER(TRIM(reference)) = $2 AND amount > 0
+       LIMIT 1`,
+      [invoice_id, code],
+    );
+    if (!payment.rows.length) {
+      return res.status(402).json({
+        error: "No verified payment found for that code. Payment will activate service automatically once confirmed.",
+      });
+    }
 
-    if (!invoice) {return res.status(404).json({ error: "Invoice not found" });}
+    if (invoice.status !== "paid") {
+      await billing.updateInvoice(invoice_id, { status: "paid" });
+    }
 
     const sub = invoice.subscription_id
       ? await billing.getSubscriptionById(invoice.subscription_id)
       : null;
-    if (sub) {
+    if (sub && sub.status !== "active") {
       await billing.updateSubscription(sub.id, {
         status: "active",
         activated_at: new Date().toISOString(),
@@ -285,10 +313,12 @@ router.post("/confirm-payment", async (req, res) => {
     const customer = sub
       ? await billing.getCustomerById(sub.customer_id)
       : null;
-    const plan = sub ? await billing.getPlanById(sub.plan_id) : null;
+    const plan = sub && sub.plan_id
+      ? await billing.getPlanById(sub.plan_id)
+      : null;
 
     const pppoeUsername = customer ? `isp-${customer.phone}` : null;
-    const pppoePassword = require('crypto').randomBytes(6).toString('hex'); // cryptographically secure
+    const pppoePassword = require('crypto').randomBytes(6).toString('hex');
 
     res.json({
       success: true,

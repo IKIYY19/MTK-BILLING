@@ -104,21 +104,16 @@ export default function LoginPage() {
       toast.success("Login successful!");
       setTimeout(() => navigate("/"), 200);
     } catch (error) {
-      const isNetworkError = !error.response && error.message && error.message.includes("Network Error");
-      if (isNetworkError) {
-        const saved = setAuth("demo-token-offline", {
-          id: "demo-user",
-          email: email || "admin@demo.local",
-          name: "Demo Admin",
-          role: "admin",
-        });
-        if (saved) {
-          toast.success("Logged in (offline demo mode)");
-          setTimeout(() => navigate("/"), 200);
-          return;
-        }
-      }
-      toast.error("Login failed", error.response?.data?.error || error.message);
+      const isNetworkError =
+        !error.response &&
+        error.message &&
+        error.message.includes("Network Error");
+      toast.error(
+        "Login failed",
+        isNetworkError
+          ? "Server unavailable. Check your connection and try again."
+          : error.response?.data?.error || error.message,
+      );
     } finally {
       setLoading(false);
     }
