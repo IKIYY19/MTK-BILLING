@@ -218,6 +218,11 @@ const coreMigrations = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_fup_profiles_name ON fup_profiles(name)`,
   `CREATE INDEX IF NOT EXISTS idx_fup_profiles_active ON fup_profiles(is_active)`,
+  `ALTER TABLE fup_profiles ADD COLUMN IF NOT EXISTS plan_id UUID`,
+  `ALTER TABLE fup_profiles ADD COLUMN IF NOT EXISTS tenant_id UUID`,
+  `CREATE INDEX IF NOT EXISTS idx_fup_profiles_plan ON fup_profiles(plan_id)`,
+  `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS fup_applied_at TIMESTAMP`,
+  `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS fup_reset_at TIMESTAMP`,
 
   // TR-069 CPE devices table
   `CREATE TABLE IF NOT EXISTS tr069_devices (

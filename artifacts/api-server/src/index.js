@@ -928,6 +928,15 @@ const startServer = async () => {
         });
       }
 
+      // Start FUP evaluation cron
+      try {
+        const { startCron: startFup } = require("./services/fup");
+        startFup();
+        logger.info("FUP evaluation cron started");
+      } catch (e) {
+        logger.warn("Could not start FUP cron", { error: e.message });
+      }
+
       // Start WireGuard tunnel health-sync cron (refreshes handshake status)
       try {
         const cgnatTunnelService = require("./services/cgnatTunnelService");

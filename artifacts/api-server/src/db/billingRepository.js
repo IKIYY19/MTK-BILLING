@@ -60,8 +60,8 @@ const customers = {
   async create(data, userId = null) {
     const id = uuidv4();
     const result = await db.query(
-      `INSERT INTO customers (id, name, email, phone, address, city, country, lat, lng, id_number, status, notes, account_number)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      `INSERT INTO customers (id, name, email, phone, address, city, country, lat, lng, id_number, status, notes, account_number, fup_profile_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
       [
         id,
         data.name,
@@ -76,6 +76,7 @@ const customers = {
         data.status || "active",
         data.notes || "",
         data.account_number || null,
+        data.fup_profile_id || null,
       ],
     );
     if (userId)
@@ -90,7 +91,7 @@ const customers = {
       `UPDATE customers SET name = COALESCE($1, name), email = COALESCE($2, email), phone = COALESCE($3, phone),
        address = COALESCE($4, address), city = COALESCE($5, city), country = COALESCE($6, country),
        lat = COALESCE($7, lat), lng = COALESCE($8, lng), id_number = COALESCE($9, id_number),
-       status = COALESCE($10, status), notes = COALESCE($11, notes), updated_at = CURRENT_TIMESTAMP
+       status = COALESCE($10, status), notes = COALESCE($11, notes), fup_profile_id = COALESCE($13, fup_profile_id), updated_at = CURRENT_TIMESTAMP
        WHERE id = $12 RETURNING *`,
       [
         data.name,
@@ -105,6 +106,7 @@ const customers = {
         data.status,
         data.notes,
         id,
+        data.fup_profile_id || null,
       ],
     );
     if (userId)

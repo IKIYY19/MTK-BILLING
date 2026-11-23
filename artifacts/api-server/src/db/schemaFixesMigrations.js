@@ -7,6 +7,7 @@ const schemaFixesMigrations = [
   `ALTER TABLE customers ADD COLUMN IF NOT EXISTS reactivated_at TIMESTAMP`,
   `ALTER TABLE customers ADD COLUMN IF NOT EXISTS static_ip VARCHAR(45)`,
   `ALTER TABLE customers ADD COLUMN IF NOT EXISTS hotspot_profile VARCHAR(100)`,
+  `ALTER TABLE customers ADD COLUMN IF NOT EXISTS fup_profile_id UUID`,
   `ALTER TABLE customers ADD COLUMN IF NOT EXISTS pppoe_username VARCHAR(100)`,
   `ALTER TABLE customers ADD COLUMN IF NOT EXISTS pppoe_password VARCHAR(100)`,
 
@@ -14,6 +15,8 @@ const schemaFixesMigrations = [
   `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS throttled BOOLEAN DEFAULT false`,
   `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS throttled_at TIMESTAMP`,
   `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS fup_exceeded BOOLEAN DEFAULT false`,
+  `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS fup_profile_id UUID`,
+  `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS throttle_reason VARCHAR(50)`,
   `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS data_used BIGINT DEFAULT 0`,
   `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS data_limit BIGINT DEFAULT 0`,
   `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS static_ip VARCHAR(45)`,

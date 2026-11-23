@@ -1,338 +1,348 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import {
-  Gauge, Plus, Edit, Trash2, Save, X, AlertCircle,
-  CheckCircle, Clock, Zap, Activity, Package
+  Activity, AlertTriangle, CheckCircle2, Clock3, Gauge, Pencil, Play,
+  Plus, RefreshCw, ShieldCheck, Trash2, Users, X, Zap,
 } from 'lucide-react';
+import { useToast } from '../../hooks/useToast';
+import './fup.css';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
+const EMPTY_FORM = {
+  name: '',
+  description: '',
+  data_limit: '',
+  data_limit_unit: 'GB',
+  reset_period: 'monthly',
+  throttle_speed: '',
+  priority: 100,
+  is_active: true,
+  plan_id: '',
+};
+
+const shortDate = (value) => value
+  ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  : '—';
+
+function Metric({ icon: Icon, label, value, detail, tone }) {
+  return (
+    <div className={`fup-metric fup-metric--${tone}`}>
+      <span className="fup-metric__icon"><Icon size={18} /></span>
+      <div>
+        <span className="fup-metric__label">{label}</span>
+        <strong>{value}</strong>
+        <small>{detail}</small>
+      </div>
+    </div>
+  );
+}
+
 export function FUPProfiles() {
+  const toast = useToast();
   const [profiles, setProfiles] = useState([]);
   const [plans, setPlans] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [statusRows, setStatusRows] = useState([]);
+  const [results, setResults] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [drawer, setDrawer] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
 
-  const [form, setForm] = useState({
-    name: '',
-    description: '',
-    data_limit: '',
-    data_limit_unit: 'GB',
-    reset_period: 'monthly',
-    throttle_speed: '',
-    priority: 100,
-    is_active: true,
-    plan_id: '',
-  });
-
-  useEffect(() => {
-    fetchProfiles();
-    axios.get(`${API}/billing/plans`).then(r => setPlans(r.data)).catch(() => {});
-  }, []);
-
-  const fetchProfiles = async () => {
+  const load = useCallback(async () => {
     try {
-      const { data } = await axios.get(`${API}/fup`);
-      setProfiles(data);
-    } catch (e) {
-      console.error('Failed to fetch FUP profiles:', e);
+      const [profileRes, planRes, statusRes] = await Promise.all([
+        axios.get(`${API}/fup`),
+        axios.get(`${API}/billing/plans`),
+        axios.get(`${API}/fup/status`).catch(() => ({ data: [] })),
+      ]);
+      setProfiles(Array.isArray(profileRes.data) ? profileRes.data : []);
+      setPlans(Array.isArray(planRes.data) ? planRes.data : []);
+      setStatusRows(Array.isArray(statusRes.data) ? statusRes.data : []);
+    } catch (error) {
+      toast.error('Could not load FUP data', error.response?.data?.error || error.message);
     }
-  };
+  }, [toast]);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
+  useEffect(() => { load(); }, [load]);
 
-    try {
-      if (editing) {
-        await axios.put(`${API}/fup/${editing.id}`, form);
-      } else {
-        await axios.post(`${API}/fup`, form);
-      }
-      await fetchProfiles();
-      setShowForm(false);
-      setEditing(null);
-      setForm({
-        name: '',
-        description: '',
-        data_limit: '',
-        data_limit_unit: 'GB',
-        reset_period: 'monthly',
-        throttle_speed: '',
-        priority: 100,
-        is_active: true,
-      });
-    } catch (e) {
-      alert(`Failed to ${editing ? 'update' : 'create'} FUP profile: ${e.response?.data?.error || e.message}`);
-    }
-
-    setLoading(false);
-  };
-
-  const handleEdit = (profile) => {
-    setEditing(profile);
-    setForm(profile);
-    setShowForm(true);
-  };
-
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this FUP profile?')) {return;}
-    try {
-      await axios.delete(`${API}/fup/${id}`);
-      fetchProfiles();
-    } catch (e) {
-      alert('Failed to delete FUP profile');
-    }
-  };
-
-  const handleCancel = () => {
-    setShowForm(false);
+  const openCreate = () => {
     setEditing(null);
-    setForm({
-      name: '',
-      description: '',
-      data_limit: '',
-      data_limit_unit: 'GB',
-      reset_period: 'monthly',
-      throttle_speed: '',
-      priority: 100,
-      is_active: true,
-    });
+    setForm(EMPTY_FORM);
+    setDrawer(true);
   };
+
+  const openEdit = (profile) => {
+    setEditing(profile);
+    setForm({
+      name: profile.name || '',
+      description: profile.description || '',
+      data_limit: String(profile.data_limit ?? ''),
+      data_limit_unit: profile.data_limit_unit || 'GB',
+      reset_period: profile.reset_period || 'monthly',
+      throttle_speed: profile.throttle_speed || '',
+      priority: Number(profile.priority || 100),
+      is_active: profile.is_active !== false,
+      plan_id: profile.plan_id || '',
+    });
+    setDrawer(true);
+  };
+
+  const save = async (event) => {
+    event.preventDefault();
+    setBusy('save');
+    try {
+      const payload = { ...form, priority: Number(form.priority) };
+      if (editing) {
+        await axios.put(`${API}/fup/${editing.id}`, payload);
+      } else {
+        await axios.post(`${API}/fup`, payload);
+      }
+      toast.success(editing ? 'FUP profile updated' : 'FUP profile created');
+      setDrawer(false);
+      setEditing(null);
+      setForm(EMPTY_FORM);
+      await load();
+    } catch (error) {
+      toast.error('Could not save FUP profile', error.response?.data?.error || error.message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const remove = async (profile) => {
+    if (!window.confirm(`Delete "${profile.name}"? Subscribers currently throttled by it will be restored on the next check.`)) return;
+    try {
+      await axios.delete(`${API}/fup/${profile.id}`);
+      toast.success('FUP profile deleted');
+      await load();
+    } catch (error) {
+      toast.error('Could not delete FUP profile', error.response?.data?.error || error.message);
+    }
+  };
+
+  const runCheck = async () => {
+    setBusy('check');
+    try {
+      const { data } = await axios.post(`${API}/fup/evaluate`);
+      setResults(data);
+      await load();
+      toast.success(
+        'FUP check complete',
+        `${data.throttled?.length || 0} throttled · ${data.restored?.length || 0} restored · ${data.errors?.length || 0} errors`,
+      );
+    } catch (error) {
+      toast.error('FUP check failed', error.response?.data?.error || error.message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const activeCount = profiles.filter((p) => p.is_active).length;
+  const coveredPlans = new Set(profiles.filter((p) => p.is_active && p.plan_id).map((p) => p.plan_id)).size;
 
   return (
-    <div className="relative min-h-full p-8 animate-fade-in">
-      <div className="absolute inset-0 bg-mesh" />
-      <div className="absolute inset-0 bg-noise" />
-
-      {/* Header */}
-      <div className="relative flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
-              <Gauge className="w-4 h-4 text-white" />
-            </div>
-            Fair Usage Policy (FUP)
-          </h1>
-          <p className="text-zinc-400 mt-1">Manage bandwidth throttling profiles for data limits</p>
+    <div className="fup-page">
+      <header className="fup-header">
+        <div className="fup-header__title">
+          <span className="fup-header__icon"><Gauge size={22} /></span>
+          <div>
+            <h1>Fair Usage Policy</h1>
+            <p>Throttle heavy users automatically when they exceed their monthly data allowance.</p>
+          </div>
         </div>
-        <button onClick={() => setShowForm(true)} className="btn-primary">
-          <Plus className="w-4 h-4" /> New Profile
-        </button>
+        <div className="fup-header__actions">
+          <button className="fup-btn fup-btn--ghost" onClick={runCheck} disabled={busy === 'check'}>
+            {busy === 'check' ? <RefreshCw className="fup-spin" size={16} /> : <Play size={16} />}
+            Run check
+          </button>
+          <button className="fup-btn fup-btn--primary" onClick={openCreate}>
+            <Plus size={16} /> New profile
+          </button>
+        </div>
+      </header>
+
+      <div className="fup-metrics">
+        <Metric icon={ShieldCheck} label="Active profiles" value={activeCount} detail={`${profiles.length} total`} tone="violet" />
+        <Metric icon={Users} label="Throttled now" value={statusRows.length} detail="subscribers limited" tone="amber" />
+        <Metric icon={Zap} label="Plans covered" value={coveredPlans} detail="plan-specific policies" tone="blue" />
+        <Metric icon={Clock3} label="Last check" value={results ? `${results.throttled?.length || 0} changes` : 'Auto'} detail="runs every 10 minutes" tone="emerald" />
       </div>
 
-      {/* Form */}
-      {showForm && (
-        <div className="relative glass rounded-2xl p-6 mb-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-base font-semibold text-white">
-              {editing ? 'Edit FUP Profile' : 'Create FUP Profile'}
-            </h3>
-            <button onClick={handleCancel} className="btn-ghost p-2">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Profile Name</label>
-              <input
-                value={form.name}
-                onChange={e => setForm({ ...form, name: e.target.value })}
-                className="modern-input"
-                placeholder="e.g., Home Basic, Business Premium"
-                required
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Description</label>
-              <textarea
-                value={form.description}
-                onChange={e => setForm({ ...form, description: e.target.value })}
-                className="modern-input"
-                rows={2}
-                placeholder="Optional description of this FUP profile"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Data Limit</label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <input
-                    type="number"
-                    value={form.data_limit}
-                    onChange={e => setForm({ ...form, data_limit: e.target.value })}
-                    className="modern-input pr-10"
-                    placeholder="100"
-                    min="0"
-                    step="1"
-                    required
-                  />
-                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setForm({ ...form, data_limit: parseInt(form.data_limit || 0) + 1 })}
-                      className="text-zinc-400 hover:text-white text-xs leading-none"
-                    >
-                      ▲
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setForm({ ...form, data_limit: Math.max(0, parseInt(form.data_limit || 0) - 1) })}
-                      className="text-zinc-400 hover:text-white text-xs leading-none"
-                    >
-                      ▼
-                    </button>
-                  </div>
-                </div>
-                <select
-                  value={form.data_limit_unit}
-                  onChange={e => setForm({ ...form, data_limit_unit: e.target.value })}
-                  className="modern-input w-24"
-                >
-                  <option value="MB">MB</option>
-                  <option value="GB">GB</option>
-                  <option value="TB">TB</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Reset Period</label>
-              <select
-                value={form.reset_period}
-                onChange={e => setForm({ ...form, reset_period: e.target.value })}
-                className="modern-input"
-              >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="never">Never</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Throttle Speed</label>
-              <input
-                value={form.throttle_speed}
-                onChange={e => setForm({ ...form, throttle_speed: e.target.value })}
-                className="modern-input"
-                placeholder="e.g., 1M/1M, 512K/512K"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Link to Plan</label>
-              <select
-                value={form.plan_id}
-                onChange={e => setForm({ ...form, plan_id: e.target.value })}
-                className="modern-input"
-              >
-                <option value="">All plans (global)</option>
-                {plans.map(p => (
-                  <option key={p.id} value={p.id}>{p.name} — {p.speed_up}/{p.speed_down} @ {p.price}/mo</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Priority</label>
-              <input
-                type="number"
-                value={form.priority}
-                onChange={e => setForm({ ...form, priority: parseInt(e.target.value) })}
-                className="modern-input"
-                min="1"
-                max="1000"
-              />
-            </div>
-            <div className="md:col-span-2 flex items-center gap-3">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.is_active}
-                  onChange={e => setForm({ ...form, is_active: e.target.checked })}
-                  className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-violet-500"
-                />
-                <span className="text-sm text-zinc-300">Active</span>
-              </label>
-            </div>
-            <div className="md:col-span-2 flex gap-3 pt-2">
-              <button type="submit" disabled={loading} className="btn-primary flex-1">
-                {loading ? <Activity className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                {editing ? 'Update Profile' : 'Create Profile'}
-              </button>
-              <button type="button" onClick={handleCancel} className="btn-secondary">
-                Cancel
-              </button>
-            </div>
-          </form>
+      <section className="fup-how">
+        <div className="fup-how__head"><Activity size={16} /> How enforcement works</div>
+        <div className="fup-how__steps">
+          <div><span>1</span><p>RADIUS accounting records each session's upload and download.</p></div>
+          <div><span>2</span><p>The FUP engine compares usage with your profile limit and reset period.</p></div>
+          <div><span>3</span><p>Over-limit users get the reduced speed in <code>radreply</code> and are disconnected so it applies.</p></div>
         </div>
+      </section>
+
+      {(results || busy === 'check') && (
+        <section className="fup-results">
+          <div className="fup-section__title">
+            <h2>Last evaluation</h2>
+            <button className="fup-link" onClick={() => setResults(null)}>Dismiss</button>
+          </div>
+          {busy === 'check' ? (
+            <p className="fup-muted">Evaluating subscribers…</p>
+          ) : (
+            <div className="fup-results__grid">
+              <div><strong>{results?.evaluated || 0}</strong><span>Evaluated</span></div>
+              <div className="is-amber"><strong>{results?.throttled?.length || 0}</strong><span>Throttled</span></div>
+              <div className="is-emerald"><strong>{results?.restored?.length || 0}</strong><span>Restored</span></div>
+              <div className="is-rose"><strong>{results?.errors?.length || 0}</strong><span>Errors</span></div>
+            </div>
+          )}
+        </section>
       )}
 
-      {/* Profiles List */}
-      <div className="relative glass rounded-2xl overflow-hidden">
-        <div className="p-4 border-b border-zinc-800/50">
-          <h3 className="text-sm font-medium text-zinc-300">FUP Profiles ({profiles.length})</h3>
+      <section className="fup-section">
+        <div className="fup-section__title">
+          <h2>Profiles <span>{profiles.length}</span></h2>
+          <p>Plan-specific profiles override global ones. Lower priority number wins.</p>
         </div>
-        <table className="modern-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Data Limit</th>
-              <th>Reset Period</th>
-              <th>Throttle Speed</th>
-              <th>Priority</th>
-              <th>Status</th>
-              <th className="text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {profiles.map((profile) => (
-              <tr key={profile.id}>
-                <td>
-                  <div>
-                    <div className="font-medium text-white">{profile.name}</div>
-                    {profile.description && (
-                      <div className="text-xs text-zinc-500">{profile.description}</div>
-                    )}
-                  </div>
-                </td>
-                <td className="font-mono text-sm text-white">
-                  {profile.data_limit} {profile.data_limit_unit}
-                </td>
-                <td className="text-sm text-zinc-400 capitalize">{profile.reset_period}</td>
-                <td className="font-mono text-sm text-zinc-400">{profile.throttle_speed || '—'}</td>
-                <td className="text-sm text-zinc-400">{profile.priority}</td>
-                <td>
-                  {profile.is_active ? (
-                    <span className="badge badge-emerald">Active</span>
-                  ) : (
-                    <span className="badge badge-zinc">Inactive</span>
-                  )}
-                </td>
-                <td>
-                  <div className="flex items-center justify-end gap-1">
-                    <button onClick={() => handleEdit(profile)} className="btn-ghost p-2" title="Edit">
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => handleDelete(profile.id)} className="btn-ghost p-2 text-zinc-500 hover:text-rose-400" title="Delete">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
 
-        {profiles.length === 0 && (
-          <div className="p-16 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-violet-500/10 ring-1 ring-violet-500/20 flex items-center justify-center mx-auto mb-4">
-              <Gauge className="w-8 h-8 text-violet-400" />
-            </div>
-            <h3 className="text-lg font-semibold text-white mb-1">No FUP profiles</h3>
-            <p className="text-zinc-500">Create your first Fair Usage Policy profile to manage bandwidth limits</p>
+        {profiles.length === 0 ? (
+          <div className="fup-empty">
+            <span><Gauge size={30} /></span>
+            <h3>No FUP profiles yet</h3>
+            <p>Create a profile to start limiting heavy data users automatically.</p>
+            <button className="fup-btn fup-btn--primary" onClick={openCreate}><Plus size={16} /> Create first profile</button>
+          </div>
+        ) : (
+          <div className="fup-grid">
+            {profiles.map((profile) => {
+              const plan = plans.find((p) => p.id === profile.plan_id);
+              return (
+                <article key={profile.id} className={`fup-card ${profile.is_active ? '' : 'is-inactive'}`}>
+                  <div className="fup-card__top">
+                    <div>
+                      <h3>{profile.name}</h3>
+                      <p>{profile.description || 'No description'}</p>
+                    </div>
+                    <span className={`fup-badge ${profile.is_active ? 'is-active' : ''}`}>
+                      {profile.is_active ? 'Active' : 'Paused'}
+                    </span>
+                  </div>
+                  <div className="fup-card__limit">
+                    <strong>{profile.data_limit}</strong>
+                    <span>{profile.data_limit_unit}</span>
+                  </div>
+                  <div className="fup-card__meta">
+                    <div><Clock3 size={14} /> Resets {profile.reset_period}</div>
+                    <div><Zap size={14} /> {profile.throttle_speed || '512k/512k'}</div>
+                    <div><ShieldCheck size={14} /> {plan ? plan.name : 'All plans'}</div>
+                    <div>Priority {profile.priority}</div>
+                  </div>
+                  <div className="fup-card__actions">
+                    <button onClick={() => openEdit(profile)}><Pencil size={14} /> Edit</button>
+                    <button className="is-danger" onClick={() => remove(profile)}><Trash2 size={14} /> Delete</button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
-      </div>
+      </section>
+
+      {statusRows.length > 0 && (
+        <section className="fup-section">
+          <div className="fup-section__title">
+            <h2>Currently throttled</h2>
+            <p>These subscribers are on reduced speed until their usage window resets.</p>
+          </div>
+          <div className="fup-table-wrap">
+            <table className="fup-table">
+              <thead><tr><th>Subscriber</th><th>Plan</th><th>Applied</th><th>Resets</th></tr></thead>
+              <tbody>
+                {statusRows.map((row) => (
+                  <tr key={row.id}>
+                    <td><CheckCircle2 size={14} /> {row.pppoe_username}</td>
+                    <td>{row.plan_name || '—'}</td>
+                    <td>{shortDate(row.fup_applied_at)}</td>
+                    <td>{shortDate(row.fup_reset_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {drawer && (
+        <div className="fup-drawer-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setDrawer(false); }}>
+          <aside className="fup-drawer">
+            <div className="fup-drawer__head">
+              <div>
+                <span>{editing ? 'Edit profile' : 'New profile'}</span>
+                <h2>{editing ? editing.name : 'Fair usage rule'}</h2>
+              </div>
+              <button className="fup-icon-btn" onClick={() => setDrawer(false)}><X size={18} /></button>
+            </div>
+            <form onSubmit={save} className="fup-drawer__form">
+              <label className="fup-field">
+                <span>Profile name</span>
+                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Home 200GB" required />
+              </label>
+              <label className="fup-field">
+                <span>Description</span>
+                <textarea rows="2" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What this policy does" />
+              </label>
+              <div className="fup-field-row">
+                <label className="fup-field">
+                  <span>Data allowance</span>
+                  <input type="number" min="1" step="1" value={form.data_limit} onChange={(e) => setForm({ ...form, data_limit: e.target.value })} placeholder="200" required />
+                </label>
+                <label className="fup-field fup-field--unit">
+                  <span>Unit</span>
+                  <select value={form.data_limit_unit} onChange={(e) => setForm({ ...form, data_limit_unit: e.target.value })}>
+                    <option value="MB">MB</option><option value="GB">GB</option><option value="TB">TB</option>
+                  </select>
+                </label>
+              </div>
+              <label className="fup-field">
+                <span>Reset period</span>
+                <select value={form.reset_period} onChange={(e) => setForm({ ...form, reset_period: e.target.value })}>
+                  <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="never">Never</option>
+                </select>
+              </label>
+              <label className="fup-field">
+                <span>Throttle speed</span>
+                <input value={form.throttle_speed} onChange={(e) => setForm({ ...form, throttle_speed: e.target.value })} placeholder="e.g. 1M/1M or 512k" />
+                <small>Applied to subscribers once they pass the allowance.</small>
+              </label>
+              <label className="fup-field">
+                <span>Plan</span>
+                <select value={form.plan_id} onChange={(e) => setForm({ ...form, plan_id: e.target.value })}>
+                  <option value="">All plans (global fallback)</option>
+                  {plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+                </select>
+              </label>
+              <label className="fup-field">
+                <span>Priority</span>
+                <input type="number" min="1" max="1000" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} />
+                <small>Lower numbers are evaluated first.</small>
+              </label>
+              <label className="fup-switch">
+                <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
+                <span className="fup-switch__track" />
+                <span><strong>Profile active</strong><small>Disabled profiles are ignored by the engine.</small></span>
+              </label>
+              {!form.throttle_speed && (
+                <div className="fup-hint"><AlertTriangle size={15} /> Defaults to 512k/512k when left empty.</div>
+              )}
+              <div className="fup-drawer__actions">
+                <button type="button" className="fup-btn fup-btn--ghost" onClick={() => setDrawer(false)}>Cancel</button>
+                <button type="submit" className="fup-btn fup-btn--primary" disabled={busy === 'save'}>
+                  {busy === 'save' ? <RefreshCw className="fup-spin" size={16} /> : <CheckCircle2 size={16} />}
+                  {editing ? 'Save changes' : 'Create profile'}
+                </button>
+              </div>
+            </form>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

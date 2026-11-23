@@ -115,7 +115,7 @@ async function runUsageAlerts() {
             const channels = ["sms", "whatsapp"];
             const messageText = !threshold.final
               ? `Hi ${customer.name}, you've used ${usagePct}% (${usageGb.toFixed(1)}GB) of your ${quota}GB data plan. ${Math.max(0, quota - usageGb).toFixed(1)}GB remaining. Top up or upgrade to avoid throttling. - ${process.env.COMPANY_NAME || 'Your ISP'}`
-              : `URGENT: Hi ${customer.name}, you've used 100% of your ${quota}GB data plan. Your speed has been reduced. Upgrade or top up to restore full speed. - ${process.env.COMPANY_NAME || 'Your ISP'}`;
+              : `URGENT: Hi ${customer.name}, you've used 100% of your ${quota}GB data plan. Your Fair Usage Policy may reduce your speed. Upgrade or top up to stay at full speed. - ${process.env.COMPANY_NAME || 'Your ISP'}`;
 
             for (const channel of channels) {
               try {

@@ -907,11 +907,11 @@ export function SettingsPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="fup-warning">FUP warning at (%)</Label>
+                  <Label htmlFor="fup-warning">Usage warning at (%)</Label>
                   <Input id="fup-warning" type="number" value={settings.fup_warning_threshold || "80"} onChange={(e) => setSettings({...settings, fup_warning_threshold: e.target.value})} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="fup-critical">FUP critical at (%)</Label>
+                  <Label htmlFor="fup-critical">Usage critical at (%)</Label>
                   <Input id="fup-critical" type="number" value={settings.fup_critical_threshold || "95"} onChange={(e) => setSettings({...settings, fup_critical_threshold: e.target.value})} />
                 </div>
               </div>

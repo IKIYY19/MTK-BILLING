@@ -19,7 +19,7 @@ async function runAutoSuspend() {
     const allInvoices = await billingData.listInvoices();
     const activeSubs = allSubscriptions.filter((s) => s.status === "active");
 
-    const results = { suspended: [], mikrotik_disabled: [], mikrotik_failed: [], radius_disabled: [], pod_kicked: [], fup_throttled: [], skipped: [] };
+    const results = { suspended: [], mikrotik_disabled: [], mikrotik_failed: [], radius_disabled: [], pod_kicked: [], skipped: [] };
 
     for (const sub of activeSubs) {
       const overdueInvoices = allInvoices.filter(
@@ -74,31 +74,8 @@ async function runAutoSuspend() {
         }
       }
 
-      if (sub.plan_id && sub.pppoe_username) {
-        try {
-          const db = global.dbAvailable ? global.db : require("../db/memory");
-          const fupRes = await db.query(
-            "SELECT * FROM fup_profiles WHERE plan_id = $1 AND is_active = true LIMIT 1",
-            [sub.plan_id]
-          );
-          if (fupRes.rows.length > 0) {
-            const fup = fupRes.rows[0];
-            const usageRes = await db.query(
-              "SELECT COALESCE(SUM(acctoutputoctets + acctinputoctets), 0) as total FROM radacct WHERE username = $1 AND acctstarttime > NOW() - INTERVAL '30 days'",
-              [sub.pppoe_username]
-            );
-            const totalGB = parseInt(usageRes.rows[0].total || 0) / 1073741824;
-            const dataLimit = parseFloat(fup.data_limit_gb || fup.data_limit || Infinity);
-            if (totalGB > dataLimit) {
-              const throttleRate = fup.throttle_speed || "512k/512k";
-              await radiusSync.updateThrottle(sub.pppoe_username, throttleRate);
-              await radiusPod.kickUser(sub.pppoe_username, sub);
-              results.fup_throttled.push({ subscription_id: sub.id, username: sub.pppoe_username, used_gb: parseFloat(totalGB.toFixed(2)) });
-              logger.info(`[FUP] Throttled ${sub.pppoe_username}: ${totalGB.toFixed(1)}GB of ${dataLimit}GB`);
-            }
-          }
-        } catch (e) { logger.error("[FUP] Check failed:", { error: e.message }); }
-      }
+      // FUP is evaluated for all active subscriptions by services/fup.js.
+      // It must not depend on a customer having an overdue invoice.
 
       if (sub.mikrotik_connection_id && sub.pppoe_username) {
         try {
@@ -126,7 +103,6 @@ async function runAutoSuspend() {
       suspended: results.suspended.length,
       radius_disabled: results.radius_disabled.length,
       pod_kicked: results.pod_kicked.length,
-      fup_throttled: results.fup_throttled.length,
       mikrotik_disabled: results.mikrotik_disabled.length,
       mikrotik_failed: results.mikrotik_failed.length,
       skipped: results.skipped.length,

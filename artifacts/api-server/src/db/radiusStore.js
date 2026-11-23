@@ -166,17 +166,15 @@ async function handleAccounting(data) {
         const usedPercent = (totalUsage / quotaBytes) * 100;
 
         if (usedPercent >= 100 && !subscription.throttled) {
-          // Quota exceeded - throttle
-          await billingData.updateSubscription(subscription.id, {
-            throttled: true,
-            throttle_reason: "quota_exceeded",
-          });
+          // Defer enforcement to the FUP engine, which writes the real
+          // Mikrotik-Rate-Limit and tracks reset windows. This legacy path
+          // only records an informational event.
 
           const logEntry = {
             id: uuidv4(),
             customer_id: customer.id,
-            action: "throttled",
-            reason: `Quota exceeded: ${(totalUsage / (1024 * 1024 * 1024)).toFixed(1)}GB / ${plan.quota_gb}GB`,
+            action: "quota_review",
+            reason: `Quota exceeded: ${(totalUsage / (1024 * 1024 * 1024)).toFixed(1)}GB / ${plan.quota_gb}GB — FUP engine will apply the configured limit`,
             created_at: new Date().toISOString(),
           };
 
@@ -199,8 +197,10 @@ async function handleAccounting(data) {
           return {
             accepted: true,
             reply: {
-              "Reply-Message": "Quota exceeded - throttled",
-              "Mikrotik-Rate-Limit": "1M/1M",
+              "Reply-Message": "Quota exceeded - FUP policy applies",
+              "Mikrotik-Rate-Limit": plan
+                ? `${plan.speed_down}/${plan.speed_up}`
+                : "1M/1M",
             },
           };
         }
@@ -222,11 +222,10 @@ async function handleAccounting(data) {
       return {
         accepted: true,
         reply: {
-          "Mikrotik-Rate-Limit": subscription.throttled
-            ? "1M/1M"
-            : plan
-              ? `${plan.speed_down}/${plan.speed_up}`
-              : "1M/1M",
+          // FUP enforcement lives in radreply and services/fup.js.
+          "Mikrotik-Rate-Limit": plan
+            ? `${plan.speed_down}/${plan.speed_up}`
+            : "1M/1M",
         },
       };
     }

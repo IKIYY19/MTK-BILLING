@@ -1299,8 +1299,10 @@ module.exports = {
         throttle_speed: params[6],
         priority: params[7],
         is_active: params[8],
-        created_at: params[9] || new Date().toISOString(),
-        updated_at: params[10] || new Date().toISOString(),
+        plan_id: params[9] || null,
+        tenant_id: params[10] || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       };
       store.fup_profiles.push(fup);
       return { rows: [fup] };
@@ -1323,6 +1325,7 @@ module.exports = {
         throttle_speed: params[5],
         priority: params[6],
         is_active: params[7],
+        plan_id: params[9] || null,
         updated_at: new Date().toISOString(),
       };
       return { rows: [store.fup_profiles[idx]] };

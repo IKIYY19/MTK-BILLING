@@ -236,6 +236,25 @@ The app collects real metrics every 5 minutes:
 
 Data is stored in `usage_records` table for reporting.
 
+## ⚖️ Fair Usage Policy (FUP)
+
+FUP is enforced on real RADIUS accounting data:
+
+1. FreeRADIUS writes session usage to `radacct`.
+2. `services/fup.js` evaluates every **active** subscription every 10 minutes
+   (or immediately via `POST /api/fup/evaluate`). It uses plan-specific profiles
+   first, then a customer override, then a global profile.
+3. Over-limit subscribers get the configured `Mikrotik-Rate-Limit` in `radreply`
+   and are disconnected so the new speed applies. State is stored on the
+   subscription (`fup_exceeded`, `fup_applied_at`, `fup_reset_at`).
+4. Once usage falls back below the allowance (or the reset period rolls over),
+   the original plan speed is restored automatically.
+
+Configure profiles in **Network → Fair Usage Policy**. A profile needs a data
+allowance, unit, reset period, throttle speed (e.g. `1M/1M`), and optionally a
+plan or customer override. Without a public PostgreSQL/RADIUS deployment FUP
+cannot evaluate usage; the UI will report that clearly.
+
 ## 🛠️ Tech Stack
 
 **Frontend:**
