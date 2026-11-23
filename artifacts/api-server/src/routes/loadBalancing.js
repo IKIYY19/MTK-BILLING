@@ -82,7 +82,12 @@ router.post("/generate", requirePermission("network:read"), async (req, res) => 
 router.post("/push", requirePermission("network:write"), async (req, res) => {
   try {
     const connection = await resolveRouter(req, req.body?.connection_id);
-    const script = loadBalancing.validateScript(req.body?.script);
+    const routerosMajor = await loadBalancing.detectRouterOsVersion(connection.id);
+    // Apply the same v7 compatibility pass to scripts from every panel.
+    const script = loadBalancing.normalizeScriptForRouterOS(
+      loadBalancing.validateScript(req.body?.script),
+      routerosMajor,
+    );
     const dryRun = req.body?.dry_run === true;
 
     if (dryRun) {
@@ -91,6 +96,7 @@ router.post("/push", requirePermission("network:write"), async (req, res) => {
         dry_run: true,
         message: "Dry run only - nothing was sent to the router",
         router: connection.name,
+        routeros_major: routerosMajor,
         script_length: script.length,
         lines: script.split("\n").length,
       });

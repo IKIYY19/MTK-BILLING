@@ -331,10 +331,55 @@ function validateScript(script) {
   return text;
 }
 
+/**
+ * Make an arbitrary RouterOS script safe for the target router version.
+ * RouterOS v7 needs routing tables to exist before any rule references a
+ * routing mark, and /ip route uses `routing-table=` instead of `routing-mark=`.
+ * This is applied at push time so every panel (PCC, bonding and custom
+ * scripts) gets the same protection, even if the script was generated earlier.
+ */
+function normalizeScriptForRouterOS(script, routerosMajor) {
+  const text = String(script || "");
+  if (Number(routerosMajor) !== 7) {
+    return text;
+  }
+
+  const lines = text.split("\n");
+  const marks = new Set();
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("#")) {continue;}
+    for (const match of trimmed.matchAll(/(?:new-routing-mark|routing-mark)=([A-Za-z0-9._-]+)/g)) {
+      const mark = match[1];
+      if (mark && mark !== "no-mark" && mark !== "main") {marks.add(mark);}
+    }
+  }
+
+  const normalized = lines.map((line) => {
+    const trimmed = line.trim();
+    if (/^\/ip(?:\s|\/)route\b/i.test(trimmed) && /\brouting-mark=/.test(trimmed)) {
+      return line.replace(/\brouting-mark=/g, "routing-table=");
+    }
+    return line;
+  });
+
+  if (marks.size === 0) {
+    return normalized.join("\n");
+  }
+
+  const setup = [
+    "# RouterOS v7: routing tables must exist before they can be referenced",
+    ...[...marks].map((mark) => `:if ([:len [/routing table find name=${mark}]] = 0) do={ /routing table add name=${mark} fib }`),
+    "",
+  ];
+  return [...setup, ...normalized].join("\n");
+}
+
 module.exports = {
   scanInterfaces,
   detectRouterOsVersion,
   generatePccScript,
+  normalizeScriptForRouterOS,
   validateScript,
   subnetOf,
 };
