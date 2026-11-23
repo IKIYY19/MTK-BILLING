@@ -6,7 +6,43 @@
 
 const express = require("express");
 const { getDb } = require("../db");
+const { getTenantId } = require("../db/tenantScope");
 const router = express.Router();
+
+// Delete selected audit entries from both audit tables
+router.post("/logs/bulk-delete", async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    if (!ids.length) {return res.status(400).json({ error: "No logs selected" });}
+    if (ids.length > 200) {return res.status(400).json({ error: "Select at most 200 entries at a time" });}
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const valid = [...new Set(ids.filter((id) => typeof id === "string" && uuid.test(id)))];
+    if (!valid.length) {return res.status(400).json({ error: "Invalid log IDs" });}
+
+    if (!global.dbAvailable || !global.db) {
+      const memory = require("../db/memory")._getStore();
+      const before = (memory.audit_logs || []).length;
+      memory.audit_logs = (memory.audit_logs || []).filter((log) => !valid.includes(log.id));
+      return res.json({ success: true, deleted: before - memory.audit_logs.length });
+    }
+
+    const tenantId = getTenantId();
+    let deleted = 0;
+    for (const table of ["audit_logs", "billing_audit_logs"]) {
+      const params = [...valid];
+      let where = `id IN (${valid.map((_, i) => `$${i + 1}`).join(", ")})`;
+      if (tenantId) {
+        params.push(tenantId);
+        where += ` AND tenant_id = $${params.length}`;
+      }
+      const result = await getDb().query(`DELETE FROM ${table} WHERE ${where}`, params);
+      deleted += result.rowCount || 0;
+    }
+    res.json({ success: true, deleted });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // GET /api/audit/logs?action=&entity_type=&user_id=&search=&limit=50&offset=0
 router.get("/logs", async (req, res) => {

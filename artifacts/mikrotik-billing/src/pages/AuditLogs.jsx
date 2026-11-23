@@ -26,6 +26,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 
 import "./auditLogs.css";
+import { useToast } from "../hooks/useToast";
 
 const API = import.meta.env.VITE_API_URL || "/api";
 
@@ -159,6 +160,8 @@ export function AuditLogs() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [expandedRows, setExpandedRows] = useState({});
+  const [selectedIds, setSelectedIds] = useState([]);
+  const toast = useToast();
 
   // Filters
   const [actionFilter, setActionFilter] = useState("");
@@ -207,8 +210,45 @@ export function AuditLogs() {
     return () => window.clearInterval(interval);
   }, [fetchLogs]);
 
+  useEffect(() => {
+    setSelectedIds((previous) => {
+      const available = new Set(logs.map((log) => log.id));
+      const next = previous.filter((id) => available.has(id));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [logs]);
+
   const toggleRow = (id) => {
     setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const visibleIds = logs.map((log) => log.id);
+  const allVisibleSelected = visibleIds.length > 0 &&
+    visibleIds.every((id) => selectedIds.includes(id));
+
+  const toggleLog = (id) => {
+    setSelectedIds((previous) => previous.includes(id)
+      ? previous.filter((selected) => selected !== id)
+      : [...previous, id]);
+  };
+
+  const toggleAllVisible = () => {
+    setSelectedIds((previous) => allVisibleSelected
+      ? previous.filter((id) => !visibleIds.includes(id))
+      : [...new Set([...previous, ...visibleIds])]);
+  };
+
+  const deleteLogs = async (ids) => {
+    if (!ids.length) {return;}
+    if (!window.confirm(`Delete ${ids.length} audit log entr${ids.length === 1 ? "y" : "ies"}? This cannot be undone.`)) {return;}
+    try {
+      const { data } = await axios.post(`${API}/audit/logs/bulk-delete`, { ids });
+      toast.success("Logs deleted", `${data.deleted} entr${data.deleted === 1 ? "y" : "ies"} removed`);
+      setSelectedIds((previous) => previous.filter((id) => !ids.includes(id)));
+      fetchLogs();
+    } catch (e) {
+      toast.error("Delete failed", e.response?.data?.error || e.message);
+    }
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -375,7 +415,31 @@ export function AuditLogs() {
         <p className="text-xs text-zinc-500">
           {total.toLocaleString()} log{total !== 1 ? "s" : ""} found
         </p>
+        {logs.length > 0 && (
+          <button
+            onClick={() => deleteLogs(visibleIds)}
+            className="text-xs text-rose-400 hover:text-rose-300"
+          >
+            Clear all shown
+          </button>
+        )}
       </div>
+
+      {selectedIds.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 mb-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-2.5">
+          <span className="text-xs text-zinc-300">{selectedIds.length} selected</span>
+          <button onClick={toggleAllVisible} className="text-xs text-cyan-400">
+            {allVisibleSelected ? "Deselect all shown" : `Select all shown (${visibleIds.length})`}
+          </button>
+          <button onClick={() => setSelectedIds([])} className="text-xs text-zinc-400">Clear selection</button>
+          <button
+            onClick={() => deleteLogs(selectedIds)}
+            className="text-xs text-rose-400 hover:text-rose-300"
+          >
+            Delete selected
+          </button>
+        </div>
+      )}
 
       {/* Logs Table */}
       <Card>
@@ -407,6 +471,15 @@ export function AuditLogs() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-zinc-800/50">
+                    <th className="text-left py-3 px-4">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all shown logs"
+                        checked={allVisibleSelected}
+                        onChange={toggleAllVisible}
+                        className="h-4 w-4 accent-emerald-500 cursor-pointer"
+                      />
+                    </th>
                     <th className="text-left py-3 px-4 text-xs font-semibold text-zinc-500 uppercase tracking-wider">
                       <Clock className="w-3 h-3 inline mr-1" />
                       Timestamp
@@ -441,6 +514,15 @@ export function AuditLogs() {
                         }`}
                         onClick={() => toggleRow(log.id)}
                       >
+                        <td onClick={(event) => event.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select log ${log.id}`}
+                            checked={selectedIds.includes(log.id)}
+                            onChange={() => toggleLog(log.id)}
+                            className="h-4 w-4 accent-emerald-500 cursor-pointer"
+                          />
+                        </td>
                         <td className="py-3 px-4 text-xs text-zinc-400 whitespace-nowrap font-mono">
                           {formatTimestamp(log.created_at)}
                         </td>
@@ -485,7 +567,7 @@ export function AuditLogs() {
                       </tr>
                       {expandedRows[log.id] && (
                         <tr className="bg-zinc-900/40">
-                          <td colSpan={7} className="py-3 px-6">
+                          <td colSpan={8} className="py-3 px-6">
                             <JsonDiffView
                               before={log.before_data}
                               after={log.after_data}
