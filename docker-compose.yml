@@ -69,12 +69,23 @@ services:
       RADIUS_SECRET: ${RADIUS_SECRET}
       ENABLE_ROUTER_CONNECTIVITY: ${ENABLE_ROUTER_CONNECTIVITY:-true}
       ENABLE_MONITORING_API: ${ENABLE_MONITORING_API:-true}
+      TR069_ACS_URL: ${TR069_ACS_URL:-}
+      TR069_NBI_URL: ${TR069_NBI_URL:-http://genieacs:7557}
+      DNS_ADBLOCK_PUBLIC_BASE_URL: ${DNS_ADBLOCK_PUBLIC_BASE_URL:-}
+      DNS_ADBLOCK_FEED_SECRET: ${DNS_ADBLOCK_FEED_SECRET:-}
+      WG_SERVER_ENDPOINT: ${WG_SERVER_ENDPOINT:-}
+      WG_TUNNEL_SUBNET: ${WG_TUNNEL_SUBNET:-10.200.0}
+      WG_TUNNEL_PORT: ${WG_TUNNEL_PORT:-51820}
+      WG_INTERFACE: ${WG_INTERFACE:-wg-billing}
+      WG_PERSISTENT_KEEPALIVE: ${WG_PERSISTENT_KEEPALIVE:-25}
     ports:
       - "5000:5000"
     depends_on:
       postgres:
         condition: service_healthy
       radius:
+        condition: service_started
+      genieacs:
         condition: service_started
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
