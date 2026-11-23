@@ -2215,6 +2215,39 @@ router.get("/v1/:slug/report", async (req, res) => {
       console.error("Failed to upsert router:", e.message);
     }
 
+    // WireGuard onboarding pre-creates a tunnel connection. Adopt it on first
+    // check-in so we keep one row with both tunnel metadata and credentials.
+    if (routerId) {
+      try {
+        const linked = await db.query(
+          "SELECT linked_mikrotik_connection_id FROM routers WHERE id = $1",
+          [routerId],
+        );
+        if (!linked.rows?.[0]?.linked_mikrotik_connection_id) {
+          const tunnelIp = String(routerIp || "").split("/")[0];
+          const adoption = await db.query(
+            `SELECT m.id FROM mikrotik_connections m
+             WHERE m.use_tunnel = true
+               AND (m.wireguard_tunnel_ip IN ($1, $2) OR m.ip_address = $1)
+               AND NOT EXISTS (
+                 SELECT 1 FROM routers r
+                 WHERE r.linked_mikrotik_connection_id = m.id
+               )
+             ORDER BY m.created_at DESC LIMIT 1`,
+            [tunnelIp, `${tunnelIp}/24`],
+          );
+          if (adoption.rows?.[0]?.id) {
+            await db.query(
+              "UPDATE routers SET linked_mikrotik_connection_id = $1 WHERE id = $2",
+              [adoption.rows[0].id, routerId],
+            );
+          }
+        }
+      } catch (adoptErr) {
+        console.error("Failed to adopt WireGuard tunnel connection:", adoptErr.message);
+      }
+    }
+
     // Create mikrotik_connection if credentials provided
     let connectionId = null;
     if (routerId && mgmt_user && mgmt_pass) {

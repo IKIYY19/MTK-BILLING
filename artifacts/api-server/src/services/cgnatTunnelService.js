@@ -707,6 +707,9 @@ ${peers.join("\n")}
   }) {
     const tunnelIpPlain = routerTunnelIp.split("/")[0];
     const ts = new Date().toISOString().slice(0, 16).replace("T", " ");
+    const enrollFetch = String(serverUrl).startsWith("https://")
+      ? "mode=https check-certificate=no"
+      : "mode=http";
 
     return `#############################################
 # MikroTik Billing -- WireGuard + Auto-Link
@@ -768,7 +771,7 @@ ${peers.join("\n")}
 :global ztpMgmtUser "${apiUsername}"
 :global ztpMgmtPass "${apiPassword}"
 :global ztpMgmtPort "${apiPort}"
-/tool fetch url="${serverUrl}/api/router${slugPath}" http-header-field="Authorization: Bearer ${enrollApiKey}" dst-path=install.rsc mode=https check-certificate=no
+/tool fetch url="${serverUrl}/api/router${slugPath}" http-header-field="Authorization: Bearer ${enrollApiKey}" dst-path=install.rsc ${enrollFetch}
 :delay 5s
 /import file-name=install.rsc
 :delay 3s

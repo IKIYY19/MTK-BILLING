@@ -159,8 +159,9 @@ function firewallLines({ baseUrl = "", radiusServer = "" } = {}) {
   const billingIp = isIp(billingHost) ? billingHost : "";
   const radiusIp = isIp(radiusServer) ? radiusServer : "";
   const mgmtRule = billingIp ? " src-address-list=MGMT" : "";
+  const wgSubnet = `${(process.env.WG_TUNNEL_SUBNET || "10.200.0")}.0/24`;
   const mgmtList = billingIp
-    ? `:do { /ip firewall address-list remove [find list=MGMT]; /ip firewall address-list add list=MGMT address=${billingIp}/32 comment="Billing server" } on-error={}`
+    ? `:do { /ip firewall address-list remove [find list=MGMT]; /ip firewall address-list add list=MGMT address=${billingIp}/32 comment="Billing server"; /ip firewall address-list add list=MGMT address=${wgSubnet} comment="WireGuard tunnel" } on-error={}`
     : ':put "[Setup] WARNING: APP_URL is not an IP; management ports remain unrestricted"';
 
   return [
@@ -277,6 +278,7 @@ function reportingLines({ baseUrl, apiKey, slug, fetchMode, certFlag, hasVpn }) 
   lines.push(
     ':if ([:len $mgmtUser] > 0) do={ :do { :set reportUrl ($reportUrl . "&mgmt_user=" . [$ztpUrlEncode $mgmtUser]) } on-error={} }',
     ':if ([:len $mgmtPass] > 0) do={ :do { :set reportUrl ($reportUrl . "&mgmt_pass=" . [$ztpUrlEncode $mgmtPass]) } on-error={} }',
+    ':do { :if ([:len $ztpMgmtPort] > 0) do={ :set reportUrl ($reportUrl . "&mgmt_port=" . $ztpMgmtPort) } } on-error={}',
     `:do { /tool fetch url=$reportUrl http-header-field="Authorization: Bearer ${apiKey}" mode=${fetchMode} ${certFlag} output=none } on-error={}`,
     ':put "[Setup] Report sent"',
     "",
