@@ -218,12 +218,30 @@ function validateWans(wans) {
   return cleaned;
 }
 
+async function detectRouterOsVersion(routerId) {
+  try {
+    const resource = await routerConnectionManager.print(
+      routerId,
+      "/system/resource",
+      "version",
+    );
+    const version = String(resource?.[0]?.version || "");
+    const major = Number(version.match(/^\D*(\d+)/)?.[1]);
+    return Number.isFinite(major) && major > 0 ? major : 7;
+  } catch {
+    // v7 is the safe default: it requires routing tables to exist first.
+    return 7;
+  }
+}
+
 function generatePccScript(wans, options = {}) {
   const cleaned = validateWans(wans);
   const lan = String(options.lanInterface || "bridge").trim();
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(lan)) {
     throw fail("Invalid LAN/bridge interface name");
   }
+  const isV7 = Number(options.routerosMajor) !== 6;
+  const routeMarkKey = isV7 ? "routing-table" : "routing-mark";
   const total = cleaned.reduce((sum, wan) => sum + wan.weight, 0);
   const lines = [
     "#############################################",
@@ -243,6 +261,16 @@ function generatePccScript(wans, options = {}) {
     `/ip firewall filter add chain=forward action=accept connection-mark=no-mark place-before=0 comment="LB-fastrack-accept"`,
     "",
   ];
+
+  if (isV7) {
+    lines.push("# RouterOS v7: mark-routing requires the routing tables to exist first");
+    lines.push(':do { /routing table remove [find comment~"^LB-"] } on-error={}');
+    cleaned.forEach((wan, index) => {
+      const mark = `WAN${index + 1}`;
+      lines.push(`:if ([:len [/routing table find name=to_${mark}]] = 0) do={ /routing table add name=to_${mark} fib comment="LB-to_${mark}" }`);
+    });
+    lines.push("");
+  }
 
   cleaned.forEach((wan, index) => {
     const mark = `WAN${index + 1}`;
@@ -271,7 +299,7 @@ function generatePccScript(wans, options = {}) {
   lineBreak(lines);
   cleaned.forEach((wan, index) => {
     const mark = `WAN${index + 1}`;
-    lines.push(`/ip route add dst-address=0.0.0.0/0 gateway=${wan.gateway} routing-mark=to_${mark} check-gateway=ping distance=1 comment="LB-${mark}-default"`);
+    lines.push(`/ip route add dst-address=0.0.0.0/0 gateway=${wan.gateway} ${routeMarkKey}=to_${mark} check-gateway=ping distance=1 comment="LB-${mark}-default"`);
     lines.push(`/ip firewall nat add chain=srcnat out-interface=${wan.name} action=masquerade comment="LB-${mark}-nat"`);
   });
 
@@ -305,6 +333,7 @@ function validateScript(script) {
 
 module.exports = {
   scanInterfaces,
+  detectRouterOsVersion,
   generatePccScript,
   validateScript,
   subnetOf,

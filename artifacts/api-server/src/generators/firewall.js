@@ -110,6 +110,16 @@ class FirewallGenerator {
 
   generateMangle() {
     this.lines.push('# Mangle Rules');
+    const newMarks = (this.config.mangle_rules || [])
+      .map((rule) => String(rule?.['new-routing-mark'] || '').trim())
+      .filter((mark) => mark && /^[A-Za-z0-9._-]{1,64}$/.test(mark));
+    if (newMarks.length > 0 && !/^\s*v?6(?:\.|$)/i.test(String(this.version))) {
+      this.lines.push('# RouterOS v7: routing tables must exist before mark-routing');
+      for (const mark of [...new Set(newMarks)]) {
+        this.lines.push(`:if ([:len [/routing table find name=${mark}]] = 0) do={ /routing table add name=${mark} fib }`);
+      }
+      this.lines.push('');
+    }
     for (const rule of this.config.mangle_rules) {
       const parts = [];
       parts.push(`chain=${rule.chain}`);

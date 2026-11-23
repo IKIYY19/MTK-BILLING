@@ -58,11 +58,23 @@ class RoutingGenerator {
 
   generatePBR() {
     this.lines.push('# Policy Based Routing (PBR)');
+    const isV6 = /^\s*v?6(?:\.|$)/i.test(String(this.version));
+    const routeMarkKey = isV6 ? 'routing-mark' : 'routing-table';
+    const marks = (this.config.pbr || [])
+      .map((pbr) => String(pbr['routing-mark'] || '').trim())
+      .filter((mark) => mark && /^[A-Za-z0-9._-]{1,64}$/.test(mark));
+    if (!isV6 && marks.length > 0) {
+      this.lines.push('# RouterOS v7: routing tables must exist before they can be referenced');
+      for (const mark of [...new Set(marks)]) {
+        this.lines.push(`:if ([:len [/routing table find name=${mark}]] = 0) do={ /routing table add name=${mark} fib }`);
+      }
+      this.lines.push('');
+    }
     for (const pbr of this.config.pbr) {
       const srcAddr = pbr['src-address'] ? ` src-address=${pbr['src-address']}` : '';
       const dstAddr = pbr['dst-address'] ? ` dst-address=${pbr['dst-address']}` : '';
       const inInterface = pbr['in-interface'] ? ` in-interface=${pbr['in-interface']}` : '';
-      const routingMark = pbr['routing-mark'] ? ` routing-mark=${pbr['routing-mark']}` : '';
+      const routingMark = pbr['routing-mark'] ? ` ${routeMarkKey}=${pbr['routing-mark']}` : '';
       const comment = pbr.comment ? ` comment="${pbr.comment}"` : '';
       this.lines.push(`/ip route add${srcAddr}${dstAddr}${inInterface} gateway=${pbr.gateway}${routingMark}${comment}`);
     }

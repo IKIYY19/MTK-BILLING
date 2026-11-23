@@ -66,8 +66,12 @@ router.post("/generate", requirePermission("network:read"), async (req, res) => 
     if (req.body?.connection_id) {
       await resolveRouter(req, req.body.connection_id);
     }
+    const routerosMajor = req.body?.connection_id
+      ? await loadBalancing.detectRouterOsVersion(req.body.connection_id)
+      : 7;
     const script = loadBalancing.generatePccScript(req.body?.wans, {
       lanInterface: req.body?.lan_interface,
+      routerosMajor,
     });
     res.json({ success: true, script, lines: script.split("\n").length });
   } catch (error) {
@@ -119,6 +123,9 @@ router.post("/push", requirePermission("network:write"), async (req, res) => {
       backup,
     });
   } catch (error) {
+    if (/routing-mark/i.test(error.message)) {
+      error.message += " — regenerate the script first: RouterOS v7 needs routing tables created before mark-routing";
+    }
     handle(error, res);
   }
 });

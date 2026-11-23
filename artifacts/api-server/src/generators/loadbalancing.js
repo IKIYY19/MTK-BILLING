@@ -41,6 +41,19 @@ class LoadBalancingGenerator {
     this.lines.push('# PCC Load Balancing');
     const pcc = this.config.pcc;
     const wanCount = pcc.wan_count || 2;
+    const isV6 = /^\s*v?6(?:\.|$)/i.test(String(this.version));
+    const routeMarkKey = isV6 ? 'routing-mark' : 'routing-table';
+
+    // RouterOS v7 does not create routing marks implicitly; the tables must
+    // exist before any mark-routing rule can reference them.
+    if (!isV6) {
+      this.lines.push('# RouterOS v7 routing tables for mark-routing');
+      for (let i = 0; i < wanCount; i++) {
+        const wanInterface = pcc.wan_interfaces?.[i] || `ether${i + 1}`;
+        this.lines.push(`:if ([:len [/routing table find name=to_${wanInterface}]] = 0) do={ /routing table add name=to_${wanInterface} fib }`);
+      }
+      this.lines.push('');
+    }
 
     // Mangle rules for PCC
     this.lines.push('# PCC Mangle Rules - Connection Marking');
@@ -78,7 +91,7 @@ class LoadBalancingGenerator {
       const wanInterface = pcc.wan_interfaces?.[i] || `ether${i + 1}`;
       const wanGateway = pcc.wan_gateways?.[i] || `10.0.${i + 1}.1`;
 
-      this.lines.push(`/ip route add dst-address=0.0.0.0/0 gateway=${wanGateway} routing-mark=to_${wanInterface} comment="PCC route WAN${i + 1}"`);
+      this.lines.push(`/ip route add dst-address=0.0.0.0/0 gateway=${wanGateway} ${routeMarkKey}=to_${wanInterface} comment="PCC route WAN${i + 1}"`);
     }
 
     // Default route with ECMP
