@@ -228,6 +228,9 @@ export function HotspotManagement() {
   const [users, setUsers] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [active, setActive] = useState([]);
+  const [bindings, setBindings] = useState([]);
+  const [bindingMac, setBindingMac] = useState('');
+  const [bindingLabel, setBindingLabel] = useState('');
   const [connections, setConnections] = useState([]);
   const [search, setSearch] = useState('');
   const [showUserForm, setShowUserForm] = useState(false);
@@ -239,15 +242,18 @@ export function HotspotManagement() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [usersRes, profilesRes, activeRes, connRes] = await Promise.all([
-        axios.get(`${API}/network/hotspot/users${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`).catch(() => ({ data: [] })),
-        axios.get(`${API}/network/hotspot/profiles${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`).catch(() => ({ data: [] })),
-        axios.get(`${API}/network/hotspot/active${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`).catch(() => ({ data: [] })),
+      const query = selectedConnection ? `?connection_id=${selectedConnection}` : '';
+      const [usersRes, profilesRes, activeRes, bindingsRes, connRes] = await Promise.all([
+        axios.get(`${API}/network/hotspot/users${query}`).catch(() => ({ data: [] })),
+        axios.get(`${API}/network/hotspot/profiles${query}`).catch(() => ({ data: [] })),
+        axios.get(`${API}/network/hotspot/active${query}`).catch(() => ({ data: [] })),
+        axios.get(`${API}/network/hotspot/mac-bindings${query}`).catch(() => ({ data: [] })),
         axios.get(`${API}/mikrotik`).catch(() => ({ data: [] })),
       ]);
       setUsers(Array.isArray(usersRes.data) ? usersRes.data : []);
       setProfiles(Array.isArray(profilesRes.data) ? profilesRes.data : []);
       setActive(Array.isArray(activeRes.data) ? activeRes.data : []);
+      setBindings(Array.isArray(bindingsRes.data) ? bindingsRes.data : []);
       setConnections(Array.isArray(connRes.data) ? connRes.data : []);
     } catch (e) { console.error('Hotspot fetch error:', e); }
     setLoading(false);
@@ -299,6 +305,35 @@ export function HotspotManagement() {
     } catch (e) { alert('Failed to delete profile'); }
   };
 
+  const handleAddBinding = async (event) => {
+    event.preventDefault();
+    if (!selectedConnection) { alert('Select a router first'); return; }
+    try {
+      await axios.post(`${API}/network/hotspot/mac-bindings`, {
+        connection_id: selectedConnection,
+        mac_address: bindingMac,
+        type: 'bypassed',
+        comment: bindingLabel || 'Registered device',
+      });
+      setBindingMac(''); setBindingLabel(''); fetchData();
+    } catch (e) { alert(e.response?.data?.error || 'Failed to add MAC binding'); }
+  };
+
+  const handleDeleteBinding = async (id, mac) => {
+    if (!confirm(`Remove internet access for device ${mac || id}?`)) {return;}
+    try {
+      await axios.delete(`${API}/network/hotspot/mac-bindings/${encodeURIComponent(id)}${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`);
+      fetchData();
+    } catch (e) { alert('Failed to remove MAC binding'); }
+  };
+
+  const handleToggleBinding = async (id) => {
+    try {
+      await axios.post(`${API}/network/hotspot/mac-bindings/${encodeURIComponent(id)}/toggle${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`);
+      fetchData();
+    } catch (e) { alert('Failed to toggle MAC binding'); }
+  };
+
   const filteredUsers = users.filter(u =>
     u.name?.toLowerCase().includes(search.toLowerCase()) ||
     u.comment?.toLowerCase().includes(search.toLowerCase())
@@ -312,6 +347,7 @@ export function HotspotManagement() {
     { id: 'users', label: 'Users', icon: Users, count: users.length },
     { id: 'profiles', label: 'Profiles', icon: Package, count: profiles.length },
     { id: 'active', label: 'Active Sessions', icon: Wifi, count: active.length },
+    { id: 'bindings', label: 'Device MAC', icon: Shield, count: bindings.length },
   ];
 
   return (
@@ -575,6 +611,93 @@ export function HotspotManagement() {
       )}
 
       {/* Modals */}
+      {/* DEVICE MAC BINDINGS TAB */}
+      {activeTab === 'bindings' && (
+        <div className="relative space-y-5">
+          <div className="glass rounded-2xl p-5">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/20 flex items-center justify-center shrink-0">
+                <Shield className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white">Register a device by MAC</h3>
+                <p className="text-xs text-zinc-400 mt-1">
+                  TVs, printers and other devices without a browser are given internet directly, with no captive portal.
+                  The MAC must be visible to the hotspot — put a CPE/ONT in bridge mode for devices behind it.
+                </p>
+              </div>
+            </div>
+            <form onSubmit={handleAddBinding} className="flex flex-wrap items-end gap-3">
+              <div className="min-w-[220px] flex-1">
+                <label className="block text-xs text-zinc-400 mb-1.5">Device MAC address</label>
+                <input required value={bindingMac} onChange={e => setBindingMac(e.target.value)}
+                  placeholder="AA:BB:CC:DD:EE:FF" className="modern-input font-mono" />
+              </div>
+              <div className="min-w-[200px] flex-1">
+                <label className="block text-xs text-zinc-400 mb-1.5">Label (optional)</label>
+                <input value={bindingLabel} onChange={e => setBindingLabel(e.target.value)}
+                  placeholder="Living room TV" className="modern-input" />
+              </div>
+              <button type="submit" className="btn-primary flex items-center gap-2">
+                <Plus className="w-4 h-4" /> Add device
+              </button>
+            </form>
+          </div>
+
+          <div className="glass rounded-2xl overflow-hidden">
+            <div className="p-4 border-b border-zinc-800/50">
+              <h3 className="text-sm font-medium text-zinc-300">Registered devices ({bindings.length})</h3>
+            </div>
+            {loading ? (
+              <div className="p-6 space-y-3">{[1, 2, 3].map(i => <div key={i} className="skeleton h-12 rounded-xl" />)}</div>
+            ) : (
+              <table className="modern-table">
+                <thead>
+                  <tr>
+                    <th>MAC address</th>
+                    <th>Type</th>
+                    <th>Label</th>
+                    <th>State</th>
+                    <th className="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bindings.map(b => (
+                    <tr key={b['.id']}>
+                      <td className="font-mono text-sm text-white">{b['mac-address']}</td>
+                      <td><span className={`px-2 py-0.5 rounded-full text-[11px] ${b.type === 'bypassed' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'}`}>{b.type}</span></td>
+                      <td className="text-sm text-zinc-400">{b.comment || '—'}</td>
+                      <td>
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] ${['true', 'yes'].includes(String(b.disabled).toLowerCase()) ? 'bg-zinc-700/60 text-zinc-400' : 'bg-emerald-500/15 text-emerald-400'}`}>
+                          {['true', 'yes'].includes(String(b.disabled).toLowerCase()) ? 'Disabled' : 'Enabled'}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => handleToggleBinding(b['.id'])} className="btn-ghost p-2" title="Enable / disable">
+                            {['true', 'yes'].includes(String(b.disabled).toLowerCase()) ? <UserCheck className="w-4 h-4" /> : <UserX className="w-4 h-4" />}
+                          </button>
+                          <button onClick={() => handleDeleteBinding(b['.id'], b['mac-address'])} className="btn-ghost p-2 text-rose-400 hover:text-rose-300" title="Remove device">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {!loading && bindings.length === 0 && (
+              <div className="empty-state">
+                <div className="empty-state-icon"><Shield className="w-6 h-6 text-zinc-600" /></div>
+                <div className="empty-state-title">No registered devices</div>
+                <div className="empty-state-desc">Add a MAC address above to give a TV or printer internet without the portal.</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <UserForm show={showUserForm} onClose={() => { setShowUserForm(false); setEditingUser(null); }}
         editing={editingUser} profiles={profiles} connections={connections} onSubmit={handleCreateUser} />
       <ProfileForm show={showProfileForm} onClose={() => { setShowProfileForm(false); setEditingProfile(null); }}

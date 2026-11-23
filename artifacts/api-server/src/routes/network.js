@@ -233,6 +233,74 @@ router.post('/hotspot/users/:name/toggle', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+const MAC_PATTERN = /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/;
+
+// Get MAC/IP bindings (TVs, printers and other browserless devices)
+router.get('/hotspot/mac-bindings', async (req, res) => {
+  try {
+    const { connection_id } = req.query;
+    if (!connection_id) {return res.json([]);}
+    const device = await getMikrotikConnection(connection_id);
+    const result = await routerConnectionManager.executeCommand(
+      device,
+      '/ip/hotspot/ip-binding/print',
+      { '.proplist': '.id,mac-address,address,type,disabled,comment' },
+    );
+    res.json(Array.isArray(result) ? result : []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Create a MAC binding. "bypassed" gives the device internet without a portal.
+router.post('/hotspot/mac-bindings', async (req, res) => {
+  try {
+    const { connection_id, mac_address, type, address, comment } = req.body;
+    if (!connection_id) {return res.status(400).json({ error: 'Connection ID required' });}
+    const mac = String(mac_address || '').trim().replace(/-/g, ':').toUpperCase();
+    if (!MAC_PATTERN.test(mac)) {
+      return res.status(400).json({ error: 'Enter a valid MAC address, e.g. AA:BB:CC:DD:EE:FF' });
+    }
+    const bindingType = ['bypassed', 'blocked', 'regular'].includes(type) ? type : 'bypassed';
+    const device = await getMikrotikConnection(connection_id);
+    const args = { 'mac-address': mac, type: bindingType };
+    if (address) {args.address = String(address).trim().slice(0, 64);}
+    if (comment) {args.comment = String(comment).trim().slice(0, 200);}
+    await executeCommand(device, '/ip/hotspot/ip-binding/add', args);
+    res.json({ success: true, message: 'MAC binding created' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Delete a MAC binding by RouterOS id
+router.delete('/hotspot/mac-bindings/:id', async (req, res) => {
+  try {
+    const { connection_id } = req.query;
+    if (!connection_id) {return res.status(400).json({ error: 'Connection ID required' });}
+    const device = await getMikrotikConnection(connection_id);
+    await executeCommand(device, '/ip/hotspot/ip-binding/remove', { numbers: req.params.id });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Enable/disable a MAC binding
+router.post('/hotspot/mac-bindings/:id/toggle', async (req, res) => {
+  try {
+    const { connection_id } = req.query;
+    if (!connection_id) {return res.status(400).json({ error: 'Connection ID required' });}
+    const device = await getMikrotikConnection(connection_id);
+    const bindings = await routerConnectionManager.executeCommand(
+      device,
+      '/ip/hotspot/ip-binding/print',
+      { '.proplist': '.id,disabled' },
+    );
+    const binding = (Array.isArray(bindings) ? bindings : []).find(b => b['.id'] === req.params.id);
+    const isDisabled = ['true', 'yes'].includes(String(binding?.disabled || '').toLowerCase());
+    await executeCommand(device, '/ip/hotspot/ip-binding/set', {
+      numbers: req.params.id,
+      disabled: isDisabled ? 'no' : 'yes',
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Get Hotspot profiles
 router.get('/hotspot/profiles', async (req, res) => {
   try {
