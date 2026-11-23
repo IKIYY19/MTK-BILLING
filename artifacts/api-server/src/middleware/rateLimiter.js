@@ -5,12 +5,27 @@
  */
 
 const rateLimit = require("express-rate-limit");
+const jwt       = require("jsonwebtoken");
 const logger    = require("../utils/logger");
+const { JWT_SECRET } = require("./auth");
 
 // ─── Key generators ───────────────────────────────────────────────────────────
 
-/** Authenticated routes: key by tenant_id so limits are per-ISP, not per-IP */
+/**
+ * Authenticated routes: key by the verified token subject so users behind the
+ * same office NAT do not share one bucket. Falls back to tenant/IP for public
+ * requests. apiLimiter runs before authenticate(), hence the token lookup here.
+ */
 function tenantKey(req) {
+  const header = req.headers?.authorization;
+  if (header && header.startsWith("Bearer ")) {
+    try {
+      const decoded = jwt.verify(header.split(" ")[1], JWT_SECRET);
+      return `${decoded.tenant_id || "default"}:${decoded.id || decoded.email || "user"}`;
+    } catch {
+      // Public/invalid token — fall through to IP-based bucket.
+    }
+  }
   return req.user?.tenant_id || req.tenantId || req.ip;
 }
 
@@ -38,10 +53,11 @@ function makeHandler(label) {
 }
 
 // ─── Tenant-aware general API limiter ────────────────────────────────────────
-// 2000 req / 15 min per tenant (generous for ISPs managing hundreds of customers)
+// 10000 req / 15 min per authenticated user; dashboards poll several endpoints
+// every few seconds, so the old 2000/user bucket was too easy to exhaust.
 const apiLimiter = rateLimit({
   windowMs:       15 * 60 * 1000,
-  max:            2000,
+  max:            10000,
   keyGenerator:   tenantKey,
   standardHeaders: true,
   legacyHeaders:  false,

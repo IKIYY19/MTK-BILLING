@@ -15,6 +15,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useToast } from "../hooks/useToast";
+import "./webhooks.css";
 
 const API = import.meta.env.VITE_API_URL || "/api";
 
@@ -216,7 +217,7 @@ export default function WebhooksPage() {
   // ─── Render ──────────────────────────────
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="wh-page p-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
