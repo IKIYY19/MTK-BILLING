@@ -3,7 +3,7 @@ import axios from "axios";
 import {
   Router, Copy, Check, Key, Terminal, Loader2, Shield, AlertCircle,
   Link2, Plug, Wifi, WifiOff, Activity, Server, Trash2, X,
-  Globe, RefreshCw, Lock
+  Globe, RefreshCw, Lock, Download
 } from "lucide-react";
 import { useToastStore } from "../stores/toastStore";
 import { getToken } from "../lib/auth";
@@ -79,6 +79,8 @@ export default function RoutersPage() {
   const [vpnModal, setVpnModal] = useState(null);
   const [vpnCopied, setVpnCopied] = useState(false);
   const [vpnLoading, setVpnLoading] = useState(false);
+  const [vpnAdminConfig, setVpnAdminConfig] = useState(null);
+  const [vpnConfigBusy, setVpnConfigBusy] = useState(false);
 
   // ── Link to Billing modal state ──────────────────────────────────────────
   const [linkModal, setLinkModal] = useState(null); // { router }
@@ -291,15 +293,50 @@ export default function RoutersPage() {
   const openVpnModal = async (router, slug) => {
     setVpnModal({ router, slug });
     setVpnCopied(false);
+    setVpnAdminConfig(null);
     setVpnLoading(true);
     try {
-      const { data } = await axios.get(`${API}/settings`);
-      if (!data?.vpn_server_address) {
-        setVpnModal({ router, slug, noServer: true });
-      }
+      const [settingsRes, tunnelRes] = await Promise.all([
+        axios.get(`${API}/settings`).catch(() => ({ data: {} })),
+        axios.get(`${API}/cgnat-tunnel/status`).catch(() => ({ data: {} })),
+      ]);
+      const tunnels = tunnelRes.data?.tunnels || [];
+      const tunnel = tunnels.find((item) =>
+        item.connection_id === router.id || item.connectionId === router.id ||
+        item.router_id === router.id || item.id === router.id);
+      setVpnModal({
+        router,
+        slug,
+        noServer: !settingsRes.data?.vpn_server_address,
+        tunnel: tunnel || null,
+        serverEndpoint: tunnelRes.data?.serverEndpoint || "",
+      });
     } catch (e) {
       setVpnModal({ router, slug, noServer: true });
     } finally { setVpnLoading(false); }
+  };
+
+  const generateVpnAdminConfig = async () => {
+    if (!vpnModal?.router?.id) {return;}
+    setVpnConfigBusy(true);
+    try {
+      const { data } = await axios.post(`${API}/cgnat-tunnel/${vpnModal.router.id}/admin-config`, {});
+      setVpnAdminConfig(data);
+      toast.success("WireGuard config generated");
+    } catch (e) {
+      toast.error(e.response?.data?.error || e.message || "Could not generate WireGuard config");
+    } finally { setVpnConfigBusy(false); }
+  };
+
+  const downloadVpnConfig = () => {
+    if (!vpnAdminConfig?.config) {return;}
+    const blob = new Blob([vpnAdminConfig.config], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${vpnModal.interfaceName || "wg-billing"}-${vpnModal.router?.name || "router"}.conf`.replace(/[^\w.-]+/g, "-");
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const vpnUrlError = serverUrlError(appUrl);
@@ -1297,11 +1334,52 @@ export default function RoutersPage() {
             <div className="p-6 space-y-4">
               {vpnLoading ? (
                 <p className="text-zinc-400">Loading...</p>
+              ) : vpnModal.tunnel ? (
+                <>
+                  <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                    <p className="text-blue-300 text-sm font-medium mb-1">WireGuard — Remote Winbox</p>
+                    <p className="text-blue-400/80 text-xs">
+                      Connect your workstation to the tunnel, then open Winbox on the router&apos;s tunnel address.
+                    </p>
+                  </div>
+                  <div className="bg-zinc-800/50 rounded-lg p-4 space-y-2">
+                    <p className="text-zinc-400 text-xs font-medium">CONNECT TO</p>
+                    <p className="text-white font-mono text-sm">{vpnAdminConfig?.winboxHost || `${String(vpnModal.tunnel.tunnel_ip || "").split("/")[0]}:8291`}</p>
+                    <p className="text-zinc-500 text-xs">
+                      API: {vpnAdminConfig?.apiHost || `${String(vpnModal.tunnel.tunnel_ip || "").split("/")[0]}:8728`}
+                      {vpnModal.serverEndpoint ? ` · Server: ${vpnModal.serverEndpoint}` : ""}
+                    </p>
+                  </div>
+                  {!vpnAdminConfig ? (
+                    <Button onClick={generateVpnAdminConfig} disabled={vpnConfigBusy} className="w-full gap-2">
+                      <Plug className="w-4 h-4" />
+                      {vpnConfigBusy ? "Generating…" : "Generate client config"}
+                    </Button>
+                  ) : (
+                    <>
+                      <div className="bg-zinc-950 border border-zinc-700/50 rounded-lg p-4">
+                        <p className="text-zinc-400 text-xs font-medium mb-2">ON THE ROUTER (once)</p>
+                        <pre className="text-green-400 font-mono text-xs whitespace-pre-wrap">
+                          {vpnAdminConfig.routerCommands?.join("\n")}
+                        </pre>
+                      </div>
+                      <div className="bg-zinc-950 border border-zinc-700/50 rounded-lg p-4 max-h-52 overflow-auto">
+                        <pre className="text-green-400 font-mono text-xs whitespace-pre-wrap">
+                          {vpnAdminConfig.config}
+                        </pre>
+                      </div>
+                      <Button onClick={downloadVpnConfig} className="w-full gap-2">
+                        <Download className="w-4 h-4" /> Download .conf
+                      </Button>
+                    </>
+                  )}
+                </>
               ) : vpnModal.noServer ? (
                 <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
-                  <p className="text-amber-300 text-sm font-medium mb-2">VPN server not configured</p>
+                  <p className="text-amber-300 text-sm font-medium mb-2">No remote access configured</p>
                   <p className="text-amber-400/80 text-xs">
-                    Add your SSTP server address, port and credentials under Settings &gt; General &gt; Remote Access VPN, then open this again.
+                    Create a WireGuard tunnel for this router in the <strong>WireGuard / NAT</strong> tab, then open Remote Winbox again.
+                    Alternatively add an SSTP server under Settings &gt; General &gt; Remote Access VPN.
                   </p>
                 </div>
               ) : (

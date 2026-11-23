@@ -142,6 +142,27 @@ class CGNATTunnelService {
     }
   }
 
+  async getAdminPeer() {
+    try {
+      const db = this.getDb();
+      const result = await db.query(
+        "SELECT key_name, key_value FROM system_keys WHERE key_name IN ('wireguard_admin_public','wireguard_admin_ip')",
+      );
+      const keys = Object.fromEntries((result.rows || []).map((row) => [row.key_name, row.key_value]));
+      if (!keys.wireguard_admin_public || !keys.wireguard_admin_ip) {return null;}
+      return { publicKey: keys.wireguard_admin_public, ip: keys.wireguard_admin_ip };
+    } catch {
+      return null;
+    }
+  }
+
+  async registerAdminPeer(publicKey, ip, privateKey) {
+    if (privateKey) {await this.storeKey("wireguard_admin_private", privateKey);}
+    await this.storeKey("wireguard_admin_public", publicKey);
+    await this.storeKey("wireguard_admin_ip", ip);
+    await this.updateWireGuardServerConfig();
+  }
+
   /**
    * Generate a WireGuard key pair
    */
@@ -452,6 +473,14 @@ PublicKey = ${tunnel.publicKey}
 AllowedIPs = ${tunnelIpOnly}/32`;
       })
       .join("\n");
+    const adminPeer = await this.getAdminPeer();
+    const adminPeerConfig = adminPeer
+      ? `
+[Peer]
+# Admin workstation (Remote Winbox)
+PublicKey = ${adminPeer.publicKey}
+AllowedIPs = ${adminPeer.ip}/32`
+      : "";
 
     return `#!/bin/bash
 #############################################
@@ -507,7 +536,7 @@ Address = ${WG_TUNNEL_SUBNET}.1/24
 ListenPort = ${WG_TUNNEL_PORT}
 PrivateKey = ${serverPrivateKey}
 SaveConfig = false
-${peerConfigs}
+${peerConfigs}${adminPeerConfig}
 WGEOF
 
 chmod 600 ${WG_CONFIG_PATH}
@@ -572,6 +601,15 @@ echo "To verify: run 'wg show ${WG_INTERFACE}' after a router connects."
 # Router: ${tunnel.routerName} (${tunnel.routerId})
 PublicKey = ${tunnel.publicKey}
 AllowedIPs = ${tunnelIpOnly}/32`);
+    }
+
+    const adminPeer = await this.getAdminPeer();
+    if (adminPeer) {
+      peers.push(`
+[Peer]
+# Admin workstation (Remote Winbox)
+PublicKey = ${adminPeer.publicKey}
+AllowedIPs = ${adminPeer.ip}/32`);
     }
 
     const config = `[Interface]

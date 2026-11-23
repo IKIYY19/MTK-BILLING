@@ -10,6 +10,7 @@ const cgnatTunnelService = require("../services/cgnatTunnelService");
 const getDb = () => global.db || require("../db/memory");
 const db = { query: (...args) => getDb().query(...args) };
 const { encrypt, decrypt } = require("../utils/encryption");
+const { requireRole, ROLES } = require("../middleware/auth");
 
 /**
  * GET /api/cgnat-tunnel/status
@@ -44,6 +45,92 @@ router.get("/tunnels", async (req, res) => {
   try {
     const result = await cgnatTunnelService.listTunnels();
     res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /api/cgnat-tunnel/:connectionId/admin-config
+ * Generate a WireGuard client config for an admin workstation so it can reach
+ * a router's Winbox/API over the existing CGNAT tunnel.
+ */
+router.post("/:connectionId/admin-config", requireRole(ROLES.ADMIN), async (req, res) => {
+  try {
+    const connectionId = req.params.connectionId;
+    await cgnatTunnelService.initialize();
+
+    const result = await db.query(
+      "SELECT id, name, wireguard_tunnel_ip FROM mikrotik_connections WHERE id = $1",
+      [connectionId],
+    );
+    const router = result.rows?.[0];
+    if (!router) {return res.status(404).json({ success: false, error: "Router not found" });}
+    if (!router.wireguard_tunnel_ip) {
+      return res.status(400).json({
+        success: false,
+        error: "This router has no WireGuard tunnel. Create one in the WireGuard / NAT tab first.",
+      });
+    }
+
+    const endpoint = cgnatTunnelService.getServerEndpoint();
+    if (!endpoint) {
+      return res.status(503).json({
+        success: false,
+        error: "WG_SERVER_ENDPOINT is not configured on the billing server.",
+      });
+    }
+
+    const dbRows = await db.query(
+      "SELECT wireguard_tunnel_ip FROM mikrotik_connections WHERE wireguard_tunnel_ip IS NOT NULL",
+    );
+    const usedIps = new Set(
+      (dbRows.rows || []).map((row) => String(row.wireguard_tunnel_ip).split("/")[0]),
+    );
+    const subnet = (process.env.WG_TUNNEL_SUBNET || "10.200.0").trim();
+    let adminIp = null;
+    for (let host = 254; host >= 2; host -= 1) {
+      const candidate = `${subnet}.${host}`;
+      if (!usedIps.has(candidate)) {adminIp = candidate; break;}
+    }
+    if (!adminIp) {
+      return res.status(503).json({ success: false, error: "No free tunnel address available" });
+    }
+
+    const keyPair = cgnatTunnelService.generateKeyPair();
+    await cgnatTunnelService.registerAdminPeer(keyPair.publicKey, adminIp, keyPair.privateKey);
+
+    const routerIp = String(router.wireguard_tunnel_ip).split("/")[0];
+    const serverPort = process.env.WG_TUNNEL_PORT || 51820;
+    const keepalive = process.env.WG_PERSISTENT_KEEPALIVE || "25";
+    const config = [
+      "[Interface]",
+      `PrivateKey = ${keyPair.privateKey}`,
+      `Address = ${adminIp}/32`,
+      `DNS = ${subnet}.1`,
+      "",
+      "[Peer]",
+      `PublicKey = ${cgnatTunnelService.serverPublicKey}`,
+      `Endpoint = ${endpoint}:${serverPort}`,
+      `AllowedIPs = ${routerIp}/32`,
+      `PersistentKeepalive = ${keepalive}`,
+      "",
+    ].join("\n");
+
+    res.json({
+      success: true,
+      config,
+      interfaceName: process.env.WG_INTERFACE || "wg-billing",
+      adminIp,
+      routerTunnelIp: routerIp,
+      winboxHost: `${routerIp}:8291`,
+      apiHost: `${routerIp}:8728`,
+      routerCommands: [
+        `/interface wireguard peers set [find public-key="${cgnatTunnelService.serverPublicKey}"] allowed-address=${subnet}.0/24`,
+        "/ip service set winbox disabled=no",
+      ],
+      message: "WireGuard client config generated. Apply the router commands once, then connect with Winbox.",
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
