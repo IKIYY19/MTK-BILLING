@@ -4,6 +4,7 @@ const db = global.db || require('../db/memory');
 const { v4: uuidv4 } = require('uuid');
 const billing = require('../services/billingData');
 const { encrypt, decrypt } = require('../utils/encryption');
+const { requirePermission } = require('../middleware/auth');
 
 function toSafeConnection(connection) {
   if (!connection) {return null;}
@@ -491,6 +492,45 @@ router.get('/alerts/all', async (req, res) => {
     
     const result = await db.query(query, params);
     res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete multiple alerts at once (Alert Center selection / clear all)
+router.post('/alerts/bulk-delete', requirePermission('network:write'), async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : null;
+    if (!ids || ids.length === 0) {
+      return res.status(400).json({ error: 'No alerts selected' });
+    }
+    if (ids.length > 200) {
+      return res.status(400).json({ error: 'Select at most 200 alerts at a time' });
+    }
+
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const validIds = [...new Set(ids.filter((id) => typeof id === 'string' && uuidPattern.test(id)))];
+    if (validIds.length === 0) {
+      return res.status(400).json({ error: 'Invalid alert IDs' });
+    }
+
+    const placeholders = validIds.map((_, index) => `$${index + 1}`).join(', ');
+    let query = `DELETE FROM alerts WHERE id IN (${placeholders})`;
+    const params = [...validIds];
+
+    // Alerts have no tenant_id of their own: scope router-linked alerts to the
+    // caller's tenant. System alerts (no connection) remain admin-only.
+    if (!req.isSuperAdmin && req.tenantId) {
+      query += ` AND connection_id IN (
+        SELECT id FROM mikrotik_connections WHERE tenant_id = $${params.length + 1}
+      )`;
+      params.push(req.tenantId);
+    } else if (!req.isSuperAdmin) {
+      query += ' AND false';
+    }
+
+    const result = await db.query(query, params);
+    res.json({ success: true, deleted: result.rowCount });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

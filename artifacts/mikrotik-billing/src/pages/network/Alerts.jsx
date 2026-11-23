@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import {
   AlertTriangle, CheckCircle, XCircle, Clock, RefreshCw, ShieldAlert,
-  Server, Activity, ChevronDown, ChevronUp, Search, Bell,
+  Server, Activity, ChevronDown, ChevronUp, Search, Bell, Trash2,
 } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
 import { getUser } from '../../lib/auth';
@@ -61,6 +61,7 @@ export function Alerts() {
   const [expanded, setExpanded] = useState(null);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);
 
   const fetchAlerts = async (silent = false) => {
     if (!silent) {setLoading(true);}
@@ -82,6 +83,14 @@ export function Alerts() {
     const timer = setInterval(() => fetchAlerts(true), 5000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    setSelectedIds((previous) => {
+      const available = new Set(alerts.map((alert) => alert.id));
+      const next = previous.filter((id) => available.has(id));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [alerts]);
 
   const updateAlert = async (id, action) => {
     try {
@@ -112,6 +121,41 @@ export function Alerts() {
     }
     return true;
   }), [alerts, statusFilter, severityFilter, typeFilter, search]);
+
+  const filteredIds = useMemo(() => filtered.map((alert) => alert.id), [filtered]);
+  const allFilteredSelected = filteredIds.length > 0 &&
+    filteredIds.every((id) => selectedIds.includes(id));
+
+  const toggleAlert = (id) => {
+    setSelectedIds((previous) =>
+      previous.includes(id)
+        ? previous.filter((selected) => selected !== id)
+        : [...previous, id],
+    );
+  };
+
+  const toggleAllFiltered = () => {
+    setSelectedIds((previous) =>
+      allFilteredSelected
+        ? previous.filter((id) => !filteredIds.includes(id))
+        : [...new Set([...previous, ...filteredIds])],
+    );
+  };
+
+  const deleteAlerts = async (ids) => {
+    if (!ids.length) {return;}
+    if (!window.confirm(
+      `Delete ${ids.length} alert${ids.length === 1 ? '' : 's'}? This cannot be undone.`,
+    )) {return;}
+    try {
+      const { data } = await axios.post(`${API}/mikrotik/alerts/bulk-delete`, { ids });
+      info('Deleted', `${data.deleted ?? ids.length} alert(s) removed`);
+      setSelectedIds((previous) => previous.filter((id) => !ids.includes(id)));
+      fetchAlerts(true);
+    } catch (requestError) {
+      toastError('Error', requestError.response?.data?.error || 'Could not delete alerts');
+    }
+  };
 
   const stats = useMemo(() => ({
     open: alerts.filter((alert) => alert.status === 'open').length,
@@ -194,13 +238,49 @@ export function Alerts() {
           />
         </div>
         <span className="text-xs text-zinc-500">{filtered.length} of {alerts.length}</span>
+        <button
+          onClick={() => deleteAlerts(filteredIds)}
+          disabled={filteredIds.length === 0}
+          className="btn-ghost text-xs flex items-center gap-2 disabled:opacity-40"
+          title="Delete every alert matching the current filters"
+        >
+          <Trash2 className="w-4 h-4" /> Clear all shown
+        </button>
       </div>
+
+      {selectedIds.length > 0 && (
+        <div className="relative glass rounded-xl p-3 flex flex-wrap items-center gap-3 border border-emerald-500/30">
+          <span className="text-sm text-zinc-200">{selectedIds.length} selected</span>
+          <button onClick={toggleAllFiltered} className="btn-ghost text-xs">
+            {allFilteredSelected ? 'Deselect all shown' : `Select all shown (${filteredIds.length})`}
+          </button>
+          <button onClick={() => setSelectedIds([])} className="btn-ghost text-xs">
+            Clear selection
+          </button>
+          <button
+            onClick={() => deleteAlerts(selectedIds)}
+            className="btn-ghost text-xs flex items-center gap-2 text-rose-400 hover:text-rose-300"
+          >
+            <Trash2 className="w-4 h-4" /> Delete selected
+          </button>
+        </div>
+      )}
 
       <div className="relative glass rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="modern-table w-full">
             <thead>
               <tr>
+                <th className="w-10">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all shown alerts"
+                    checked={allFilteredSelected}
+                    onChange={toggleAllFiltered}
+                    disabled={filteredIds.length === 0}
+                    className="h-4 w-4 accent-emerald-500 cursor-pointer"
+                  />
+                </th>
                 <th className="w-10" />
                 <th>Event</th>
                 <th>Type</th>
@@ -221,6 +301,15 @@ export function Alerts() {
                       className="cursor-pointer hover:bg-zinc-800/30 transition-colors"
                       onClick={() => setExpanded(isOpen ? null : alert.id)}
                     >
+                      <td onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select alert: ${alert.title}`}
+                          checked={selectedIds.includes(alert.id)}
+                          onChange={() => toggleAlert(alert.id)}
+                          className="h-4 w-4 accent-emerald-500 cursor-pointer"
+                        />
+                      </td>
                       <td className="text-zinc-500">
                         {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                       </td>
@@ -254,12 +343,19 @@ export function Alerts() {
                           {alert.status !== 'resolved' && (
                             <button onClick={() => updateAlert(alert.id, 'resolve')} className="btn-ghost text-xs px-2 py-1">Resolve</button>
                           )}
+                          <button
+                            onClick={() => deleteAlerts([alert.id])}
+                            className="btn-ghost text-xs px-2 py-1 text-rose-400 hover:text-rose-300"
+                            title="Delete this alert"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
                     {isOpen && (
                       <tr>
-                        <td colSpan={8} className="bg-zinc-950/40 px-6 py-4">
+                        <td colSpan={9} className="bg-zinc-950/40 px-6 py-4">
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
                             <div>
                               <div className="text-zinc-500 uppercase tracking-wide mb-1">Alert ID</div>
