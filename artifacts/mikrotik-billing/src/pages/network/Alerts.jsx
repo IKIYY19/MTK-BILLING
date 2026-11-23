@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
 import { getUser } from '../../lib/auth';
+import './alerts.css';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
@@ -167,7 +168,7 @@ export function Alerts() {
   const selectClass = 'bg-zinc-900/70 border border-zinc-700/60 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500/50';
 
   return (
-    <div className="relative p-4 sm:p-6 space-y-5 animate-fade-in">
+    <div className="alerts-page relative p-4 sm:p-6 space-y-5 animate-fade-in">
       <div className="absolute inset-0 bg-mesh pointer-events-none" />
       <div className="absolute inset-0 bg-noise pointer-events-none" />
 
