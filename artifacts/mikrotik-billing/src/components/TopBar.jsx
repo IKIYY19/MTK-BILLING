@@ -8,11 +8,25 @@ import {
   ChevronDown,
   BookOpen,
   ChevronRight,
+  Palette,
 } from "lucide-react";
 import { clearAuth } from "../lib/auth";
 import { useTheme } from "../contexts/ThemeContext";
 import { useBranding } from "../contexts/BrandingContext";
 import { SearchButton } from "./GlobalSearch";
+import "./topbar-theme.css";
+
+const THEME_SWATCHES = {
+  royal: "#6366f1",
+  emerald: "#10b981",
+  sunset: "#f97316",
+  purple: "#a855f7",
+  ocean: "#0ea5e9",
+  midnight: "#111827",
+  slate: "#64748b",
+  rose: "#f43f5e",
+  techy: "#22c55e",
+};
 
 const routeLabels = {
   "/": "Dashboard",
@@ -78,9 +92,10 @@ export function TopBar() {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showThemes, setShowThemes] = useState(false);
   const menuRef = useRef(null);
   const branding = useBranding();
-  const { mode, setMode } = useTheme();
+  const { mode, setMode, theme, setTheme, themes } = useTheme();
 
   useEffect(() => {
     try {
@@ -223,6 +238,43 @@ export function TopBar() {
           )}
         </div>
 
+        {/* Theme switcher */}
+        <div className="topbar-item topbar-theme-item">
+          <button
+            onClick={() => setShowThemes(!showThemes)}
+            className="topbar-icon-btn"
+            title="Appearance"
+            aria-label="Appearance"
+          >
+            <Palette className="topbar-icon-bell" />
+          </button>
+          {showThemes && (
+            <div className="topbar-theme-popover">
+              <div className="topbar-theme-heading">
+                <span>Appearance</span>
+                <button onClick={() => setShowThemes(false)} aria-label="Close">×</button>
+              </div>
+              <div className="topbar-mode-switch">
+                <button className={mode === "light" ? "active" : ""} onClick={() => setMode("light")}>Light</button>
+                <button className={mode === "dark" ? "active" : ""} onClick={() => setMode("dark")}>Dark</button>
+              </div>
+              <div className="topbar-theme-grid">
+                {themes.map((t) => (
+                  <button
+                    key={t.id}
+                    className={`topbar-theme-option ${theme === t.id ? "active" : ""}`}
+                    onClick={() => setTheme(t.id)}
+                    title={t.description || t.name}
+                  >
+                    <span className="topbar-theme-dot" style={{ background: THEME_SWATCHES[t.id] || "#6366f1" }} />
+                    <span>{t.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* User Profile */}
         <div className="topbar-item">
           <button
@@ -260,8 +312,11 @@ export function TopBar() {
       </div>
 
       {/* Click outside to close */}
-      {showNotifications && (
-        <div className="topbar-backdrop" onClick={() => setShowNotifications(false)} />
+      {(showNotifications || showThemes) && (
+        <div className="topbar-backdrop" onClick={() => {
+          setShowNotifications(false);
+          setShowThemes(false);
+        }} />
       )}
     </header>
   );
