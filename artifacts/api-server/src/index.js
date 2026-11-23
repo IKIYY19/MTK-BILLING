@@ -931,7 +931,11 @@ const startServer = async () => {
       // Start WireGuard tunnel health-sync cron (refreshes handshake status)
       try {
         const cgnatTunnelService = require("./services/cgnatTunnelService");
-        cgnatTunnelService.initialize().catch((e) =>
+        cgnatTunnelService.initialize().then(async (ready) => {
+          if (ready && cgnatTunnelService.getServerEndpoint()) {
+            await cgnatTunnelService.updateWireGuardServerConfig();
+          }
+        }).catch((e) =>
           logger.warn("WireGuard tunnel service init failed", { error: e.message })
         );
         setInterval(() => {

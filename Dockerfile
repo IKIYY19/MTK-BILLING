@@ -6,6 +6,8 @@ ARG VITE_GOOGLE_CLIENT_ID
 ENV VITE_API_URL=${VITE_API_URL}
 ENV VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
 
+RUN apt-get update && apt-get install -y --no-install-recommends wireguard-tools iproute2 iptables bash && rm -rf /var/lib/apt/lists/*
+
 RUN corepack enable && corepack prepare pnpm@10.26.1 --activate
 
 WORKDIR /app
@@ -31,5 +33,6 @@ ENV NODE_ENV=production
 ENV PORT=5000
 
 EXPOSE 5000
+EXPOSE 51820/udp
 
 CMD ["node", "artifacts/api-server/src/index.js"]

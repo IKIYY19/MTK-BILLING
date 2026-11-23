@@ -73,6 +73,15 @@ services:
       MPESA_CALLBACK_URL: ${MPESA_CALLBACK_URL:-}
     ports:
       - "5000:5000"
+      - "51820:51820/udp"
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    volumes:
+      - wg-config:/etc/wireguard
     depends_on:
       postgres:
         condition: service_healthy
@@ -126,5 +135,6 @@ services:
 
 volumes:
   pgdata:
+  wg-config:
   tr069-mongo-data:
   tr069-firmware:
