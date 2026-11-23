@@ -13,6 +13,7 @@ import {
   HardDrive,
   Activity,
 } from "lucide-react";
+import "./ipam.css";
 
 const API = import.meta.env.VITE_API_URL || "/api";
 
@@ -34,12 +35,11 @@ const STATUS_COLORS = {
 /* ─── Stat Mini Card ─── */
 function StatMini({ label, value, icon: Icon, color }) {
   return (
-    <div className="glass rounded-xl p-4 flex items-center gap-3">
+    <div className="glass ipam-stat rounded-xl p-4 flex items-center gap-3">
       <div
-        className={`w-10 h-10 rounded-lg flex items-center justify-center`}
-        style={{ backgroundColor: color }}
+        className={`w-10 h-10 rounded-lg flex items-center justify-center ipam-stat-icon ipam-stat-${({ "#3b82f6": "blue", "#6366f1": "indigo", "#10b981": "emerald", "#f59e0b": "amber" })[color] || "blue"}`}
       >
-        <Icon className="w-5 h-5 text-white" />
+        <Icon className="w-5 h-5 ipam-stat-glyph" />
       </div>
       <div>
         <div className="text-xl font-bold text-white tabular-nums">{value}</div>
@@ -641,7 +641,7 @@ export default function IPAMPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="ipam-page p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

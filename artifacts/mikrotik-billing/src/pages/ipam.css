@@ -1,0 +1,114 @@
+/* IPAM — theme-aware restyle. Scoped so only this page is affected. */
+
+.ipam-page { color: var(--text-primary); }
+
+.ipam-page .text-white { color: var(--text-primary) !important; }
+.ipam-page .text-zinc-300 { color: var(--text-secondary) !important; }
+.ipam-page .text-zinc-400 { color: var(--text-muted) !important; }
+.ipam-page .text-zinc-500 { color: var(--text-dim) !important; }
+.ipam-page .text-zinc-700 { color: var(--text-dim) !important; }
+.ipam-page .text-blue-400 { color: var(--accent-blue) !important; }
+.ipam-page .text-rose-400 { color: var(--accent-rose) !important; }
+
+.ipam-page .glass {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--shadow-sm);
+}
+
+.ipam-page [class*="border-zinc-800"] { border-color: var(--border-subtle) !important; }
+.ipam-page [class*="bg-zinc-900"] {
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-medium) !important;
+  border-radius: 10px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.ipam-page [class*="bg-zinc-900"]:focus {
+  border-color: var(--accent-blue) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue) 18%, transparent);
+}
+.ipam-page [class*="bg-zinc-800"]:not([class*="bg-zinc-800/"]) { background: var(--bg-surface) !important; }
+.ipam-page [class*="hover:bg-zinc-800"]:hover { background: var(--bg-surface) !important; }
+.ipam-page [class*="hover:bg-zinc-700"]:hover { background: var(--bg-tertiary) !important; }
+.ipam-page [class*="hover:text-white"]:hover { color: var(--text-primary) !important; }
+
+.ipam-page [class*="bg-blue-600"] {
+  background: var(--accent-blue) !important;
+  color: #fff !important;
+  border-radius: 12px !important;
+  box-shadow: var(--shadow-sm);
+  transition: filter .15s, transform .15s, box-shadow .15s;
+}
+.ipam-page [class*="bg-blue-600"]:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.ipam-page .ipam-stat {
+  position: relative;
+  overflow: hidden;
+  transition: transform .18s, box-shadow .18s, border-color .18s;
+}
+.ipam-page .ipam-stat::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent-blue), transparent);
+  opacity: .55;
+}
+.ipam-page .ipam-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-medium) !important;
+}
+.ipam-page .ipam-stat-icon { color: #fff; }
+.ipam-page .ipam-stat-icon.ipam-stat-blue { background: color-mix(in srgb, var(--accent-blue) 20%, transparent); color: var(--accent-blue); }
+.ipam-page .ipam-stat-icon.ipam-stat-indigo { background: color-mix(in srgb, var(--accent-violet) 20%, transparent); color: var(--accent-violet); }
+.ipam-page .ipam-stat-icon.ipam-stat-emerald { background: color-mix(in srgb, var(--accent-emerald) 20%, transparent); color: var(--accent-emerald); }
+.ipam-page .ipam-stat-icon.ipam-stat-amber { background: color-mix(in srgb, var(--accent-amber) 20%, transparent); color: var(--accent-amber); }
+.ipam-page .ipam-stat-glyph { color: currentColor; }
+
+.ipam-page .ipam-stat .text-xl { font-size: 1.6rem; letter-spacing: -.04em; }
+
+.ipam-page .grid > .glass,
+.ipam-page .space-y-4 > .glass {
+  transition: transform .18s, box-shadow .18s, border-color .18s;
+}
+.ipam-page .space-y-4 > .glass:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-medium) !important;
+}
+
+.ipam-page .rounded-2xl > div.p-5 { border-radius: 16px 16px 0 0; }
+
+.ipam-page table { width: 100%; border-collapse: collapse; }
+.ipam-page thead tr {
+  background: var(--bg-surface) !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+}
+.ipam-page thead th { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted) !important; }
+.ipam-page tbody tr { transition: background .15s; }
+.ipam-page tbody tr:hover { background: var(--bg-surface) !important; }
+.ipam-page tbody td { border-bottom-color: var(--border-subtle) !important; }
+
+.ipam-page [class*="bg-zinc-800"][class*="rounded-full"] { background: var(--bg-tertiary) !important; }
+.ipam-page [class*="bg-emerald-500"]:not([class*="text-"]) { background: var(--accent-emerald) !important; }
+.ipam-page [class*="bg-amber-500"]:not([class*="text-"]) { background: var(--accent-amber) !important; }
+.ipam-page [class*="bg-red-500"]:not([class*="text-"]) { background: var(--accent-rose) !important; }
+
+.ipam-page .fixed .glass {
+  box-shadow: var(--shadow-lg) !important;
+  border: 1px solid var(--border-medium) !important;
+}
+.ipam-page .fixed h2 { letter-spacing: -.02em; }
+
+@media (max-width: 640px) {
+  .ipam-page { padding: 14px; }
+  .ipam-page .ipam-stat { padding: 12px; }
+}
