@@ -1,13 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import {
-  Activity, AlertTriangle, CheckCircle, ChevronDown, ChevronUp, Copy,
-  Download, Network, RefreshCw, Rocket, Search, ShieldCheck, XCircle,
+  Activity, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Clock,
+  Copy, Download, Network, RefreshCw, Rocket, Search, ShieldCheck,
+  Wifi,
 } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { BondingPanel } from './loadBalancing/BondingPanel';
+import './loadBalancing.css';
 
 const API = import.meta.env.VITE_API_URL || '/api';
+
+function Stat({ label, value, hint }) {
+  return (
+    <div className="lb-stat">
+      <span className="lb-stat__label">{label}</span>
+      <span className="lb-stat__value">{value}</span>
+      {hint && <span className="lb-stat__hint">{hint}</span>}
+    </div>
+  );
+}
 
 export function LoadBalancingPage() {
   const toast = useToast();
@@ -25,21 +37,22 @@ export function LoadBalancingPage() {
   useEffect(() => {
     let active = true;
     axios.get(`${API}/mikrotik`)
-      .then(({ data }) => { if (active) {setRouters(Array.isArray(data) ? data : []);} })
+      .then(({ data }) => { if (active) { setRouters(Array.isArray(data) ? data : []); } })
       .catch((e) => toast.error('Could not load routers', e.response?.data?.error || e.message));
     return () => { active = false; };
   }, []);
 
   const runScan = async () => {
-    if (!routerId) {toast.warning('Select a router first'); return;}
+    if (!routerId) { toast.warning('Select a router first'); return; }
     setBusy('scan');
     setScript('');
+    setShowScript(false);
     try {
       const { data } = await axios.post(`${API}/load-balancing/scan`, { connection_id: routerId });
       setScan(data);
       const initial = {};
       for (const iface of data.interfaces || []) {
-        if (data.detected_wans?.includes(iface.name)) {initial[iface.name] = 1;}
+        if (data.detected_wans?.includes(iface.name)) { initial[iface.name] = 1; }
       }
       setSelected(initial);
       toast.success('Scan complete', `${data.detected_wans?.length || 0} interface(s) reached the internet`);
@@ -53,7 +66,7 @@ export function LoadBalancingPage() {
   const toggleInterface = (name) => {
     setSelected((previous) => {
       const next = { ...previous };
-      if (next[name]) {delete next[name];} else {next[name] = 1;}
+      if (next[name]) { delete next[name]; } else { next[name] = 1; }
       return next;
     });
   };
@@ -61,7 +74,7 @@ export function LoadBalancingPage() {
   const selectDetected = () => {
     const next = {};
     for (const iface of scan?.interfaces || []) {
-      if (iface.internet) {next[iface.name] = selected[iface.name] || 1;}
+      if (iface.internet) { next[iface.name] = selected[iface.name] || 1; }
     }
     setSelected(next);
   };
@@ -76,10 +89,7 @@ export function LoadBalancingPage() {
     }));
 
   const generate = async () => {
-    if (selectedWans.length < 2) {
-      toast.warning('Select at least two interfaces');
-      return;
-    }
+    if (selectedWans.length < 2) { toast.warning('Select at least two interfaces'); return; }
     setBusy('generate');
     try {
       const { data } = await axios.post(`${API}/load-balancing/generate`, {
@@ -98,11 +108,11 @@ export function LoadBalancingPage() {
   };
 
   const push = async (dryRun) => {
-    if (!script.trim()) {toast.warning('Generate a script first'); return;}
+    if (!script.trim()) { toast.warning('Generate a script first'); return; }
     if (!dryRun && !window.confirm(
       `Apply load balancing to ${routers.find((r) => r.id === routerId)?.name || 'this router'}? ` +
       'A backup will be saved first. Internet traffic may be interrupted briefly.',
-    )) {return;}
+    )) { return; }
     setBusy(dryRun ? 'dry-run' : 'push');
     try {
       const { data } = await axios.post(`${API}/load-balancing/push`, {
@@ -111,9 +121,8 @@ export function LoadBalancingPage() {
         dry_run: dryRun,
         backup: !dryRun,
       });
-      if (dryRun) {
-        toast.info('Dry run OK', data.message);
-      } else {
+      if (dryRun) { toast.info('Dry run OK', data.message); }
+      else {
         toast.success('Pushed', data.backup?.success
           ? `${data.message} Backup saved.`
           : `${data.message} Backup was not saved.`);
@@ -129,9 +138,7 @@ export function LoadBalancingPage() {
     try {
       await navigator.clipboard.writeText(script);
       toast.success('Script copied');
-    } catch {
-      toast.error('Copy failed');
-    }
+    } catch { toast.error('Copy failed'); }
   };
 
   const downloadScript = () => {
@@ -143,225 +150,235 @@ export function LoadBalancingPage() {
     URL.revokeObjectURL(url);
   };
 
-  return (
-    <div className="relative p-4 sm:p-6 space-y-5 animate-fade-in">
-      <div className="absolute inset-0 bg-mesh pointer-events-none" />
-      <div className="absolute inset-0 bg-noise pointer-events-none" />
+  const internetCount = (scan?.detected_wans || []).length;
 
-      <div className="relative flex flex-wrap items-center justify-between gap-4">
+  return (
+    <div className="lb-page">
+      <div className="lb-hero">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-              <Network className="w-5 h-5 text-white" />
-            </div>
-            Load Balancing
-          </h1>
-          <p className="text-sm text-zinc-400 mt-1">
-            Scan a router, pick the interfaces that have internet, then generate and push a PCC configuration
+          <span className="lb-eyebrow"><Network size={13} /> Router configuration studio</span>
+          <h1 className="lb-title">Load Balancing</h1>
+          <p className="lb-subtitle">
+            Scan a router, choose the links that carry internet, then generate and push a verified
+            RouterOS configuration. Nothing changes on the router until you approve the push.
           </p>
         </div>
-        {tab === 'pcc' && (
-          <button className="btn-ghost flex items-center gap-2 text-xs" onClick={runScan} disabled={busy === 'scan'}>
-            <RefreshCw className={`w-4 h-4 ${busy === 'scan' ? 'animate-spin' : ''}`} /> Rescan
-          </button>
-        )}
+        <span className="lb-updated">
+          <Clock size={13} />
+          {scan?.scanned_at ? `Scanned ${new Date(scan.scanned_at).toLocaleTimeString()}` : 'No scan yet'}
+        </span>
       </div>
 
-      <div className="relative flex gap-2 border-b border-zinc-700/50 pb-2">
+      <div className="lb-tabs" role="tablist" aria-label="Link configuration mode">
         <button
+          role="tab"
+          aria-selected={tab === 'pcc'}
+          className={`lb-tab ${tab === 'pcc' ? 'lb-tab--active' : ''}`}
           onClick={() => setTab('pcc')}
-          className={`px-4 py-2 text-xs rounded-lg transition-colors ${tab === 'pcc' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/40' : 'text-zinc-400 hover:text-zinc-200 border border-transparent'}`}
         >
-          PCC Load Balancing
+          <Network size={15} /> PCC Load Balancing
         </button>
         <button
+          role="tab"
+          aria-selected={tab === 'bonding'}
+          className={`lb-tab ${tab === 'bonding' ? 'lb-tab--active' : ''}`}
           onClick={() => setTab('bonding')}
-          className={`px-4 py-2 text-xs rounded-lg transition-colors ${tab === 'bonding' ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/40' : 'text-zinc-400 hover:text-zinc-200 border border-transparent'}`}
         >
-          Link Bonding
+          <Activity size={15} /> Link Bonding
         </button>
       </div>
 
       {tab === 'pcc' ? (
-      <>
-      <div className="relative glass rounded-xl p-4 border border-amber-500/30 flex items-start gap-3">
-        <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-        <div className="text-xs text-zinc-400 leading-relaxed">
-          This changes firewall mangle, NAT and routing on the selected router. Review the generated script,
-          apply it in a maintenance window, and keep the automatic backup. Nothing is changed until you press
-          <span className="text-zinc-200 font-medium"> Push to router</span>.
-        </div>
-      </div>
-
-      <div className="relative glass rounded-xl p-4 flex flex-wrap items-end gap-3">
-        <div className="min-w-[240px] flex-1">
-          <label className="block text-xs text-zinc-400 mb-2">MikroTik router</label>
-          <select
-            className="modern-input w-full"
-            value={routerId}
-            onChange={(event) => { setRouterId(event.target.value); setScan(null); setScript(''); }}
-          >
-            <option value="">Select a router</option>
-            {routers.map((router) => (
-              <option key={router.id} value={router.id}>
-                {router.name} ({router.ip_address}){router.is_online ? ' - online' : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="min-w-[180px]">
-          <label className="block text-xs text-zinc-400 mb-2">LAN / bridge interface</label>
-          <input
-            className="modern-input w-full"
-            value={lanInterface}
-            onChange={(event) => setLanInterface(event.target.value)}
-            placeholder="bridge"
-          />
-        </div>
-        <button className="btn-primary flex items-center gap-2" onClick={runScan} disabled={!routerId || busy === 'scan'}>
-          <Search className="w-4 h-4" /> {busy === 'scan' ? 'Scanning…' : 'Scan interfaces'}
-        </button>
-      </div>
-
-      {scan && (
         <>
-          <div className="relative glass rounded-2xl overflow-hidden">
-            <div className="p-4 flex flex-wrap items-center justify-between gap-3 border-b border-zinc-700/50">
-              <div className="flex items-center gap-2 text-sm text-zinc-200">
-                <Activity className="w-4 h-4 text-cyan-400" />
-                Interfaces on {scan.router?.name}
-                <span className="text-xs text-zinc-500">
-                  ({scan.interfaces?.length || 0} found, {scan.detected_wans?.length || 0} with internet)
-                </span>
+          <div className="lb-callout lb-callout--warn">
+            <AlertTriangle size={18} />
+            <div>
+              <strong>Review before applying.</strong> PCC rewrites mangle, NAT and routing rules on the
+              selected router. Use it for two or more separate internet links. Keep the automatic backup
+              and apply during a maintenance window.
+            </div>
+          </div>
+
+          <div className="lb-card">
+            <div className="lb-card__body lb-toolbar">
+              <div className="lb-field lb-field--grow">
+                <label className="lb-label" htmlFor="lb-router">MikroTik router</label>
+                <select
+                  id="lb-router"
+                  className="lb-select"
+                  value={routerId}
+                  onChange={(e) => { setRouterId(e.target.value); setScan(null); setScript(''); setShowScript(false); }}
+                >
+                  <option value="">Select a router</option>
+                  {routers.map((router) => (
+                    <option key={router.id} value={router.id}>
+                      {router.name} ({router.ip_address}){router.is_online ? ' — online' : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <button className="btn-ghost text-xs" onClick={selectDetected} disabled={!scan.detected_wans?.length}>
-                Select all with internet
+              <div className="lb-field">
+                <label className="lb-label" htmlFor="lb-lan">LAN / bridge interface</label>
+                <input
+                  id="lb-lan"
+                  className="lb-input"
+                  value={lanInterface}
+                  onChange={(e) => setLanInterface(e.target.value)}
+                  placeholder="bridge"
+                />
+              </div>
+              <button className="lb-btn lb-btn--primary" onClick={runScan} disabled={!routerId || busy === 'scan'}>
+                {busy === 'scan' ? <RefreshCw className="animate-spin" size={15} /> : <Search size={15} />}
+                {busy === 'scan' ? 'Scanning…' : 'Scan interfaces'}
               </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="modern-table w-full">
-                <thead>
-                  <tr>
-                    <th className="w-10">WAN</th>
-                    <th>Interface</th>
-                    <th>Type</th>
-                    <th>Address / Subnet</th>
-                    <th>Gateway</th>
-                    <th>Internet</th>
-                    <th>Latency</th>
-                    <th className="w-24">Weight</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(scan.interfaces || []).map((iface) => {
-                    const isOpen = expanded === iface.name;
-                    return (
-                      <React.Fragment key={iface.name}>
-                        <tr className={iface.internet ? 'hover:bg-zinc-800/30' : 'opacity-60'}>
-                          <td>
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 accent-cyan-500 cursor-pointer"
-                              checked={Boolean(selected[iface.name])}
-                              onChange={() => toggleInterface(iface.name)}
-                              aria-label={`Use ${iface.name} for load balancing`}
-                            />
-                          </td>
-                          <td>
-                            <button
-                              className="flex items-center gap-2 text-left text-sm text-white"
-                              onClick={() => setExpanded(isOpen ? null : iface.name)}
-                            >
-                              {isOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                              {iface.name}
-                              {iface.has_default_route && <span className="text-[10px] text-cyan-400">default</span>}
-                              {iface.has_dhcp_client && <span className="text-[10px] text-emerald-400">dhcp</span>}
-                            </button>
-                          </td>
-                          <td className="text-xs text-zinc-400">{iface.type}</td>
-                          <td className="text-xs text-zinc-400">
-                            {iface.addresses?.join(', ') || '—'}
-                            {iface.subnet && <div className="text-zinc-500">{iface.subnet}</div>}
-                          </td>
-                          <td className="text-xs text-zinc-300">{iface.gateway || '—'}</td>
-                          <td>
-                            {iface.internet
-                              ? <span className="inline-flex items-center gap-1 text-xs text-emerald-400"><CheckCircle className="w-3 h-3" /> yes</span>
-                              : <span className="inline-flex items-center gap-1 text-xs text-rose-400"><XCircle className="w-3 h-3" /> no</span>}
-                          </td>
-                          <td className="text-xs text-zinc-400">
-                            {iface.latency_ms != null ? `${iface.latency_ms} ms` : '—'}
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              min="1"
-                              max="8"
-                              className="modern-input w-16 text-xs"
-                              value={selected[iface.name] || 1}
-                              disabled={!selected[iface.name]}
-                              onChange={(event) => setSelected((previous) => ({
-                                ...previous,
-                                [iface.name]: Math.max(1, Math.min(8, Number(event.target.value) || 1)),
-                              }))}
-                            />
-                          </td>
-                        </tr>
-                        {isOpen && (
-                          <tr>
-                            <td colSpan={8} className="bg-zinc-950/40 px-6 py-3 text-xs text-zinc-500">
-                              MAC: {iface.mac_address || '—'} · running: {iface.running ? 'yes' : 'no'} ·
-                              packet loss: {iface.packet_loss ?? '—'}% · target: {scan.target}
-                              {iface.ping_error && <div className="text-rose-400 mt-1">{iface.ping_error}</div>}
-                              {iface.comment && <div className="mt-1">{iface.comment}</div>}
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
             </div>
           </div>
 
-          <div className="relative glass rounded-xl p-4 flex flex-wrap items-center gap-3">
-            <ShieldCheck className="w-5 h-5 text-emerald-400" />
-            <span className="text-sm text-zinc-200">{selectedWans.length} WAN(s) selected</span>
-            <button className="btn-primary flex items-center gap-2" onClick={generate} disabled={busy === 'generate'}>
-              {busy === 'generate' ? 'Generating…' : 'Generate script'}
-            </button>
-          </div>
+          {!scan ? (
+            <div className="lb-card lb-empty">
+              <Wifi size={30} />
+              <strong>No interfaces scanned yet</strong>
+              <p>Choose a router above and run a scan. Each candidate port is tested against a public target to find working internet links.</p>
+            </div>
+          ) : (
+            <>
+              <div className="lb-stats">
+                <Stat label="Interfaces" value={scan.interfaces?.length || 0} hint="discovered on router" />
+                <Stat label="With internet" value={internetCount} hint={`via ${scan.target || '1.1.1.1'}`} />
+                <Stat label="Selected WANs" value={selectedWans.length} hint="used in PCC script" />
+                <Stat label="Sample" value={`${scan.sample_seconds || 2}s`} hint="traffic window" />
+              </div>
+
+              <div className="lb-card">
+                <div className="lb-card__head">
+                  <h2 className="lb-card__title"><Activity size={16} /> Interfaces on {scan.router?.name}</h2>
+                  <button className="lb-btn lb-btn--soft lb-btn--sm" onClick={selectDetected} disabled={!internetCount}>
+                    <CheckCircle2 size={14} /> Select all with internet
+                  </button>
+                </div>
+                <div className="lb-table-wrap">
+                  <table className="lb-table">
+                    <thead>
+                      <tr>
+                        <th className="w-10">WAN</th>
+                        <th>Interface</th>
+                        <th>Type</th>
+                        <th>Address / subnet</th>
+                        <th>Gateway</th>
+                        <th>Internet</th>
+                        <th>Latency</th>
+                        <th>Weight</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(scan.interfaces || []).map((iface) => {
+                        const isOpen = expanded === iface.name;
+                        return (
+                          <React.Fragment key={iface.name}>
+                            <tr className={selected[iface.name] ? 'lb-row--selected' : ''}>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(selected[iface.name])}
+                                  onChange={() => toggleInterface(iface.name)}
+                                  aria-label={`Use ${iface.name} for load balancing`}
+                                />
+                              </td>
+                              <td>
+                                <button
+                                  className="lb-name"
+                                  style={{ background: 'none', border: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, padding: 0 }}
+                                  onClick={() => setExpanded(isOpen ? null : iface.name)}
+                                >
+                                  {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                  {iface.name}
+                                </button>
+                                <div className="lb-detail" style={{ padding: 0, border: 0, background: 'none', gap: 6 }}>
+                                  {iface.has_default_route && <span className="lb-pill lb-pill--info">default</span>}
+                                  {iface.has_dhcp_client && <span className="lb-pill lb-pill--ok">dhcp</span>}
+                                </div>
+                              </td>
+                              <td className="lb-mono">{iface.type}</td>
+                              <td>
+                                <div className="lb-mono">{iface.addresses?.join(', ') || '—'}</div>
+                                {iface.subnet && <span className="lb-pill lb-pill--muted">{iface.subnet}</span>}
+                              </td>
+                              <td className="lb-mono">{iface.gateway || '—'}</td>
+                              <td>
+                                <span className={`lb-pill ${iface.internet ? 'lb-pill--ok' : 'lb-pill--bad'}`}>
+                                  <i className="lb-pill__dot" /> {iface.internet ? 'Online' : 'No route'}
+                                </span>
+                              </td>
+                              <td className="lb-mono">{iface.latency_ms != null ? `${iface.latency_ms} ms` : '—'}</td>
+                              <td>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="8"
+                                  className="lb-input"
+                                  style={{ width: 70 }}
+                                  value={selected[iface.name] || 1}
+                                  disabled={!selected[iface.name]}
+                                  onChange={(e) => setSelected((p) => ({
+                                    ...p,
+                                    [iface.name]: Math.max(1, Math.min(8, Number(e.target.value) || 1)),
+                                  }))}
+                                />
+                              </td>
+                            </tr>
+                            {isOpen && (
+                              <tr>
+                                <td colSpan={8} className="lb-detail">
+                                  <span><b>MAC:</b> {iface.mac_address || '—'}</span>
+                                  <span><b>Link:</b> {iface.running ? 'up' : 'down'}</span>
+                                  <span><b>Packet loss:</b> {iface.packet_loss ?? '—'}%</span>
+                                  <span><b>Target:</b> {scan.target}</span>
+                                  {iface.ping_error && <span className="lb-pill lb-pill--bad">{iface.ping_error}</span>}
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="lb-card">
+                <div className="lb-card__body lb-toolbar">
+                  <div style={{ flex: 1 }}>
+                    <h2 className="lb-card__title"><ShieldCheck size={16} /> Ready to generate</h2>
+                    <p className="lb-footer-note">{selectedWans.length} WAN(s) selected. Weights control how connections are distributed.</p>
+                  </div>
+                  <button className="lb-btn lb-btn--primary" onClick={generate} disabled={busy === 'generate'}>
+                    {busy === 'generate' ? <RefreshCw className="animate-spin" size={15} /> : <ShieldCheck size={15} />}
+                    Generate script
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {showScript && script && (
+            <div className="lb-card">
+              <div className="lb-card__head">
+                <h2 className="lb-card__title"><ShieldCheck size={16} /> Generated RouterOS script</h2>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button className="lb-btn lb-btn--soft lb-btn--sm" onClick={copyScript}><Copy size={14} /> Copy</button>
+                  <button className="lb-btn lb-btn--soft lb-btn--sm" onClick={downloadScript}><Download size={14} /> Download</button>
+                  <button className="lb-btn lb-btn--soft lb-btn--sm" onClick={() => push(true)} disabled={Boolean(busy)}>
+                    {busy === 'dry-run' ? 'Checking…' : 'Dry run'}
+                  </button>
+                  <button className="lb-btn lb-btn--danger lb-btn--sm" onClick={() => push(false)} disabled={Boolean(busy)}>
+                    <Rocket size={14} /> {busy === 'push' ? 'Pushing…' : 'Push to router'}
+                  </button>
+                </div>
+              </div>
+              <pre className="lb-code">{script}</pre>
+            </div>
+          )}
         </>
-      )}
-
-      {showScript && script && (
-        <div className="relative glass-strong rounded-2xl overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-zinc-700/50">
-            <div className="flex items-center gap-2 text-sm text-zinc-200">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" /> Generated RouterOS script
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button className="btn-ghost text-xs flex items-center gap-2" onClick={copyScript}>
-                <Copy className="w-4 h-4" /> Copy
-              </button>
-              <button className="btn-ghost text-xs flex items-center gap-2" onClick={downloadScript}>
-                <Download className="w-4 h-4" /> Download
-              </button>
-              <button className="btn-secondary text-xs flex items-center gap-2" onClick={() => push(true)} disabled={Boolean(busy)}>
-                {busy === 'dry-run' ? 'Checking…' : 'Dry run'}
-              </button>
-              <button className="btn-danger text-xs flex items-center gap-2" onClick={() => push(false)} disabled={Boolean(busy)}>
-                <Rocket className="w-4 h-4" /> {busy === 'push' ? 'Pushing…' : 'Push to router'}
-              </button>
-            </div>
-          </div>
-          <pre className="p-6 text-sm text-emerald-400 font-mono whitespace-pre-wrap break-all max-h-[500px] overflow-auto">
-            {script}
-          </pre>
-        </div>
-      )}
-      </>
       ) : (
         <BondingPanel routers={routers} />
       )}
