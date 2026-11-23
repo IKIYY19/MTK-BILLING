@@ -163,6 +163,7 @@ export function CustomerPortal() {
   const [usageHistory, setUsageHistory] = useState([]);
   const [usageViewMode, setUsageViewMode] = useState("daily");
   const [subscriptions, setSubscriptions] = useState([]);
+  const [policySettings, setPolicySettings] = useState({ fup_warning_threshold: 80, fup_critical_threshold: 95 });
 
   useEffect(() => {
     // Check auth - redirect to login if not authenticated
@@ -182,6 +183,7 @@ export function CustomerPortal() {
     fetchBillingPayments();
     fetchUsageHistory();
     fetchSubscriptions();
+    axios.get(`${API}/public/policy`).then((r) => setPolicySettings(r.data || policySettings)).catch(() => {});
   }, [customerId]);
 
   // Handle browser back/forward cache (bfcache) - page may restore from cache
@@ -200,7 +202,7 @@ export function CustomerPortal() {
 
   useEffect(() => {
     checkUsageAlerts();
-  }, [data]);
+  }, [data, policySettings]);
 
   const fetchData = async () => {
     try {
@@ -316,19 +318,21 @@ export function CustomerPortal() {
 
   const checkUsageAlerts = () => {
     const alerts = [];
-    const quotaPercent = data?.usage?.quota_used_percent || 0;
+    const quotaPercent = Number(data?.usage?.quota_used_percent || 0);
+    const warningAt = Number(policySettings.fup_warning_threshold) || 80;
+    const criticalAt = Number(policySettings.fup_critical_threshold) || 95;
 
     if (quotaPercent >= 100) {
       alerts.push({
         type: "critical",
         message: "You have exceeded your monthly quota. Speed may be reduced.",
       });
-    } else if (quotaPercent >= 90) {
+    } else if (quotaPercent >= criticalAt) {
       alerts.push({
         type: "warning",
-        message: `You've used ${quotaPercent.toFixed(0)}% of your quota. ${100 - quotaPercent.toFixed(0)}% remaining.`,
+        message: `You've used ${quotaPercent.toFixed(0)}% of your quota. ${(100 - quotaPercent).toFixed(0)}% remaining.`,
       });
-    } else if (quotaPercent >= 75) {
+    } else if (quotaPercent >= warningAt) {
       alerts.push({
         type: "info",
         message: `You've used ${quotaPercent.toFixed(0)}% of your monthly quota.`,

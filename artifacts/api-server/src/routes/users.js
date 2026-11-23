@@ -141,7 +141,7 @@ router.put('/:id', async (req, res) => {
     }
 
     // Check if user exists
-    const existing = await db.query('SELECT id FROM users WHERE id = $1', [userId]);
+    const existing = await db.query('SELECT id, email, role FROM users WHERE id = $1', [userId]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -180,6 +180,14 @@ router.put('/:id', async (req, res) => {
                    RETURNING id, email, name, role, is_active, last_login_at, updated_at`;
 
     const result = await db.query(query, params);
+    if (role !== undefined && role !== existing.rows[0].role) {
+      require('../services/opsAlertService').recordRoleChange(
+        req,
+        result.rows[0].email || existing.rows[0].email,
+        existing.rows[0].role,
+        role,
+      ).catch(() => {});
+    }
     res.json(result.rows[0]);
   } catch (e) {
     console.error('Update user error:', e.message);
@@ -270,6 +278,7 @@ router.post('/:id/reset-password', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    require('../services/opsAlertService').recordPasswordReset(req, result.rows[0].email || userId).catch(() => {});
     res.json({ message: 'Password reset successfully', user: result.rows[0] });
   } catch (e) {
     console.error('Reset password error:', e.message);

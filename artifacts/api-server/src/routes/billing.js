@@ -708,6 +708,11 @@ router.post("/subscriptions", async (req, res) => {
       { ...expandedSub, plan },
     );
 
+    require("../services/opsAlertService").subscriptionEvent(
+      "created",
+      expandedSub.pppoe_username,
+      `${plan?.name || "No plan"} · ${expandedSub.customer?.name || "Unknown customer"}`,
+    ).catch(() => {});
     res.status(201).json({
       ...expandedSub,
       provision_script: provisionScript,
@@ -721,6 +726,7 @@ router.post("/subscriptions", async (req, res) => {
 
 router.put("/subscriptions/:id", async (req, res) => {
   try {
+    const before = await getExpandedSubscription(req.params.id);
     const sub = await billing.updateSubscription(req.params.id, req.body);
     if (!sub) {return res.status(404).json({ error: "Subscription not found" });}
     const expandedSub = await getExpandedSubscription(sub.id);
@@ -730,6 +736,13 @@ router.put("/subscriptions/:id", async (req, res) => {
     const { syncResult, radiusResult, provisionScript } = shouldSync
       ? await syncSubscription("reconcile", expandedSub)
       : { syncResult: null, radiusResult: null, provisionScript: null };
+    if (before?.plan_id && sub.plan_id && before.plan_id !== sub.plan_id) {
+      require("../services/opsAlertService").subscriptionEvent(
+        "plan changed",
+        expandedSub.pppoe_username,
+        `${before.plan?.name || before.plan_id} → ${expandedSub.plan?.name || sub.plan_id}`,
+      ).catch(() => {});
+    }
     res.json({
       ...expandedSub,
       provision_script: provisionScript,
@@ -766,6 +779,12 @@ router.post("/subscriptions/:id/toggle", async (req, res) => {
         },
       ).catch((e) => console.error("SMS error:", e.message));
     }
+
+    require("../services/opsAlertService").subscriptionEvent(
+      sub.status === "active" ? "restored" : "suspended",
+      expandedSub.pppoe_username,
+      `${expandedSub.plan?.name || "No plan"} · ${expandedSub.customer?.name || "Unknown"}`,
+    ).catch(() => {});
 
     // Send Telegram alert for suspension
     if (sub.status !== "active" && expandedSub.plan?.name) {

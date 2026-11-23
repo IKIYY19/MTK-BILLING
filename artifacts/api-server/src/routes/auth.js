@@ -12,6 +12,7 @@ const { authLimiter } = require("../middleware/rateLimiter");
 const { audit } = require("../utils/audit");
 const { OAuth2Client } = require("google-auth-library");
 const ldapAuth = require("../services/ldapAuth");
+const opsAlertService = require("../services/opsAlertService");
 
 router.use(audit.authRequestMiddleware);
 
@@ -126,6 +127,7 @@ router.post("/login", authLimiter, async (req, res) => {
       }
 
       await audit.userLoginFailed(email, req);
+      opsAlertService.recordFailedLogin(req, email);
       logger.warn("Login failed - user not found", { email, ip: req.ip });
       return res.status(401).json({ error: "Invalid credentials" });
     }
@@ -144,6 +146,7 @@ router.post("/login", authLimiter, async (req, res) => {
       }
 
       await audit.userLoginFailed(email, req);
+      opsAlertService.recordFailedLogin(req, email);
       logger.warn("Login failed - invalid password", {
         email,
         userId: user.rows[0].id,
@@ -174,6 +177,7 @@ router.post("/login", authLimiter, async (req, res) => {
 
       if (!isValid) {
         await audit.userLoginFailed(email, req);
+      opsAlertService.recordFailedLogin(req, email);
         return res.status(401).json({ error: "Invalid 2FA code" });
       }
     }
@@ -209,6 +213,8 @@ router.post("/login", authLimiter, async (req, res) => {
       },
       req,
     );
+
+    opsAlertService.recordLogin(req, user.rows[0].email).catch(() => {});
 
     res.json({
       user: {
@@ -385,6 +391,7 @@ router.post("/2fa/enable", authenticate, async (req, res) => {
     await db.query("UPDATE users SET two_factor_enabled = true WHERE id = $1", [
       req.user.id,
     ]);
+    opsAlertService.recordAdmin2FA(req, true).catch(() => {});
     res.json({ success: true });
   } catch (e) {
     logger.error("2FA enable error", { error: e.message });
@@ -410,6 +417,7 @@ router.post("/2fa/disable", authenticate, async (req, res) => {
       "UPDATE users SET two_factor_enabled = false, two_factor_secret = NULL WHERE id = $1",
       [req.user.id],
     );
+    opsAlertService.recordAdmin2FA(req, false).catch(() => {});
     res.json({ success: true });
   } catch (e) {
     logger.error("2FA disable error", { error: e.message });

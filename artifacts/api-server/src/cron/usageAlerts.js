@@ -6,10 +6,16 @@ function getDb() {
   return global.dbAvailable ? global.db : require("../db/memory");
 }
 
-const ALERT_THRESHOLDS = [
-  { pct: 80, key: "usage_80", message: "data_usage_80" },
-  { pct: 100, key: "usage_100", message: "data_usage_100" },
-];
+async function getThresholds() {
+  const result = await getDb().query(
+    "SELECT key, value FROM settings WHERE key IN ('fup_warning_threshold', 'fup_critical_threshold')",
+  ).catch(() => ({ rows: [] }));
+  const values = Object.fromEntries(result.rows.map((row) => [row.key, Number(row.value)]));
+  return [
+    { pct: values.fup_warning_threshold || 80, key: "usage_80", message: "data_usage_80", final: false },
+    { pct: values.fup_critical_threshold || 95, key: "usage_100", message: "data_usage_100", final: true },
+  ];
+}
 
 async function ensureAlertLogTable() {
   try {
@@ -79,6 +85,7 @@ async function runUsageAlerts() {
   try {
     logger.info("[UsageAlerts] Checking customer data usage...");
 
+    const thresholds = await getThresholds();
     const allSubscriptions = await billingData.listSubscriptions();
     const activeSubs = allSubscriptions.filter(s =>
       s.status === "active" && s.pppoe_username
@@ -100,13 +107,13 @@ async function runUsageAlerts() {
         const customer = sub.customer || await billingData.getCustomerById(sub.customer_id);
         if (!customer?.phone) continue;
 
-        for (const threshold of ALERT_THRESHOLDS) {
+        for (const threshold of thresholds) {
           if (usagePct >= threshold.pct) {
             const already = await alreadySent(sub.customer_id, sub.id, threshold.key);
             if (already) continue;
 
             const channels = ["sms", "whatsapp"];
-            const messageText = threshold.pct === 80
+            const messageText = !threshold.final
               ? `Hi ${customer.name}, you've used ${usagePct}% (${usageGb.toFixed(1)}GB) of your ${quota}GB data plan. ${Math.max(0, quota - usageGb).toFixed(1)}GB remaining. Top up or upgrade to avoid throttling. - ${process.env.COMPANY_NAME || 'Your ISP'}`
               : `URGENT: Hi ${customer.name}, you've used 100% of your ${quota}GB data plan. Your speed has been reduced. Upgrade or top up to restore full speed. - ${process.env.COMPANY_NAME || 'Your ISP'}`;
 
@@ -133,6 +140,9 @@ async function runUsageAlerts() {
             }
 
             await logAlert(sub.customer_id, sub.id, threshold.key, threshold.pct, usageGb, quota, channels.join(","));
+            require('../services/opsAlertService').quotaThreshold(
+              sub.pppoe_username || customer.name, usagePct,
+            ).catch(() => {});
             results.alerted++;
 
             logger.info(

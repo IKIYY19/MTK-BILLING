@@ -46,7 +46,11 @@ class RouterAlertNotifier {
         ? "router.offline"
         : alertType === "escalation"
           ? "alert.escalated"
-          : "router.online";
+          : alertType === "security_alert"
+            ? "alert.security"
+            : alertType === "ops_alert"
+              ? "alert.ops"
+              : "router.online";
     work.push(this.sendWebhook(event, {
       connection_id: connection.id,
       name: connection.name,

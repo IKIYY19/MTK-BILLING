@@ -24,6 +24,7 @@ process.on("unhandledRejection", (reason, promise) => {
   Sentry.captureException(reason, {
     tags: { type: "unhandledRejection" },
   });
+  require("./services/opsAlertService").recordException("unhandledRejection", reason?.message || reason);
 });
 
 process.on("uncaughtException", (error) => {
@@ -35,6 +36,7 @@ process.on("uncaughtException", (error) => {
   Sentry.captureException(error, {
     tags: { type: "uncaughtException" },
   });
+  require("./services/opsAlertService").recordException("uncaughtException", error.message);
 });
 
 // Graceful shutdown - these will be re-bound in startServer() once the server is created
@@ -909,6 +911,8 @@ const startServer = async () => {
         websocketService.initialize(serverInstance);
 
         require("./services/alertEscalationService").start();
+        require("./services/opsAlertService").start();
+        require("./services/networkAlertService").start();
 
         // Start user online status updater
         startOnlineStatusUpdater();

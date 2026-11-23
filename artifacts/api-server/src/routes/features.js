@@ -154,6 +154,7 @@ router.post("/vouchers/redeem", async (req, res) => {
   voucher.status = "redeemed";
   voucher.sold_to = customer_id || "";
   voucher.redeemed_at = new Date().toISOString();
+  require("../services/networkAlertService").recordVoucher("activated", voucher.code).catch(() => {});
 
   // Activate customer subscription
   const customer = await billingData.getCustomerById(customer_id);

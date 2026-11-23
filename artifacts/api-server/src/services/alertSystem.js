@@ -40,20 +40,35 @@ class AlertSystem {
     }
   }
 
+  async getCustomerChat(customerId) {
+    const customer = await global.db.query(
+      'SELECT name, telegram_chat_id FROM customers WHERE id = $1',
+      [customerId]
+    );
+    if (customer.rows.length === 0) {return null;}
+    const row = customer.rows[0];
+    if (row.telegram_chat_id) {return { name: row.name, chat_id: row.telegram_chat_id };}
+
+    const admin = await global.db.query(
+      `SELECT nc.config FROM notification_channels nc
+       JOIN users u ON u.id = nc.user_id
+       WHERE nc.channel_type = 'telegram' AND nc.is_enabled = true AND u.role = 'admin'
+       LIMIT 1`
+    );
+    const config = admin.rows[0]?.config || {};
+    const parsed = typeof config === 'string' ? JSON.parse(config) : config;
+    return parsed.chat_id ? { name: row.name, chat_id: parsed.chat_id } : null;
+  }
+
   async sendPaymentReceived(customerId, amount, invoiceNumber, receiptNumber) {
     if (!this.enabled || !this.telegram) {return;}
 
     try {
-      const customer = await global.db.query(
-        'SELECT name, telegram_chat_id FROM customers WHERE id = $1 AND telegram_chat_id IS NOT NULL',
-        [customerId]
-      );
-
-      if (customer.rows.length === 0) {return;}
-
-      const { name, telegram_chat_id } = customer.rows[0];
+      const target = await this.getCustomerChat(customerId);
+      if (!target) {return;}
+      const { name, chat_id } = target;
       const result = await this.telegram.sendPaymentConfirmation(
-        telegram_chat_id,
+        chat_id,
         name,
         amount,
         invoiceNumber,
@@ -70,16 +85,11 @@ class AlertSystem {
     if (!this.enabled || !this.telegram) {return;}
 
     try {
-      const customer = await global.db.query(
-        'SELECT name, telegram_chat_id FROM customers WHERE id = $1 AND telegram_chat_id IS NOT NULL',
-        [customerId]
-      );
-
-      if (customer.rows.length === 0) {return;}
-
-      const { name, telegram_chat_id } = customer.rows[0];
+      const target = await this.getCustomerChat(customerId);
+      if (!target) {return;}
+      const { name, chat_id } = target;
       const result = await this.telegram.sendPaymentReminder(
-        telegram_chat_id,
+        chat_id,
         name,
         amount,
         dueDate,
@@ -96,16 +106,11 @@ class AlertSystem {
     if (!this.enabled || !this.telegram) {return;}
 
     try {
-      const customer = await global.db.query(
-        'SELECT name, telegram_chat_id FROM customers WHERE id = $1 AND telegram_chat_id IS NOT NULL',
-        [customerId]
-      );
-
-      if (customer.rows.length === 0) {return;}
-
-      const { name, telegram_chat_id } = customer.rows[0];
+      const target = await this.getCustomerChat(customerId);
+      if (!target) {return;}
+      const { name, chat_id } = target;
       const result = await this.telegram.sendOverdueNotice(
-        telegram_chat_id,
+        chat_id,
         name,
         amount,
         daysOverdue
@@ -121,16 +126,11 @@ class AlertSystem {
     if (!this.enabled || !this.telegram) {return;}
 
     try {
-      const customer = await global.db.query(
-        'SELECT name, telegram_chat_id FROM customers WHERE id = $1 AND telegram_chat_id IS NOT NULL',
-        [customerId]
-      );
-
-      if (customer.rows.length === 0) {return;}
-
-      const { name, telegram_chat_id } = customer.rows[0];
+      const target = await this.getCustomerChat(customerId);
+      if (!target) {return;}
+      const { name, chat_id } = target;
       const result = await this.telegram.sendServiceAlert(
-        telegram_chat_id,
+        chat_id,
         alertType,
         message
       );
@@ -145,18 +145,13 @@ class AlertSystem {
     if (!this.enabled || !this.telegram) {return;}
 
     try {
-      const customer = await global.db.query(
-        'SELECT name, telegram_chat_id FROM customers WHERE id = $1 AND telegram_chat_id IS NOT NULL',
-        [customerId]
-      );
-
-      if (customer.rows.length === 0) {return;}
-
-      const { name, telegram_chat_id } = customer.rows[0];
+      const target = await this.getCustomerChat(customerId);
+      if (!target) {return;}
+      const { name, chat_id } = target;
       const message = `Your internet service (${planName}) has been suspended due to non-payment. Please make a payment to restore your service.`;
       
       const result = await this.telegram.sendServiceAlert(
-        telegram_chat_id,
+        chat_id,
         'error',
         message
       );
@@ -171,18 +166,13 @@ class AlertSystem {
     if (!this.enabled || !this.telegram) {return;}
 
     try {
-      const customer = await global.db.query(
-        'SELECT name, telegram_chat_id FROM customers WHERE id = $1 AND telegram_chat_id IS NOT NULL',
-        [customerId]
-      );
-
-      if (customer.rows.length === 0) {return;}
-
-      const { name, telegram_chat_id } = customer.rows[0];
+      const target = await this.getCustomerChat(customerId);
+      if (!target) {return;}
+      const { name, chat_id } = target;
       const message = `📄 New Invoice: ${invoiceNumber}\n\nAmount: KES ${amount}\nDue Date: ${dueDate}\n\nPlease make payment before the due date to avoid service interruption.`;
       
       const result = await this.telegram.sendMessage(
-        telegram_chat_id,
+        chat_id,
         message
       );
 

@@ -348,6 +348,9 @@ router.post('/:id/refund', async (req, res) => {
       );
     }
 
+    require('../services/opsAlertService').paymentRefunded(
+      payment.receipt_number || paymentId, amount, reference || 'manual',
+    ).catch(() => {});
     res.json({ success: true, refund_amount: newRefundAmount, message: 'Refund processed successfully' });
   } catch (e) {
     console.error('Refund error:', e);
@@ -595,6 +598,9 @@ router.post('/mpesa/stk/check', async (req, res) => {
         status: 'failed',
         provider_response: result,
       });
+      require('../services/opsAlertService').paymentFailed(
+        checkoutRequestId, pending?.amount, result.description || result.resultCode,
+      ).catch(() => {});
       return res.json({
         success: false,
         status: 'failed',
@@ -707,6 +713,9 @@ async function handleMpesaCallback(req, res) {
         status: 'failed',
         provider_response: verification,
       });
+      require('../services/opsAlertService').paymentFailed(
+        checkoutRequestId, pending.amount, verification.resultDescription || verification.resultCode,
+      ).catch(() => {});
     } else if (
       pending &&
       !pending.payment_id &&

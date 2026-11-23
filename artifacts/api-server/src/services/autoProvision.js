@@ -146,6 +146,11 @@ async function reactivateOnPayment(payment) {
       }
 
       logger.info(`[AutoProvision] Reactivated ${customer.name}: ${sub.pppoe_username}`);
+      require('./opsAlertService').subscriptionEvent(
+        'renewed',
+        sub.pppoe_username,
+        `${customer.name} · ${plan?.name || 'Active'} · ${newExpiry.toISOString().slice(0, 10)}`,
+      ).catch(() => {});
       reactivated++;
     }
 

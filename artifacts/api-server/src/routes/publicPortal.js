@@ -7,6 +7,75 @@ const DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001";
 
 
 
+// GET /api/public/hotspot-plans - Preview plans without a router session
+router.get("/hotspot-plans", async (req, res) => {
+  try {
+    const db = getDb();
+    let routerId = String(req.query.router_id || "");
+    let routerName = "";
+    if (routerId) {
+      const found = await db.query("SELECT id, name FROM mikrotik_connections WHERE id = $1", [routerId]);
+      if (found.rows.length === 0) {return res.status(404).json({ error: "Router not found" });}
+      routerName = found.rows[0].name;
+    } else {
+      const found = await db.query("SELECT id, name FROM mikrotik_connections ORDER BY name LIMIT 1");
+      if (found.rows.length === 0) {return res.json({ router: { name: "" }, plans: [] });}
+      routerId = found.rows[0].id;
+      routerName = found.rows[0].name;
+    }
+    const result = await db.query(
+      `SELECT id, name, speed_up, speed_down, price, quota_gb, validity_days
+       FROM service_plans
+       WHERE is_active = true AND plan_type = 'hotspot' AND price > 0 AND price = TRUNC(price)
+       ORDER BY price ASC, name ASC`,
+    );
+    res.json({
+      router: { name: routerName },
+      plans: result.rows.map((plan) => ({
+        ...plan,
+        price: Number(plan.price),
+        quota_gb: plan.quota_gb === null ? null : Number(plan.quota_gb),
+        validity_days: Number(plan.validity_days),
+      })),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/public/policy - Non-sensitive policy values for customer portals
+router.get("/policy", async (req, res) => {
+  try {
+    const db = getDb();
+    const result = await db.query(
+      "SELECT key, value FROM settings WHERE key = ANY($1)",
+      [["fup_warning_threshold", "fup_critical_threshold", "pppoe_trial_days", "expiry_reminder_hours", "portal_font", "portal_theme", "portal_terms_enabled", "portal_terms_text"]],
+    );
+    const values = Object.fromEntries(result.rows.map((row) => [row.key, row.value]));
+    res.json({
+      fup_warning_threshold: Number(values.fup_warning_threshold) || 80,
+      fup_critical_threshold: Number(values.fup_critical_threshold) || 95,
+      pppoe_trial_days: Number(values.pppoe_trial_days) || 0,
+      expiry_reminder_hours: values.expiry_reminder_hours || "72,24,4",
+      portal_font: values.portal_font || "Inter",
+      portal_theme: values.portal_theme || "aurora",
+      portal_terms_enabled: String(values.portal_terms_enabled) === "true",
+      portal_terms_text: values.portal_terms_text || "",
+    });
+  } catch (e) {
+    res.json({
+      fup_warning_threshold: 80,
+      fup_critical_threshold: 95,
+      pppoe_trial_days: 0,
+      expiry_reminder_hours: "72,24,4",
+      portal_font: "Inter",
+      portal_theme: "aurora",
+      portal_terms_enabled: false,
+      portal_terms_text: "",
+    });
+  }
+});
+
 // GET /api/public/tenant-branding - Public tenant branding for login page
 router.get("/tenant-branding", async (req, res) => {
   try {

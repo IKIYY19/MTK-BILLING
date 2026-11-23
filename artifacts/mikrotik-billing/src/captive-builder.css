@@ -1,0 +1,73 @@
+.cpb {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #e4e4e7;
+}
+.cpb::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 260px;
+  pointer-events: none;
+  background: radial-gradient(800px 240px at 18% 0%, rgba(251, 191, 36, .12), transparent 70%),
+              radial-gradient(700px 240px at 82% 0%, rgba(34, 211, 238, .1), transparent 70%);
+}
+.cpb .sticky.top-0 {
+  background: rgba(9, 9, 11, .82);
+  backdrop-filter: blur(24px) saturate(140%);
+  border-bottom: 1px solid rgba(255, 255, 255, .07);
+}
+.cpb .sticky.top-0 h1 {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.025em;
+}
+.cpb .glass {
+  border: 1px solid rgba(255, 255, 255, .08);
+  background: linear-gradient(155deg, rgba(24, 24, 27, .88), rgba(12, 12, 14, .92));
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .04);
+  border-radius: 20px;
+}
+.cpb .glass h3 {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -.02em;
+}
+.cpb .modern-input,
+.cpb input[type="text"],
+.cpb input[type="url"],
+.cpb select {
+  background: rgba(0, 0, 0, .35);
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 10px;
+  color: #f4f4f5;
+}
+.cpb .modern-input:focus,
+.cpb input:focus,
+.cpb select:focus {
+  border-color: rgba(251, 191, 36, .55);
+  box-shadow: 0 0 0 3px rgba(251, 191, 36, .1);
+  outline: none;
+}
+.cpb button {
+  border-radius: 10px;
+}
+.cpb .grid-cols-4 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.cpb .preview-note {
+  border: 1px solid rgba(34, 211, 238, .22);
+  background: rgba(34, 211, 238, .07);
+  color: #a5f3fc;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.cpb .builder-section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: #71717a;
+  font-weight: 700;
+}

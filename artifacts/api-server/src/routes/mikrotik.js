@@ -391,8 +391,10 @@ router.post('/push', async (req, res) => {
         'UPDATE mikrotik_connections SET is_online = true, last_seen = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
         [connection_id],
       ).catch(() => {});
+      require('../services/opsAlertService').recordRouterConfigPush(req, device.name || host, true).catch(() => {});
       res.json({ success: true, message: 'Script executed successfully on the router', host, result });
     } catch (error) {
+      require('../services/opsAlertService').recordRouterConfigPush(req, device.name || connection_id, false, error.message).catch(() => {});
       res.status(502).json({ success: false, message: describeConnectionError(error), error: describeConnectionError(error) });
     }
   } catch (error) {
@@ -466,14 +468,22 @@ router.get('/:id/alerts', async (req, res) => {
 // Get all alerts (admin view)
 router.get('/alerts/all', async (req, res) => {
   try {
-    const { status, limit = 100 } = req.query;
-    
+    const { status, severity, type, limit = 100 } = req.query;
+
     let query = 'SELECT a.*, mc.name as connection_name, mc.ip_address FROM alerts a LEFT JOIN mikrotik_connections mc ON a.connection_id = mc.id WHERE 1=1';
     const params = [];
     
     if (status) {
-      query += ' AND a.status = $1';
+      query += ` AND a.status = $${params.length + 1}`;
       params.push(status);
+    }
+    if (severity) {
+      query += ` AND a.severity = $${params.length + 1}`;
+      params.push(severity);
+    }
+    if (type) {
+      query += ` AND a.alert_type = $${params.length + 1}`;
+      params.push(type);
     }
     
     query += ' ORDER BY a.created_at DESC LIMIT $' + (params.length + 1);

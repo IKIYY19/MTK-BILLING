@@ -291,6 +291,10 @@ async function runDailyDeductions() {
           balance: balance,
           daily_rate: dailyRate,
         });
+
+        require("../services/opsAlertService").lowBalance(
+          wallet.customer_id, balance, dailyRate,
+        ).catch(() => {});
       }
     }
 

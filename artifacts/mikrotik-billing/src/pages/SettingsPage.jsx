@@ -234,6 +234,17 @@ export function SettingsPage() {
     vpn_server_port: "443",
     vpn_username: "",
     vpn_password: "",
+    portal_font: "Inter",
+    portal_theme: "aurora",
+    portal_terms_enabled: "false",
+    portal_terms_text: "",
+    pppoe_trial_days: "0",
+    fup_warning_threshold: "80",
+    fup_critical_threshold: "95",
+    expiry_reminder_hours: "72,24,4",
+    network_cpu_threshold: "85",
+    network_memory_threshold: "90",
+    network_latency_threshold: "1500",
   });
 
   const [logoPreview, setLogoPreview] = useState(null);
@@ -832,6 +843,97 @@ export function SettingsPage() {
                   placeholder="SSTP password"
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          {/* ISP Policies & Portal */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Palette className="w-5 h-5" /> ISP Policies &amp; Portal
+              </CardTitle>
+              <CardDescription>
+                Portal font, terms and subscriber policy thresholds.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="portal-font">Portal font</Label>
+                  <select
+                    id="portal-font"
+                    value={settings.portal_font || "Inter"}
+                    onChange={(e) => setSettings({...settings, portal_font: e.target.value})}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {["Inter", "Roboto", "Poppins", "Montserrat", "Lato", "Open Sans", "Manrope", "Outfit", "Space Grotesk", "Hanken Grotesk"].map((font) => (
+                      <option key={font} value={font}>{font}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="portal-theme">Portal theme</Label>
+                  <select
+                    id="portal-theme"
+                    value={settings.portal_theme || "aurora"}
+                    onChange={(e) => setSettings({...settings, portal_theme: e.target.value})}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {["aurora", "sunrise", "lagoon", "neon", "monochrome"].map((theme) => (
+                      <option key={theme} value={theme}>{theme}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="pppoe-trial-days">Trial days</Label>
+                  <Input id="pppoe-trial-days" type="number" value={settings.pppoe_trial_days || "0"} onChange={(e) => setSettings({...settings, pppoe_trial_days: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="expiry-reminder-hours">Expiry reminders (hours)</Label>
+                  <Input id="expiry-reminder-hours" value={settings.expiry_reminder_hours || "72,24,4"} onChange={(e) => setSettings({...settings, expiry_reminder_hours: e.target.value})} placeholder="72,24,4" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="fup-warning">FUP warning at (%)</Label>
+                  <Input id="fup-warning" type="number" value={settings.fup_warning_threshold || "80"} onChange={(e) => setSettings({...settings, fup_warning_threshold: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="fup-critical">FUP critical at (%)</Label>
+                  <Input id="fup-critical" type="number" value={settings.fup_critical_threshold || "95"} onChange={(e) => setSettings({...settings, fup_critical_threshold: e.target.value})} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="cpu-threshold">Alert CPU above (%)</Label>
+                  <Input id="cpu-threshold" type="number" value={settings.network_cpu_threshold || "85"} onChange={(e) => setSettings({...settings, network_cpu_threshold: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="memory-threshold">Alert memory above (%)</Label>
+                  <Input id="memory-threshold" type="number" value={settings.network_memory_threshold || "90"} onChange={(e) => setSettings({...settings, network_memory_threshold: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="latency-threshold">API round-trip above (ms)</Label>
+                  <Input id="latency-threshold" type="number" value={settings.network_latency_threshold || "1500"} onChange={(e) => setSettings({...settings, network_latency_threshold: e.target.value})} />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="portal-terms-enabled" className="cursor-pointer">Show Terms &amp; Conditions on hotspot login</Label>
+                <Switch id="portal-terms-enabled" checked={settings.portal_terms_enabled === "true"} onCheckedChange={(v) => setSettings({...settings, portal_terms_enabled: String(v)})} />
+              </div>
+              {settings.portal_terms_enabled === "true" && (
+                <div className="space-y-2">
+                  <Label htmlFor="portal-terms-text">Terms text</Label>
+                  <textarea
+                    id="portal-terms-text"
+                    value={settings.portal_terms_text || ""}
+                    onChange={(e) => setSettings({...settings, portal_terms_text: e.target.value})}
+                    rows={3}
+                    className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    placeholder="By continuing you agree to our terms of service."
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
 

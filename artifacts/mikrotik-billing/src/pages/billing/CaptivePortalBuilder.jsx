@@ -10,25 +10,19 @@ import {
 } from "lucide-react";
 import { useToastStore } from "../../stores/toastStore";
 import HotspotSessionsPanel from "./HotspotSessionsPanel";
+import "../../captive-builder.css";
 
 const API = import.meta.env.VITE_API_URL || "/api";
 
 const HOTSPOT_TEMPLATES = [
-  { id: "prism",    name: "Crystal Prism",    icon: Gem,       desc: "Glass morphism with iridescent gradients", type: "premium", accent: "#22d3ee", colors: { bg: "#0a0a20", bg2: "#141030", bg3: "#1a1540", accent: "#22d3ee", card: "rgba(15,15,35,0.7)", text: "#e2e8f0", border: "rgba(34,211,238,0.15)", inputBg: "rgba(34,211,238,0.06)", glow: "0 0 40px rgba(34,211,238,0.2)", cardBlur: "30px" } },
-  { id: "quantum",  name: "Quantum Pulse",    icon: Diamond,   desc: "Animated moving gradients", type: "premium", accent: "#c084fc", colors: { bg: "#0d0d1a", bg2: "#1a1030", bg3: "#251555", accent: "#c084fc", card: "rgba(15,15,30,0.65)", text: "#f3e8ff", border: "rgba(192,132,252,0.18)", inputBg: "rgba(192,132,252,0.06)", glow: "0 0 50px rgba(192,132,252,0.25)", cardBlur: "35px" } },
-  { id: "luxe",     name: "Executive Luxe",   icon: Crown,     desc: "Premium dark with gold accents", type: "premium", accent: "#eab308", colors: { bg: "#0a0a0f", bg2: "#141416", bg3: "#1c1812", accent: "#eab308", card: "rgba(14,14,18,0.75)", text: "#fef3c7", border: "rgba(234,179,8,0.18)", inputBg: "rgba(234,179,8,0.06)", glow: "0 0 35px rgba(234,179,8,0.2)", cardBlur: "28px" } },
-  { id: "neon",     name: "Neon Night",       icon: Zap,       desc: "Electric cyberpunk glow", accent: "#00ff88", colors: { bg: "#08080f", bg2: "#0f0f1a", bg3: "#0a1520", accent: "#00ff88", card: "rgba(10,10,18,0.8)", text: "#e0ffe0", border: "rgba(0,255,136,0.15)", inputBg: "rgba(0,255,136,0.05)", glow: "0 0 30px rgba(0,255,136,0.18)", cardBlur: "24px" } },
-  { id: "sunset",   name: "Sunset Bliss",     icon: Sun,       desc: "Warm golden gradients", accent: "#ff8c42", colors: { bg: "#1a0f0a", bg2: "#2d1810", bg3: "#351a10", accent: "#ff8c42", card: "rgba(26,15,10,0.8)", text: "#ffe8d5", border: "rgba(255,140,66,0.15)", inputBg: "rgba(255,140,66,0.05)", glow: "0 0 30px rgba(255,140,66,0.15)", cardBlur: "24px" } },
-  { id: "ocean",    name: "Deep Ocean",       icon: Waves,     desc: "Serene underwater blues", accent: "#38bdf8", colors: { bg: "#061224", bg2: "#0a1a38", bg3: "#0d2240", accent: "#38bdf8", card: "rgba(6,18,36,0.82)", text: "#e0f2fe", border: "rgba(56,189,248,0.12)", inputBg: "rgba(56,189,248,0.04)", glow: "0 0 40px rgba(56,189,248,0.12)", cardBlur: "26px" } },
-  { id: "forest",   name: "Enchanted Forest", icon: Leaf,      desc: "Mystical emerald greens", accent: "#4ade80", colors: { bg: "#0a1410", bg2: "#121e16", bg3: "#162818", accent: "#4ade80", card: "rgba(10,20,16,0.8)", text: "#dcfce7", border: "rgba(74,222,128,0.12)", inputBg: "rgba(74,222,128,0.05)", glow: "0 0 30px rgba(74,222,128,0.12)", cardBlur: "24px" } },
-  { id: "midnight", name: "Midnight Luxe",    icon: Moon,      desc: "Dark luxury with gold", accent: "#c9a84c", colors: { bg: "#0c0c14", bg2: "#1a1224", bg3: "#201630", accent: "#c9a84c", card: "rgba(12,12,20,0.82)", text: "#fef3c7", border: "rgba(201,168,76,0.15)", inputBg: "rgba(201,168,76,0.05)", glow: "0 0 25px rgba(201,168,76,0.12)", cardBlur: "26px" } },
-  { id: "rose",     name: "Rose Gold",        icon: Heart,     desc: "Romantic blush tones", accent: "#f472b6", colors: { bg: "#1a0e18", bg2: "#2a1528", bg3: "#301a2a", accent: "#f472b6", card: "rgba(26,14,24,0.8)", text: "#fce7f3", border: "rgba(244,114,182,0.15)", inputBg: "rgba(244,114,182,0.05)", glow: "0 0 28px rgba(244,114,182,0.12)", cardBlur: "24px" } },
-  { id: "aurora",   name: "Aurora Skies",     icon: Sparkles,  desc: "Northern lights colours", accent: "#a78bfa", colors: { bg: "#0f0a1a", bg2: "#1a0f2e", bg3: "#201440", accent: "#a78bfa", card: "rgba(15,10,26,0.78)", text: "#ede9fe", border: "rgba(167,139,250,0.15)", inputBg: "rgba(167,139,250,0.05)", glow: "0 0 35px rgba(167,139,250,0.18)", cardBlur: "28px" } },
-  { id: "cafe",     name: "Café Latte",       icon: Coffee,    desc: "Warm coffee shop vibes", accent: "#d4a574", colors: { bg: "#1a1108", bg2: "#2d1c10", bg3: "#352010", accent: "#d4a574", card: "rgba(26,17,8,0.82)", text: "#fef2e0", border: "rgba(212,165,116,0.15)", inputBg: "rgba(212,165,116,0.05)", glow: "0 0 25px rgba(212,165,116,0.1)", cardBlur: "24px" } },
-  { id: "cosmic",   name: "Cosmic Void",      icon: Stars,     desc: "Deep space purples", accent: "#c084fc", colors: { bg: "#0d0a1a", bg2: "#1a0f2e", bg3: "#241540", accent: "#c084fc", card: "rgba(13,10,26,0.8)", text: "#f3e8ff", border: "rgba(192,132,252,0.15)", inputBg: "rgba(192,132,252,0.05)", glow: "0 0 35px rgba(192,132,252,0.18)", cardBlur: "26px" } },
+  { id: "aurora",     name: "Aurora",     icon: Sparkles, desc: "Cyan and violet glass", accent: "#22d3ee", colors: { bg: "#070b16", bg2: "#0f172a", bg3: "#111827", accent: "#22d3ee", card: "rgba(20,29,49,0.86)", text: "#e8eef9", border: "rgba(103,232,249,0.2)", inputBg: "rgba(34,211,238,0.06)", glow: "0 0 40px rgba(34,211,238,0.2)", cardBlur: "26px" } },
+  { id: "sunrise",    name: "Sunrise",    icon: Sun,      desc: "Warm orange and coral", accent: "#fb923c", colors: { bg: "#140b08", bg2: "#2a110c", bg3: "#35160f", accent: "#fb923c", card: "rgba(30,15,10,0.86)", text: "#ffedd5", border: "rgba(251,146,60,0.2)", inputBg: "rgba(251,146,60,0.06)", glow: "0 0 40px rgba(251,146,60,0.2)", cardBlur: "26px" } },
+  { id: "lagoon",     name: "Lagoon",     icon: Waves,     desc: "Teal and emerald glow", accent: "#2dd4bf", colors: { bg: "#051310", bg2: "#08251d", bg3: "#0b2f25", accent: "#2dd4bf", card: "rgba(8,30,25,0.86)", text: "#ccfbf1", border: "rgba(45,212,191,0.2)", inputBg: "rgba(45,212,191,0.06)", glow: "0 0 40px rgba(45,212,191,0.2)", cardBlur: "26px" } },
+  { id: "neon",       name: "Neon",       icon: Zap,       desc: "Purple and pink electric", accent: "#c084fc", colors: { bg: "#0c0620", bg2: "#180a35", bg3: "#220d45", accent: "#c084fc", card: "rgba(24,10,53,0.86)", text: "#f3e8ff", border: "rgba(192,132,252,0.25)", inputBg: "rgba(192,132,252,0.07)", glow: "0 0 45px rgba(192,132,252,0.25)", cardBlur: "28px" } },
+  { id: "monochrome", name: "Monochrome", icon: Diamond,   desc: "Clean grayscale", accent: "#e5e5e5", colors: { bg: "#0a0a0b", bg2: "#17171a", bg3: "#202024", accent: "#e5e5e5", card: "rgba(20,20,22,0.86)", text: "#f5f5f5", border: "rgba(255,255,255,0.16)", inputBg: "rgba(255,255,255,0.05)", glow: "0 0 30px rgba(255,255,255,0.08)", cardBlur: "24px" } },
 ];
 
-function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeText, phoneNumber }) {
+function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeText, phoneNumber, font, termsEnabled, termsText }) {
   const company = String(companyName || "Wi-Fi access").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[char]);
@@ -42,6 +36,8 @@ function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeTe
     if (theme) {hostedPortal.searchParams.set("theme", theme);}
     if (welcomeText) {hostedPortal.searchParams.set("welcome", welcomeText);}
     if (phoneNumber) {hostedPortal.searchParams.set("support", phoneNumber);}
+    if (font) {hostedPortal.searchParams.set("font", font);}
+    if (String(termsEnabled) === "true" && termsText) {hostedPortal.searchParams.set("terms", termsText);}
   }
   const hostname = (hostedPortal?.hostname || "").toLowerCase();
   const privateHost =
@@ -131,15 +127,15 @@ export default function CaptivePortalBuilder() {
     error:   (msg) => addToast("error",   msg, "", 4000),
   };
 
-  const [selectedTemplate, setSelectedTemplate] = useState("prism");
+  const [selectedTemplate, setSelectedTemplate] = useState(() => localStorage.getItem("portal_theme") || "aurora");
   const [companyName,   setCompanyName]   = useState(() => localStorage.getItem("portal_company")  || "");
   const [welcomeText,   setWelcomeText]   = useState(() => localStorage.getItem("portal_welcome")  || "");
   const [logoUrl,       setLogoUrl]       = useState(() => localStorage.getItem("portal_logo")     || "");
   const [primaryColor,  setPrimaryColor]  = useState(() => localStorage.getItem("portal_color")    || "");
   const [phoneNumber,   setPhoneNumber]   = useState(() => localStorage.getItem("portal_phone")    || "");
-  const [selectedTheme, setSelectedTheme] = useState(() => localStorage.getItem("portal_theme")    || "aurora");
   const [showTerms,     setShowTerms]     = useState(true);
   const [previewMode,   setPreviewMode]   = useState("desktop");
+  const [previewTarget, setPreviewTarget] = useState("portal");
   const [connections,   setConnections]   = useState([]);
   const [selectedConn,  setSelectedConn]  = useState("");
   const [pushing,       setPushing]       = useState(false);
@@ -147,14 +143,35 @@ export default function CaptivePortalBuilder() {
   const [savedPortals,  setSavedPortals]  = useState([]);
   const [portalUrl, setPortalUrl] = useState(() => localStorage.getItem("portal_hosted_url") || `${import.meta.env.VITE_PUBLIC_APP_URL || window.location.origin}/hotspot`);
   const [activeView, setActiveView] = useState("builder");
+  const [policySettings, setPolicySettings] = useState({});
 
   useEffect(() => {
     axios.get(`${API}/mikrotik`).then(r => setConnections(Array.isArray(r.data) ? r.data : [])).catch(() => {});
     axios.get(`${API}/resellers/captive-portals`).then(r => setSavedPortals(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+    axios.get(`${API}/settings`).then(r => setPolicySettings(r.data || {})).catch(() => {});
   }, []);
 
   const save = (key, val) => localStorage.setItem(key, val);
-  const getHtml = () => generatePortalHTML({ templateId: selectedTemplate, companyName, welcomeText, logoUrl, primaryColor, phoneNumber, showTerms, packages: [], routerId: selectedConn, portalUrl, theme: selectedTheme });
+  const getHtml = () => generatePortalHTML({ templateId: selectedTemplate, companyName, welcomeText: welcomeText || policySettings.portal_welcome, logoUrl, primaryColor, phoneNumber: phoneNumber || policySettings.support_number, showTerms, packages: [], routerId: selectedConn, portalUrl, theme: selectedTemplate, font: policySettings.portal_font, termsEnabled: policySettings.portal_terms_enabled, termsText: policySettings.portal_terms_text });
+
+  const getHostedPreviewUrl = () => {
+    try {
+      const configured = new URL(portalUrl || `${window.location.origin}/hotspot`);
+      const url = configured.host === window.location.host
+        ? configured
+        : new URL("/hotspot", window.location.origin);
+      url.searchParams.set("theme", selectedTemplate);
+      if (welcomeText) {url.searchParams.set("welcome", welcomeText);}
+      if (phoneNumber) {url.searchParams.set("support", phoneNumber);}
+      if (policySettings.portal_font) {url.searchParams.set("font", policySettings.portal_font);}
+      if (String(policySettings.portal_terms_enabled) === "true" && policySettings.portal_terms_text) {
+        url.searchParams.set("terms", policySettings.portal_terms_text);
+      }
+      return url.toString();
+    } catch {
+      return `${window.location.origin}/hotspot?theme=${selectedTemplate}`;
+    }
+  };
 
   const handlePush = async () => {
     if (!selectedConn) { toast.error("Select a router first"); return; }
@@ -196,7 +213,7 @@ export default function CaptivePortalBuilder() {
   const activeTpl = HOTSPOT_TEMPLATES.find(t => t.id === selectedTemplate) || HOTSPOT_TEMPLATES[0];
 
   return (
-    <div className="relative min-h-full animate-fade-in">
+    <div className="cpb relative min-h-full animate-fade-in">
       <div className="absolute inset-0 bg-mesh pointer-events-none" />
       <div className="absolute inset-0 bg-noise pointer-events-none" />
 
@@ -290,7 +307,7 @@ export default function CaptivePortalBuilder() {
                 {HOTSPOT_TEMPLATES.map(tpl => (
                   <button
                     key={tpl.id}
-                    onClick={() => setSelectedTemplate(tpl.id)}
+                    onClick={() => { setSelectedTemplate(tpl.id); save("portal_theme", tpl.id); }}
                     title={tpl.name}
                     className={`relative flex flex-col items-center gap-1.5 p-2 rounded-xl border transition-all group ${
                       selectedTemplate === tpl.id
@@ -351,19 +368,6 @@ export default function CaptivePortalBuilder() {
                   <Field label="Support Phone">
                     <DarkInput value={phoneNumber} onChange={e => { setPhoneNumber(e.target.value); save("portal_phone", e.target.value); }} placeholder="0712 345 678" />
                   </Field>
-                  <Field label="Portal Theme">
-                    <select
-                      value={selectedTheme}
-                      onChange={e => { setSelectedTheme(e.target.value); save("portal_theme", e.target.value); }}
-                      className="modern-input"
-                    >
-                      <option value="aurora">Aurora (cyan)</option>
-                      <option value="sunrise">Sunrise (warm)</option>
-                      <option value="lagoon">Lagoon (teal)</option>
-                      <option value="neon">Neon (purple)</option>
-                      <option value="monochrome">Monochrome</option>
-                    </select>
-                  </Field>
                 </div>
                 <label className="flex items-center gap-2.5 cursor-pointer group">
                   <div className={`w-8 h-4.5 rounded-full transition-colors relative ${showTerms ? "bg-amber-500" : "bg-zinc-700"}`} onClick={() => setShowTerms(!showTerms)}>
@@ -409,6 +413,9 @@ export default function CaptivePortalBuilder() {
 
           {/* ── Preview ── */}
           <div className="lg:col-span-3 flex flex-col gap-4">
+            <div className="preview-note px-4 py-3">
+              This preview shows the hosted sign-in page with your selected theme. The handoff page is only the small bridge that RouterOS serves at login.
+            </div>
             <div className="glass rounded-2xl overflow-hidden flex flex-col">
               {/* preview toolbar */}
               <div className="px-4 py-3 border-b border-zinc-800/50 flex items-center justify-between gap-3">
@@ -416,6 +423,16 @@ export default function CaptivePortalBuilder() {
                   <Eye className="w-4 h-4 text-emerald-400" />
                   <h3 className="text-sm font-semibold text-white">Live Preview</h3>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400">live</span>
+                </div>
+                <div className="flex gap-1 bg-zinc-800/60 rounded-lg p-0.5">
+                  <button
+                    onClick={() => setPreviewTarget("portal")}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${previewTarget === "portal" ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"}`}
+                  >Hosted portal</button>
+                  <button
+                    onClick={() => setPreviewTarget("handoff")}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${previewTarget === "handoff" ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"}`}
+                  >Handoff page</button>
                 </div>
                 <div className="flex gap-1 bg-zinc-800/60 rounded-lg p-0.5">
                   <button
@@ -444,7 +461,8 @@ export default function CaptivePortalBuilder() {
                         <div className="w-8 h-1.5 bg-zinc-700 rounded-full" />
                       </div>
                       <iframe
-                        srcDoc={getHtml()}
+                        src={previewTarget === "portal" ? getHostedPreviewUrl() : undefined}
+                        srcDoc={previewTarget === "handoff" ? getHtml() : undefined}
                         className="w-full h-full border-0"
                         title="Portal Preview Mobile"
                         sandbox="allow-scripts allow-forms allow-same-origin"
@@ -466,12 +484,13 @@ export default function CaptivePortalBuilder() {
                         <div className="w-3 h-3 rounded-full bg-emerald-500/60" />
                       </div>
                       <div className="flex-1 bg-zinc-700/50 rounded-md px-3 py-1 text-[11px] text-zinc-500 truncate">
-                        192.168.1.1/login
+                        {previewTarget === "portal" ? getHostedPreviewUrl() : "192.168.1.1/login"}
                       </div>
                     </div>
                     <div className="border border-t-0 border-zinc-700/50 rounded-b-xl overflow-hidden" style={{ height: "560px" }}>
                       <iframe
-                        srcDoc={getHtml()}
+                        src={previewTarget === "portal" ? getHostedPreviewUrl() : undefined}
+                        srcDoc={previewTarget === "handoff" ? getHtml() : undefined}
                         className="w-full h-full border-0"
                         title="Portal Preview Desktop"
                         sandbox="allow-scripts allow-forms allow-same-origin"

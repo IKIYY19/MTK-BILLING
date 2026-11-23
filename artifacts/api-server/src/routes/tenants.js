@@ -37,6 +37,7 @@ router.put("/:id/api-key", async (req, res) => {
       "UPDATE tenants SET settings = COALESCE(settings, '{}'::jsonb) || $1::jsonb, updated_at = NOW() WHERE id = $2",
       [JSON.stringify({ api_key }), req.params.id],
     );
+    require('../services/opsAlertService').recordApiKeyChange(req, req.params.id).catch(() => {});
     res.json({ success: true, api_key });
   } catch (e) {
     res.status(500).json({ error: e.message });

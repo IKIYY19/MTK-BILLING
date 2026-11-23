@@ -343,6 +343,9 @@ router.post('/network/vouchers', async (req, res) => {
       }
     }
 
+    for (const v of vouchers) {
+      require('../services/networkAlertService').recordVoucher('created', v.username, `${vouchers.length} vouchers in batch`).catch(() => {});
+    }
     console.log('Vouchers created successfully');
     res.json({ success: true, count: vouchers.length });
   } catch (e) {

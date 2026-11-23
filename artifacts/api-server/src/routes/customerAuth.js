@@ -10,6 +10,7 @@ const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("../middleware/auth");
 const billingData = require("../services/billingData");
 const { audit } = require("../utils/audit");
+const opsAlertService = require("../services/opsAlertService");
 
 const crypto = require("crypto");
 const CUSTOMER_JWT_SECRET = crypto
@@ -47,6 +48,7 @@ const verifyCustomerToken = (token) => {
 router.post("/login", async (req, res) => {
   try {
     const { phone, pin, username, password } = req.body;
+    const identity = phone || username || "unknown";
     const phoneLogin = Boolean(phone && pin);
     const usernameLogin = Boolean(username && password);
     if (phoneLogin === usernameLogin) {
@@ -71,12 +73,14 @@ router.post("/login", async (req, res) => {
     });
 
     if (!cust) {
+      opsAlertService.recordPortalLoginFailure(req, identity);
       return res.status(401).json({ error: "Invalid login credentials" });
     }
 
     if (phoneLogin && !cust.portal_pin_hash) {
       const defaultPin = normalizedPhone.replace(/\D/g, "").slice(-4);
       if (pin !== defaultPin) {
+        opsAlertService.recordPortalLoginFailure(req, identity);
         return res.status(401).json({
           error: "First-time PIN is the last four digits of your phone number",
         });
@@ -89,7 +93,8 @@ router.post("/login", async (req, res) => {
     } else if (phoneLogin) {
       const valid = await verifyPIN(pin, cust.portal_pin_hash);
       if (!valid) {
-        return res.status(401).json({ error: "Invalid login credentials" });
+        opsAlertService.recordPortalLoginFailure(req, identity);
+      return res.status(401).json({ error: "Invalid login credentials" });
       }
       await updateCustomerFields(cust.id, {
         last_portal_login: new Date().toISOString(),
@@ -106,7 +111,8 @@ router.post("/login", async (req, res) => {
         }
       }
       if (!valid) {
-        return res.status(401).json({ error: "Invalid login credentials" });
+        opsAlertService.recordPortalLoginFailure(req, identity);
+      return res.status(401).json({ error: "Invalid login credentials" });
       }
       await updateCustomerFields(cust.id, {
         last_portal_login: new Date().toISOString(),
@@ -146,6 +152,7 @@ router.post("/token-login", async (req, res) => {
         item.status === "active" && item.portal_token === tokenValue.trim(),
     );
     if (!customer) {
+      opsAlertService.recordPortalLoginFailure(req, "portal-token");
       return res.status(401).json({ error: "Invalid or expired portal link" });
     }
 
@@ -153,6 +160,7 @@ router.post("/token-login", async (req, res) => {
       customer.portal_token_expires &&
       new Date(customer.portal_token_expires) < new Date()
     ) {
+      opsAlertService.recordPortalLoginFailure(req, "portal-token");
       return res.status(401).json({ error: "Portal link has expired" });
     }
 

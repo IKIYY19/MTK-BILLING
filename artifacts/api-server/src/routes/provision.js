@@ -3113,6 +3113,9 @@ router.post("/v1/:slug/routers/:routerId/push", async (req, res) => {
       [connection.id],
     ).catch(() => {});
 
+    require('../services/opsAlertService').recordRouterConfigPush(
+      req, routerRow.name || routerIdentity, true,
+    ).catch(() => {});
     res.json({
       success: true,
       message: `Billing configuration executed successfully on ${routerRow.name || routerIdentity}`,
@@ -3126,6 +3129,9 @@ router.post("/v1/:slug/routers/:routerId/push", async (req, res) => {
       error: error.message,
       stack: error.stack,
     });
+    require('../services/opsAlertService').recordRouterConfigPush(
+      req, routerId, false, error.message,
+    ).catch(() => {});
     res.status(502).json({
       error: error.message || "Remote configuration failed",
       code: "REMOTE_PUSH_FAILED",

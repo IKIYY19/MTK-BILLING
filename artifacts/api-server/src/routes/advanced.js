@@ -279,11 +279,18 @@ router.delete("/backup/schedules/:id", async (req, res) => {
 
 router.post("/backup/schedules/:id/run", async (req, res) => {
   const result = await backupStore.runBackup(req.params.id);
+  require('../services/opsAlertService').recordBackup(
+    req.params.id, result.success, result.message,
+  ).catch(() => {});
   res.json(result);
 });
 
 router.post("/backup/run-all", async (req, res) => {
   const results = await backupStore.runAllBackups();
+  require('../services/opsAlertService').recordBackup(
+    'all schedules', results.failed === 0,
+    results.errors?.map((item) => `${item.schedule}: ${item.error}`).join('; '),
+  ).catch(() => {});
   res.json(results);
 });
 

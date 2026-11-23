@@ -27,6 +27,7 @@ router.post("/nas", async (req, res) => {
     if (!/^[A-Za-z0-9.\-:]+$/.test(String(nasname))) {
       return res.status(400).json({ error: "nasname must be an IP address or hostname" });
     }
+    const existing = await getDb().query("SELECT id FROM nas WHERE nasname = $1", [nasname]);
     const result = await getDb().query(
       `INSERT INTO nas (nasname, shortname, secret, description, type, connection_id)
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -44,6 +45,9 @@ router.post("/nas", async (req, res) => {
         connection_id || null,
       ],
     );
+    require('../services/opsAlertService').recordNasChange(
+      req, nasname, existing.rows.length > 0 ? 'updated' : 'added',
+    ).catch(() => {});
     res.status(201).json(result.rows[0]);
   } catch (e) {
     res.status(500).json({ error: e.message });

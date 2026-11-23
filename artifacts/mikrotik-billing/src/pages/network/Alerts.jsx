@@ -1,220 +1,309 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, CheckCircle, XCircle, Clock, RefreshCw, Filter } from 'lucide-react';
+import {
+  AlertTriangle, CheckCircle, XCircle, Clock, RefreshCw, ShieldAlert,
+  Server, Activity, ChevronDown, ChevronUp, Search, Bell,
+} from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
+const severityStyles = {
+  critical: 'bg-red-500/15 text-red-400 border-red-500/30',
+  warning: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  info: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+};
+
+const statusStyles = {
+  open: 'bg-red-500/10 text-red-400',
+  acknowledged: 'bg-amber-500/10 text-amber-400',
+  resolved: 'bg-emerald-500/10 text-emerald-400',
+};
+
+function formatWhen(value) {
+  if (!value) {return '—';}
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {return String(value);}
+  const absolute = date.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  let relative;
+  if (seconds < 60) {relative = 'just now';}
+  else if (seconds < 3600) {relative = `${Math.floor(seconds / 60)}m ago`;}
+  else if (seconds < 86400) {relative = `${Math.floor(seconds / 3600)}h ago`;}
+  else {relative = `${Math.floor(seconds / 86400)}d ago`;}
+  return `${absolute} (${relative})`;
+}
+
+function typeLabel(type) {
+  return String(type || 'alert')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function typeIcon(type) {
+  if (String(type).startsWith('router')) {return Server;}
+  if (String(type).includes('security')) {return ShieldAlert;}
+  if (String(type).includes('ops')) {return Activity;}
+  return Bell;
+}
+
 export function Alerts() {
-  const { info } = useToast();
+  const { info, error: toastError } = useToast();
   const [alerts, setAlerts] = useState([]);
-  const [filter, setFilter] = useState('open'); // open, acknowledged, resolved, all
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [severityFilter, setSeverityFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   const fetchAlerts = async (silent = false) => {
     if (!silent) {setLoading(true);}
     try {
       const token = localStorage.getItem('token');
-      const params = filter !== 'all' ? { status: filter } : {};
       const { data } = await axios.get(`${API}/mikrotik/alerts/all`, {
-        params,
+        params: { limit: 200 },
         headers: { Authorization: `Bearer ${token}` },
       });
-      setAlerts(data);
-    } catch (error) {
-      console.error('Failed to fetch alerts:', error);
-    }
-    if (!silent) {setLoading(false);}
-  };
-
-  const acknowledgeAlert = async (alertId) => {
-    try {
-      const token = localStorage.getItem('token');
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
-      await axios.post(`${API}/mikrotik/alerts/${alertId}/acknowledge`, 
-        { userId: user.id },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      info('Success', 'Alert acknowledged');
-      fetchAlerts();
-    } catch (error) {
-      console.error('Failed to acknowledge alert:', error);
-    }
-  };
-
-  const resolveAlert = async (alertId) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.post(`${API}/mikrotik/alerts/${alertId}/resolve`, {}, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      info('Success', 'Alert resolved');
-      fetchAlerts();
-    } catch (error) {
-      console.error('Failed to resolve alert:', error);
+      setAlerts(Array.isArray(data) ? data : []);
+      setLastUpdated(new Date());
+    } catch (requestError) {
+      console.error('Failed to fetch alerts:', requestError);
+    } finally {
+      if (!silent) {setLoading(false);}
     }
   };
 
   useEffect(() => {
     fetchAlerts();
-    const timer = setInterval(() => fetchAlerts(true), 2000);
+    const timer = setInterval(() => fetchAlerts(true), 5000);
     return () => clearInterval(timer);
-  }, [filter]);
+  }, []);
 
-  const getSeverityColor = (severity) => {
-    switch (severity) {
-      case 'critical': return 'text-red-400 bg-red-500/20 border-red-500/50';
-      case 'warning': return 'text-amber-400 bg-amber-500/20 border-amber-500/50';
-      case 'info': return 'text-blue-400 bg-blue-500/20 border-blue-500/50';
-      default: return 'text-slate-400 bg-slate-500/20 border-slate-500/50';
+  const updateAlert = async (id, action) => {
+    try {
+      const token = localStorage.getItem('token');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      await axios.post(
+        `${API}/mikrotik/alerts/${id}/${action}`,
+        action === 'acknowledge' ? { userId: user.id } : {},
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      info('Success', action === 'acknowledge' ? 'Alert acknowledged' : 'Alert resolved');
+      fetchAlerts(true);
+    } catch (requestError) {
+      toastError('Error', requestError.response?.data?.error || 'Action failed');
     }
   };
 
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'open': return <AlertTriangle className="w-4 h-4" />;
-      case 'acknowledged': return <CheckCircle className="w-4 h-4" />;
-      case 'resolved': return <XCircle className="w-4 h-4" />;
-      default: return <AlertTriangle className="w-4 h-4" />;
+  const types = useMemo(() => {
+    const unique = new Set(alerts.map((alert) => alert.alert_type));
+    return ['all', ...Array.from(unique).filter(Boolean).sort()];
+  }, [alerts]);
+
+  const filtered = useMemo(() => alerts.filter((alert) => {
+    if (statusFilter !== 'all' && alert.status !== statusFilter) {return false;}
+    if (severityFilter !== 'all' && alert.severity !== severityFilter) {return false;}
+    if (typeFilter !== 'all' && alert.alert_type !== typeFilter) {return false;}
+    if (search) {
+      const haystack = `${alert.title} ${alert.message} ${alert.connection_name || ''}`.toLowerCase();
+      if (!haystack.includes(search.toLowerCase())) {return false;}
     }
-  };
+    return true;
+  }), [alerts, statusFilter, severityFilter, typeFilter, search]);
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'open': return 'text-red-400';
-      case 'acknowledged': return 'text-amber-400';
-      case 'resolved': return 'text-emerald-400';
-      default: return 'text-slate-400';
-    }
-  };
+  const stats = useMemo(() => ({
+    open: alerts.filter((alert) => alert.status === 'open').length,
+    critical: alerts.filter((alert) => alert.severity === 'critical' && alert.status !== 'resolved').length,
+    acknowledged: alerts.filter((alert) => alert.status === 'acknowledged').length,
+    resolved: alerts.filter((alert) => alert.status === 'resolved').length,
+  }), [alerts]);
 
-  const formatTime = (date) => {
-    if (!date) {return 'Never';}
-    const now = new Date();
-    const then = new Date(date);
-    const diffMs = now - then;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    
-    if (diffMins < 1) {return 'Just now';}
-    if (diffMins < 60) {return `${diffMins}m ago`;}
-    if (diffHours < 24) {return `${diffHours}h ago`;}
-    return `${diffDays}d ago`;
-  };
-
-  const openCount = alerts.filter(a => a.status === 'open').length;
-  const criticalCount = alerts.filter(a => a.severity === 'critical' && a.status === 'open').length;
+  const selectClass = 'bg-zinc-900/70 border border-zinc-700/60 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500/50';
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-8">
+    <div className="relative p-4 sm:p-6 space-y-5 animate-fade-in">
+      <div className="absolute inset-0 bg-mesh pointer-events-none" />
+      <div className="absolute inset-0 bg-noise pointer-events-none" />
+
+      <div className="relative flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-white mb-2">Router Alerts</h2>
-          <p className="text-slate-400">Monitor and manage router connectivity alerts</p>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-rose-500 to-orange-600 flex items-center justify-center shadow-lg shadow-rose-500/20">
+              <Bell className="w-5 h-5 text-white" />
+            </div>
+            Alert Center
+          </h1>
+          <p className="text-sm text-zinc-400 mt-1">
+            Every router, billing, operations and security event in one place
+          </p>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2">
-            <div className="text-xs text-slate-400">Open Alerts</div>
-            <div className="text-xl font-bold text-red-400">{openCount}</div>
-          </div>
-          <div className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2">
-            <div className="text-xs text-slate-400">Critical</div>
-            <div className="text-xl font-bold text-red-500">{criticalCount}</div>
-          </div>
-          <button
-            onClick={fetchAlerts}
-            disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-zinc-500">
+            {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : 'Loading…'}
+          </span>
+          <button onClick={() => fetchAlerts()} className="btn-ghost flex items-center gap-2 text-xs">
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </button>
         </div>
       </div>
 
-      <div className="mb-6">
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-slate-400" />
-          <span className="text-sm text-slate-400">Filter:</span>
-          <div className="flex gap-2">
-            {['open', 'acknowledged', 'resolved', 'all'].map((status) => (
-              <button
-                key={status}
-                onClick={() => setFilter(status)}
-                className={`px-3 py-1 rounded text-sm capitalize ${
-                  filter === status
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                }`}
-              >
-                {status}
-              </button>
-            ))}
+      <div className="relative grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: 'Open', value: stats.open, color: 'text-red-400', icon: AlertTriangle },
+          { label: 'Critical active', value: stats.critical, color: 'text-rose-400', icon: ShieldAlert },
+          { label: 'Acknowledged', value: stats.acknowledged, color: 'text-amber-400', icon: CheckCircle },
+          { label: 'Resolved', value: stats.resolved, color: 'text-emerald-400', icon: XCircle },
+        ].map((card) => (
+          <div key={card.label} className="glass rounded-xl p-4">
+            <div className="flex items-center gap-2 text-zinc-400 text-xs">
+              <card.icon className={`w-4 h-4 ${card.color}`} /> {card.label}
+            </div>
+            <div className={`text-2xl font-bold mt-2 ${card.color}`}>{card.value}</div>
           </div>
-        </div>
+        ))}
       </div>
 
-      <div className="bg-slate-800 border border-slate-700 rounded-lg">
-        {alerts.length === 0 ? (
-          <div className="text-center py-12">
-            <AlertTriangle className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-            <p className="text-slate-400">No alerts found</p>
-            <p className="text-sm text-slate-500 mt-1">
-              {filter === 'open' ? 'No open alerts - all systems operational!' : 'No alerts with this status'}
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-700">
-            {alerts.map((alert) => (
-              <div key={alert.id} className="p-4 hover:bg-slate-700/50 transition-colors">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(alert.severity)}`}>
-                        {alert.severity.toUpperCase()}
-                      </span>
-                      <span className={`flex items-center gap-1 text-xs ${getStatusColor(alert.status)}`}>
-                        {getStatusIcon(alert.status)}
-                        {alert.status}
-                      </span>
-                      <span className="text-xs text-slate-500 flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {formatTime(alert.created_at)}
-                      </span>
-                    </div>
-                    <h4 className="font-semibold text-white mb-1">{alert.title}</h4>
-                    <p className="text-sm text-slate-400 mb-2">{alert.message}</p>
-                    <div className="text-xs text-slate-500">
-                      Router: {alert.connection_name} ({alert.ip_address})
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 ml-4">
-                    {alert.status === 'open' && (
-                      <button
-                        onClick={() => acknowledgeAlert(alert.id)}
-                        className="bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 px-3 py-1.5 rounded text-sm flex items-center gap-1"
-                      >
-                        <CheckCircle className="w-3 h-3" />
-                        Acknowledge
-                      </button>
+      <div className="relative glass rounded-xl p-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2 text-sm text-zinc-300">
+          <FilterIcon /> Filters
+        </div>
+        <select className={selectClass} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="all">All statuses</option>
+          <option value="open">Open</option>
+          <option value="acknowledged">Acknowledged</option>
+          <option value="resolved">Resolved</option>
+        </select>
+        <select className={selectClass} value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}>
+          <option value="all">All severities</option>
+          <option value="critical">Critical</option>
+          <option value="warning">Warning</option>
+          <option value="info">Info</option>
+        </select>
+        <select className={selectClass} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+          {types.map((type) => <option key={type} value={type}>{type === 'all' ? 'All types' : typeLabel(type)}</option>)}
+        </select>
+        <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+          <Search className="w-4 h-4 text-zinc-500" />
+          <input
+            className="flex-1 bg-zinc-900/70 border border-zinc-700/60 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500/50"
+            placeholder="Search alerts…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <span className="text-xs text-zinc-500">{filtered.length} of {alerts.length}</span>
+      </div>
+
+      <div className="relative glass rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="modern-table w-full">
+            <thead>
+              <tr>
+                <th className="w-10" />
+                <th>Event</th>
+                <th>Type</th>
+                <th>Source</th>
+                <th>Severity</th>
+                <th>Status</th>
+                <th>When</th>
+                <th className="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((alert) => {
+                const Icon = typeIcon(alert.alert_type);
+                const isOpen = expanded === alert.id;
+                return (
+                  <React.Fragment key={alert.id}>
+                    <tr
+                      className="cursor-pointer hover:bg-zinc-800/30 transition-colors"
+                      onClick={() => setExpanded(isOpen ? null : alert.id)}
+                    >
+                      <td className="text-zinc-500">
+                        {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </td>
+                      <td>
+                        <div className="flex items-start gap-2">
+                          <Icon className="w-4 h-4 text-zinc-400 mt-0.5 shrink-0" />
+                          <div>
+                            <div className="text-sm text-white font-medium">{alert.title}</div>
+                            <div className="text-xs text-zinc-500 max-w-xl line-clamp-2">{alert.message}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="text-xs text-zinc-400">{typeLabel(alert.alert_type)}</td>
+                      <td className="text-xs text-zinc-400">{alert.connection_name || alert.ip_address || 'System'}</td>
+                      <td>
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] border ${severityStyles[alert.severity] || severityStyles.info}`}>
+                          {alert.severity || 'info'}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] ${statusStyles[alert.status] || statusStyles.open}`}>
+                          {alert.status}
+                        </span>
+                      </td>
+                      <td className="text-xs text-zinc-500 whitespace-nowrap">{formatWhen(alert.created_at)}</td>
+                      <td className="text-right">
+                        <div className="flex items-center justify-end gap-2" onClick={(event) => event.stopPropagation()}>
+                          {alert.status === 'open' && (
+                            <button onClick={() => updateAlert(alert.id, 'acknowledge')} className="btn-ghost text-xs px-2 py-1">Acknowledge</button>
+                          )}
+                          {alert.status !== 'resolved' && (
+                            <button onClick={() => updateAlert(alert.id, 'resolve')} className="btn-ghost text-xs px-2 py-1">Resolve</button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr>
+                        <td colSpan={8} className="bg-zinc-950/40 px-6 py-4">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                            <div>
+                              <div className="text-zinc-500 uppercase tracking-wide mb-1">Alert ID</div>
+                              <div className="font-mono text-zinc-300">{alert.id}</div>
+                            </div>
+                            <div>
+                              <div className="text-zinc-500 uppercase tracking-wide mb-1">Timeline</div>
+                              <div className="text-zinc-300">Created {formatWhen(alert.created_at)}</div>
+                              <div className="text-zinc-400">Acknowledged {formatWhen(alert.acknowledged_at)}</div>
+                              <div className="text-zinc-400">Resolved {formatWhen(alert.resolved_at)}</div>
+                            </div>
+                            <div>
+                              <div className="text-zinc-500 uppercase tracking-wide mb-1">Details</div>
+                              <div className="text-zinc-400">Source: {alert.connection_name || alert.ip_address || 'Billing system'}</div>
+                              <div className="text-zinc-400">IP: {alert.ip_address || '—'}</div>
+                              <pre className="mt-2 text-zinc-500 whitespace-pre-wrap break-all">{alert.metadata ? JSON.stringify(alert.metadata, null, 2) : ''}</pre>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                    {(alert.status === 'open' || alert.status === 'acknowledged') && (
-                      <button
-                        onClick={() => resolveAlert(alert.id)}
-                        className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 px-3 py-1.5 rounded text-sm flex items-center gap-1"
-                      >
-                        <XCircle className="w-3 h-3" />
-                        Resolve
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {filtered.length === 0 && (
+          <div className="p-12 text-center text-zinc-500 text-sm">
+            No alerts match the current filters.
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <svg className="w-4 h-4 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+    </svg>
   );
 }

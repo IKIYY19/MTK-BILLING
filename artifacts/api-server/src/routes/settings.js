@@ -322,6 +322,8 @@ router.get("/permissions", (req, res) => { const cleaned = {}; for (const [role,
 // Update permissions
 router.put("/permissions", (req, res) => {
   Object.assign(featureAccessStore, req.body); for (const [role, features] of Object.entries(featureAccessStore)) { featureAccessStore[role] = features.filter(f => !REMOVED_FEATURES.includes(f)); }
+  require('../services/opsAlertService').recordPermissionChange(req).catch(() => {});
+  res.json(featureAccessStore);
 });
 
 // Get payment gateway settings

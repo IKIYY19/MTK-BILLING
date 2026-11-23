@@ -50,6 +50,12 @@ async function runAutoSuspend() {
         days_overdue: daysOverdue,
       });
 
+      require("../services/opsAlertService").subscriptionEvent(
+        "auto-suspended",
+        sub.pppoe_username || sub.customer_id,
+        `${daysOverdue} days overdue`,
+      ).catch(() => {});
+
       if (sub.pppoe_username) {
         try {
           await radiusSync.upsertRadiusUser({ ...sub, status: "suspended" });

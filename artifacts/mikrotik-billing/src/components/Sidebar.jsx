@@ -101,7 +101,7 @@ const navGroups = [
       { to: "/network-management", icon: Monitor, label: "Overview", feature: "network" },
       { to: "/network-dashboard", icon: LayoutGrid, label: "Net Dashboard", feature: "monitoring" },
       { to: "/monitoring", icon: Activity, label: "Monitoring", feature: "monitoring" },
-      { to: "/alerts", icon: AlertTriangle, label: "Alerts", feature: "monitoring" },
+      { to: "/alerts", icon: AlertTriangle, label: "Alert Center", feature: "monitoring" },
       { to: "/pppoe", icon: Network, label: "PPPoE", feature: "pppoe" },
       { to: "/hotspot-management", icon: Wifi, label: "Hotspot Management", feature: "hotspot" },
       { to: "/hotspot-vouchers", icon: Ticket, label: "Vouchers", feature: "vouchers" },

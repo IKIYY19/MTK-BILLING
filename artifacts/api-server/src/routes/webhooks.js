@@ -196,7 +196,10 @@ module.exports.triggerWebhook = async (event, data) => {
       // Fire-and-forget — never block caller
       axios
         .post(webhook.url, payload, { headers, timeout: 5000 })
-        .catch((e) => console.error('webhooks.js async op failed:', e?.message || e));
+        .catch((e) => {
+          console.error('webhooks.js async op failed:', e?.message || e);
+          require('../services/opsAlertService').webhookFailure(webhook.url, e?.message || e).catch(() => {});
+        });
     }
   } catch (e) {
     console.error("Webhook trigger error:", e.message);

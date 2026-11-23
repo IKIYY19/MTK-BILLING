@@ -20,7 +20,7 @@ class TelegramService {
           text: text,
           parse_mode: options.parseMode || 'HTML',
           disable_web_page_preview: options.disableWebPagePreview || false,
-          reply_markup: options.replyMarkup || null,
+          ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {}),
         }
       );
 

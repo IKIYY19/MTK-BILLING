@@ -58,6 +58,8 @@ function getPortalContext() {
     theme: params.get("theme") || localStorage.getItem("portal_theme") || "aurora",
     welcome: params.get("welcome") || "",
     support: params.get("support") || "",
+    font: params.get("font") || "Inter",
+    terms: params.get("terms") || "",
     originalUrl:
       params.get("original_url") ||
       params.get("link-orig") ||
@@ -94,9 +96,9 @@ function PortalMark() {
   );
 }
 
-function PortalShell({ brand, device, theme, support, children }) {
+function PortalShell({ brand, device, theme, support, font, children }) {
   return (
-    <main className="hp-shell" data-theme={theme}>
+    <main className="hp-shell" data-theme={theme} style={{ fontFamily: `'${font || "Inter"}', Inter, system-ui, sans-serif` }}>
       <div className="hp-orb hp-orb-a" />
       <div className="hp-orb hp-orb-b" />
       <div className="hp-orb hp-orb-c" />
@@ -156,6 +158,18 @@ function PaymentSteps({ stage }) {
 
 export default function CaptiveHotspotPage() {
   const context = useMemo(getPortalContext, []);
+  const query = useMemo(() => new URLSearchParams(window.location.search), []);
+  const [policy, setPolicy] = useState({});
+
+  useEffect(() => {
+    axios.get(`${API}/public/policy`).then(({ data }) => setPolicy(data || {})).catch(() => {});
+  }, []);
+
+  const portalTheme = query.has("theme") ? context.theme : policy.portal_theme || context.theme;
+  const portalFont = query.has("font") ? context.font : policy.portal_font || context.font;
+  const portalTerms = query.has("terms")
+    ? context.terms
+    : policy.portal_terms_enabled ? policy.portal_terms_text || "" : "";
   const [plans, setPlans] = useState([]);
   const [routerName, setRouterName] = useState("");
   const [activeSession, setActiveSession] = useState(null);
@@ -171,12 +185,35 @@ export default function CaptiveHotspotPage() {
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
   const [timedOut, setTimedOut] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   useEffect(() => {
-    if (!context.routerId || !context.mac) {
-      setError("Connect to the Wi-Fi network and let the sign-in page open automatically — we need your device details from the router.");
-      setLoading(false);
-      return;
+    if (!portalFont || portalFont === "Inter") {return undefined;}
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(portalFont).replace(/%20/g, "+")}:wght@400;500;600;700;800&display=swap`;
+    document.head.appendChild(link);
+    return () => link.remove();
+  }, [portalFont]);
+
+  const preview = !context.routerId || !context.mac;
+
+  useEffect(() => {
+    if (preview) {
+      let cancelled = false;
+      axios
+        .get(`${API}/public/hotspot-plans`, {
+          params: context.routerId ? { router_id: context.routerId } : {},
+        })
+        .then(({ data }) => {
+          if (cancelled) {return;}
+          setPlans(Array.isArray(data.plans) ? data.plans : []);
+          setRouterName(data.router?.name || "");
+          setSelectedPlan(data.plans?.[0]?.id || "");
+        })
+        .catch(() => {if (!cancelled) {setPlans([]);}})
+        .finally(() => {if (!cancelled) {setLoading(false);}});
+      return () => {cancelled = true;};
     }
     let cancelled = false;
     axios
@@ -204,7 +241,7 @@ export default function CaptiveHotspotPage() {
     return () => {
       cancelled = true;
     };
-  }, [context.routerId, context.mac]);
+  }, [context.routerId, context.mac, preview]);
 
   const refreshPayment = async () => {
     if (!sessionToken) return;
@@ -328,7 +365,7 @@ export default function CaptiveHotspotPage() {
 
   if (loading) {
     return (
-      <PortalShell brand={brand} device={device} theme={context.theme} support={context.support}>
+      <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont}>
         <div className="hp-center">
           <div className="hp-splash"><LoaderCircle className="h-5 w-5 animate-spin text-cyan-300" /> Finding your internet packages…</div>
         </div>
@@ -338,7 +375,7 @@ export default function CaptiveHotspotPage() {
 
   if (authorized) {
     return (
-      <PortalShell brand={brand} device={device} theme={context.theme} support={context.support}>
+      <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont}>
         <StatusCard
           icon={<Wifi className="h-7 w-7" />}
           eyebrow="All set"
@@ -363,7 +400,7 @@ export default function CaptiveHotspotPage() {
 
   if (activeSession) {
     return (
-      <PortalShell brand={brand} device={device} theme={context.theme} support={context.support}>
+      <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont}>
         <StatusCard
           icon={<CheckCircle2 className="h-7 w-7" />}
           eyebrow="Already active"
@@ -378,7 +415,7 @@ export default function CaptiveHotspotPage() {
 
   if (error && plans.length === 0 && !payment) {
     return (
-      <PortalShell brand={brand} device={device} theme={context.theme} support={context.support}>
+      <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont}>
         <StatusCard
           icon={<AlertTriangle className="h-7 w-7" />}
           tone="info"
@@ -395,7 +432,7 @@ export default function CaptiveHotspotPage() {
   }
 
   return (
-    <PortalShell brand={brand} device={device} theme={context.theme} support={context.support}>
+    <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont}>
       <div className="hp-layout">
         <section className="hp-hero">
           <div className="hp-eyebrow"><Sparkles className="h-3.5 w-3.5" /> Fast · Simple · Secure</div>
@@ -412,6 +449,11 @@ export default function CaptiveHotspotPage() {
         </section>
 
         <section className="hp-card">
+          {preview && (
+            <div className="mb-5 rounded-lg border border-blue-400/30 bg-blue-500/10 p-3 text-xs text-blue-300">
+              Preview mode — connect to the Wi-Fi network to sign in and purchase a package.
+            </div>
+          )}
           {payment ? (
             <div>
               <div className="hp-ring"><Clock3 className="h-6 w-6" /></div>
@@ -523,6 +565,19 @@ export default function CaptiveHotspotPage() {
               </div>
               <p className="hp-card-note" style={{ marginTop: 8 }}>We'll send the payment prompt to this number.</p>
 
+              {portalTerms && (
+                <label className="flex items-start gap-2 mt-4 text-xs text-zinc-400 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={termsAccepted}
+                    onChange={(event) => setTermsAccepted(event.target.checked)}
+                    className="mt-0.5 accent-cyan-300"
+                    required
+                  />
+                  <span>{portalTerms}</span>
+                </label>
+              )}
+
               {error && (
                 <div role="alert" className="hp-error">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -532,7 +587,7 @@ export default function CaptiveHotspotPage() {
 
               <button
                 type="submit"
-                disabled={submitting || plans.length === 0 || !selectedPlan}
+                disabled={preview || submitting || plans.length === 0 || !selectedPlan || (Boolean(portalTerms) && !termsAccepted)}
                 className="hp-btn"
               >
                 {submitting ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <><span>Pay with M-Pesa</span><ArrowRight className="h-4 w-4" /></>}
