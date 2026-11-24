@@ -19,9 +19,11 @@ function db() {
 
 function sessionId(routerId, username) {
   // radacct.acctuniqueid is VARCHAR(32); keep ids deterministic and short.
+  // acctsessionid is VARCHAR(32): keep the "live-" marker and a 27-char hash.
   return `live-${crypto.createHash('md5')
     .update(`${routerId}:${username}`)
-    .digest('hex')}`;
+    .digest('hex')
+    .slice(0, 27)}`;
 }
 
 async function reconcileRadiusAccounting() {
