@@ -30,6 +30,19 @@ const alertSystem = require("../services/alertSystem");
 const mikrotikProvisioning = require("../services/mikrotikProvisioning");
 const radiusSync = require("../services/radiusSync");
 const slack = require("../services/slackNotifier");
+const onlineStatus = require("../services/onlineStatus");
+
+// Registered before /customers/:id so the literal path is never treated as a UUID.
+router.get("/online-status", async (req, res) => {
+  try {
+    res.json(await onlineStatus.getOnlineStatus(req.query.connection_id || null));
+  } catch (error) {
+    console.error("Online status error:", error);
+    res.status(500).json({
+      online: {}, pppoe: [], hotspot: [], total: 0, error: error.message,
+    });
+  }
+});
 
 function getPortalBaseUrl(req) {
   const configuredUrl = process.env.PUBLIC_APP_URL || process.env.APP_URL;

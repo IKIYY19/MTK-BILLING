@@ -96,8 +96,6 @@ export function BillingCustomers() {
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState([]);
   const [selectedConnection, setSelectedConnection] = useState("");
-  const [onlineData, setOnlineData] = useState({});
-  const [onlineLoading, setOnlineLoading] = useState(false);
   const [presence, setPresence] = useState({});
   const [presenceNow, setPresenceNow] = useState(Date.now());
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -157,11 +155,7 @@ export function BillingCustomers() {
     fetchServicePlans();
     fetchSettings();
   }, []);
-  useEffect(() => {
-    if (selectedConnection) {fetchOnlineStatus();}
-  }, [selectedConnection]);
-
-  // Poll real RADIUS presence every second for live online/offline state.
+  // Poll real presence (live RouterOS sessions + RADIUS accounting).
   useEffect(() => {
     let mounted = true;
     const fetchPresence = async () => {
@@ -176,7 +170,7 @@ export function BillingCustomers() {
       }
     };
     fetchPresence();
-    const interval = setInterval(fetchPresence, 1000);
+    const interval = setInterval(fetchPresence, 5000);
     return () => { mounted = false; clearInterval(interval); };
   }, []);
 
@@ -237,19 +231,6 @@ export function BillingCustomers() {
     } catch (error) {
       // Silent
     }
-  };
-
-  const fetchOnlineStatus = async () => {
-    setOnlineLoading(true);
-    try {
-      const { data } = await axios.get(
-        `${API}/billing/customers/online-status?connection_id=${selectedConnection}`,
-      );
-      setOnlineData(data.online || {});
-    } catch (e) {
-      setOnlineData({});
-    }
-    setOnlineLoading(false);
   };
 
   const geocodeAddress = async () => {

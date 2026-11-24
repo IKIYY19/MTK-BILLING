@@ -497,7 +497,7 @@ export function Dashboard() {
         {stats && (
           <section className="dashboard-status-list" aria-label="Service and account status">
             {[
-              { label: "Online sessions", value: stats.activeRadiusSessions || 0, route: "/radius", note: "RADIUS active" },
+              { label: "Online sessions", value: stats.activeRadiusSessions || 0, route: "/pppoe", note: "Live RouterOS" },
               { label: "Overdue invoices", value: stats.overdueInvoices || 0, route: "/billing-invoices", note: `${currencySymbol} ${(stats.outstandingBalance || 0).toLocaleString()}` },
               { label: "Suspended accounts", value: stats.suspendedCustomers || 0, route: "/billing-auto-suspend", note: "Review accounts" },
               { label: "New this week", value: stats.recentCustomers || 0, route: "/billing-customers", note: "Customer sign-ups" },

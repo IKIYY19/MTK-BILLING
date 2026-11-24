@@ -4,6 +4,7 @@ const router = express.Router();
 const routerConnectionManager = require('../services/routerConnectionManager');
 const mikrotikProvisioning = require('../services/mikrotikProvisioning');
 const hotspotProvisioning = require('../services/hotspotProvisioning');
+const { parseUptime } = require('../services/onlineStatus');
 
 // Helper: get MikroTik connection
 async function getMikrotikConnection(connectionId) {
@@ -37,6 +38,14 @@ async function getFromMikrotik(device, path, proplist = '.id,name,comment,disabl
   }
 }
 
+async function listConnections(connectionId) {
+  const db = global.db || require('../db/memory');
+  const result = connectionId
+    ? await db.query('SELECT * FROM mikrotik_connections WHERE id = $1', [connectionId])
+    : await db.query('SELECT * FROM mikrotik_connections ORDER BY name ASC');
+  return result.rows;
+}
+
 // ═══════════════════════════════════════
 // PPPoE ROUTES
 // ═══════════════════════════════════════
@@ -45,16 +54,19 @@ async function getFromMikrotik(device, path, proplist = '.id,name,comment,disabl
 router.get('/pppoe/secrets', async (req, res) => {
   try {
     const { connection_id } = req.query;
-    if (!connection_id) {return res.json([]);}
-
-    const device = await getMikrotikConnection(connection_id);
-    const result = await getFromMikrotik(
-      device,
-      '/ppp/secret',
-      '.id,name,password,service,profile,disabled,comment',
-    );
+    const rows = [];
+    for (const device of await listConnections(connection_id)) {
+      const result = await getFromMikrotik(
+        device,
+        '/ppp/secret',
+        '.id,name,password,service,profile,disabled,comment',
+      ).catch(() => []);
+      for (const row of (Array.isArray(result) ? result : [])) {
+        rows.push({ ...row, connection_id: device.id, router_name: device.name });
+      }
+    }
     res.set('Cache-Control', 'no-store');
-    res.json(Array.isArray(result) ? result : []);
+    res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -144,11 +156,14 @@ router.post('/pppoe/secrets/:name/toggle', async (req, res) => {
 router.get('/pppoe/profiles', async (req, res) => {
   try {
     const { connection_id } = req.query;
-    if (!connection_id) {return res.json([]);}
-
-    const device = await getMikrotikConnection(connection_id);
-    const result = await getFromMikrotik(device, '/ppp/profile');
-    res.json(Array.isArray(result) ? result : []);
+    const rows = [];
+    for (const device of await listConnections(connection_id)) {
+      const result = await getFromMikrotik(device, '/ppp/profile').catch(() => []);
+      for (const row of (Array.isArray(result) ? result : [])) {
+        rows.push({ ...row, connection_id: device.id, router_name: device.name });
+      }
+    }
+    res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -211,11 +226,24 @@ router.delete('/pppoe/profiles/:name', async (req, res) => {
 router.get('/pppoe/active', async (req, res) => {
   try {
     const { connection_id } = req.query;
-    if (!connection_id) {return res.json([]);}
-
-    const device = await getMikrotikConnection(connection_id);
-    const result = await getFromMikrotik(device, '/ppp/active');
-    res.json(Array.isArray(result) ? result : []);
+    const rows = [];
+    for (const device of await listConnections(connection_id)) {
+      const result = await getFromMikrotik(
+        device,
+        '/ppp/active',
+        '.id,name,address,uptime,encoding,comment,caller-id',
+      ).catch(() => []);
+      for (const row of (Array.isArray(result) ? result : [])) {
+        rows.push({
+          ...row,
+          connection_id: device.id,
+          router_name: device.name,
+          uptime_seconds: parseUptime(row.uptime),
+        });
+      }
+    }
+    res.set('Cache-Control', 'no-store');
+    res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

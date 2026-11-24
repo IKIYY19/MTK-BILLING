@@ -52,7 +52,7 @@ router.get("/stats", async (req, res) => {
       activeSubsResult,
       topPlansResult,
       revenueByDayResult,
-      radacctResult,
+      presenceResult,
       recentPaymentsResult,
       revenueSpark12Result,
       customerSpark12Result,
@@ -105,7 +105,7 @@ router.get("/stats", async (req, res) => {
       db.query(
         "SELECT DATE(created_at) as date, SUM(amount) as total FROM invoices WHERE status = 'paid' AND created_at >= NOW() - INTERVAL '7 days' GROUP BY DATE(created_at) ORDER BY date DESC",
       ),
-      db.query("SELECT COUNT(*) FROM radacct WHERE acctstoptime IS NULL"),
+      require("../services/onlineStatus").getOnlineStatus(),
       db.query(
         "SELECT p.id, p.amount, p.method, p.received_at, c.name as customer_name FROM payments p LEFT JOIN customers c ON c.id = p.customer_id ORDER BY p.received_at DESC LIMIT 5"
       ),
@@ -183,7 +183,10 @@ router.get("/stats", async (req, res) => {
       revenueByDayResult.status === "fulfilled"
         ? revenueByDayResult.value.rows
         : [];
-    stats.activeRadiusSessions = val(radacctResult);
+    stats.activeRadiusSessions = presenceResult.status === "fulfilled" && presenceResult.value
+      ? presenceResult.value.total
+      : 0;
+    stats.onlineSessionsSource = "router";
     stats.recentPayments =
       recentPaymentsResult.status === "fulfilled"
         ? recentPaymentsResult.value.rows

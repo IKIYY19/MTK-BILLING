@@ -55,9 +55,25 @@ export function BillingCustomerDetail() {
   const [mtnModal, setMtnModal] = useState(false);
   const [paystackModal, setPaystackModal] = useState(false);
   const [paymentDropdown, setPaymentDropdown] = useState(false);
+  const [presence, setPresence] = useState(null);
 
   useEffect(() => {
     fetchCustomer();
+  }, [id]);
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchPresence = async () => {
+      try {
+        const { data } = await axios.get(`${API}/radius/presence`);
+        if (mounted) {setPresence(data?.presence?.[id] || null);}
+      } catch {
+        // keep last known state
+      }
+    };
+    fetchPresence();
+    const interval = setInterval(fetchPresence, 5000);
+    return () => { mounted = false; clearInterval(interval); };
   }, [id]);
 
   const fetchCustomer = async () => {
@@ -229,6 +245,17 @@ export function BillingCustomerDetail() {
             className={`px-3 py-1 rounded text-sm ${customer.status === "active" ? "bg-green-600/20 text-green-400" : "bg-red-600/20 text-red-400"}`}
           >
             {customer.status}
+          </span>
+          <span
+            className={`px-3 py-1 rounded text-sm flex items-center gap-2 ${
+              presence?.is_online
+                ? "bg-emerald-600/20 text-emerald-400"
+                : "bg-zinc-600/20 text-zinc-400"
+            }`}
+            title={presence?.ip_address ? `IP ${presence.ip_address}` : "No live session"}
+          >
+            <span className={`w-2 h-2 rounded-full ${presence?.is_online ? "bg-emerald-400" : "bg-zinc-500"}`} />
+            {presence?.is_online ? "Online" : "Offline"}
           </span>
           {/* Payment dropdown */}
           <div className="relative">

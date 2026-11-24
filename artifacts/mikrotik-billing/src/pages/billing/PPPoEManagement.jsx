@@ -10,6 +10,25 @@ import './pppoe.css';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
+function parseUptime(value) {
+  const text = String(value || '');
+  let seconds = 0;
+  const d = text.match(/(\d+)d/); const h = text.match(/(\d+)h/);
+  const m = text.match(/(\d+)m/); const s = text.match(/(\d+)s/);
+  if (d) seconds += Number(d[1]) * 86400;
+  if (h) seconds += Number(h[1]) * 3600;
+  if (m) seconds += Number(m[1]) * 60;
+  if (s) seconds += Number(s[1]);
+  return seconds;
+}
+
+function formatDuration(seconds) {
+  if (!seconds) return '0m';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+
 /* ─── Animated Number ─── */
 function AnimatedNumber({ value, prefix = '', suffix = '' }) {
   const [display, setDisplay] = useState(0);
@@ -258,11 +277,7 @@ export function PPPoEManagement() {
 
   useEffect(() => { fetchData(); }, [selectedConnection]);
 
-  useEffect(() => {
-    if (!selectedConnection && connections.length) {
-      setSelectedConnection(connections[0].id);
-    }
-  }, [connections, selectedConnection]);
+  // Default to "All Routers" so the page aggregates every configured router.
 
   const handleCreateSecret = async (form) => {
     try {
@@ -370,10 +385,10 @@ export function PPPoEManagement() {
 
       {/* Stats */}
       <div className="relative grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard title="Total Secrets" value={secrets.length} icon={Users} bg="bg-blue-500/10" ring="ring-blue-500/20" textColor="text-blue-400" sub={`${secrets.filter(s => !s.disabled).length} enabled`} />
+        <StatCard title="Total Secrets" value={secrets.length} icon={Users} bg="bg-blue-500/10" ring="ring-blue-500/20" textColor="text-blue-400" sub={`${secrets.filter(s => !['true', 'yes', true].includes(s.disabled)).length} enabled`} />
         <StatCard title="Active Sessions" value={active.length} icon={Activity} bg="bg-emerald-500/10" ring="ring-emerald-500/20" textColor="text-emerald-400" />
         <StatCard title="Profiles" value={profiles.length} icon={Settings} bg="bg-violet-500/10" ring="ring-violet-500/20" textColor="text-violet-400" />
-        <StatCard title="Connected" value={active.reduce((sum, a) => sum + (parseInt(a.uptime_seconds) || 0), 0)} icon={Wifi} bg="bg-cyan-500/10" ring="ring-cyan-500/20" textColor="text-cyan-400" sub="Total uptime" />
+        <StatCard title="Total uptime" value={formatDuration(active.reduce((sum, a) => sum + parseUptime(a.uptime), 0))} icon={Wifi} bg="bg-cyan-500/10" ring="ring-cyan-500/20" textColor="text-cyan-400" sub="Across live sessions" />
       </div>
 
       {/* Tabs */}
