@@ -238,7 +238,7 @@ class CGNATTunnelService {
 
     return {
       ready: blockers.length === 0,
-      canGenerateScripts: endpointConfigured,
+      canGenerateScripts: endpointConfigured && wireguardAvailable && interfaceActive,
       wireguardAvailable,
       interfaceActive,
       endpointConfigured,
@@ -249,7 +249,24 @@ class CGNATTunnelService {
   isValidServerEndpoint(endpoint) {
     const value = String(endpoint || "").trim();
     if (!value || value.includes("://") || /[\s/]/.test(value)) return false;
-    if (net.isIP(value)) return true;
+    if (value === "localhost" || /\.local$/i.test(value)) {return false;}
+    const address = net.isIP(value) ? value : null;
+    if (address) {
+      const family = net.isIP(value);
+      if (family === 4) {
+        const [a, b] = value.split(".").map(Number);
+        const privateIp =
+          a === 10 || a === 127 || (a === 192 && b === 168) ||
+          (a === 172 && b >= 16 && b <= 31) || a === 0 || a >= 224;
+        if (privateIp) {return false;}
+      } else if (family === 6) {
+        const lower = value.toLowerCase();
+        if (lower.startsWith("fe80") || lower.startsWith("fc") || lower.startsWith("fd") || lower === "::1") {
+          return false;
+        }
+      }
+      return true;
+    }
     return /^(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$/.test(value);
   }
 

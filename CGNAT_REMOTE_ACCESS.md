@@ -57,13 +57,22 @@ wg show wg-billing
 
 ## 3. Onboard a router
 
-In **Routers → Link Router → WireGuard / NAT**:
+The fastest path is **Router Link** (one page):
 
-- Enter a router name, an API password (the script creates a `billing` API user
-  on the router), the API port (default 8728), and confirm the server URL and
-  tenant API key.
-- Click **Generate Link Script** and copy the one-line RouterOS script.
-- Paste it once in the router terminal (SSH/WinBox → New Terminal) and press Enter.
+1. Generate/copy your tenant API key if you have not already.
+2. Enter the **public HTTPS** server URL (`VITE_PUBLIC_APP_URL`) and add the
+   router admin credentials.
+3. Switch to **Remote / CGNAT (one command)**, enter a router name, and click
+   **Generate one-command remote link script**.
+4. Copy the script, paste it once in the router terminal (SSH/WinBox → New
+   Terminal) and press Enter. The page starts watching automatically, so the
+   router appears as soon as it reports in.
+
+The same flow is also available under **Routers → Link Router → WireGuard / NAT**.
+Router scripts are blocked until a public `WG_SERVER_ENDPOINT` is configured and
+the WireGuard interface on the server is active; the page shows the exact
+blockers. An `http://` server URL is rejected for remote routers unless
+`ALLOW_INSECURE_ROUTER_ENROLLMENT=true` is set for a local lab.
 
 The script will:
 1. create the WireGuard interface and peer (server public key, endpoint, keepalive),

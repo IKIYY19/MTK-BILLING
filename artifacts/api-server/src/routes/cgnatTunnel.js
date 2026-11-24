@@ -12,6 +12,15 @@ const db = { query: (...args) => getDb().query(...args) };
 const { encrypt, decrypt } = require("../utils/encryption");
 const { requireRole, ROLES } = require("../middleware/auth");
 
+// A remote router can only fetch the enrollment script from a reachable URL.
+function validateEnrollmentUrl(value) {
+  let url;
+  try { url = new URL(String(value || "")); } catch { return null; }
+  if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) {return null;}
+  if (url.protocol === "http:" && process.env.ALLOW_INSECURE_ROUTER_ENROLLMENT !== "true") {return null;}
+  return url;
+}
+
 /**
  * GET /api/cgnat-tunnel/status
  * Get overall tunnel service status
@@ -351,6 +360,12 @@ router.post("/new-router-script", async (req, res) => {
     if (!routerName) return res.status(400).json({ success: false, error: "routerName is required" });
     if (!apiPassword) return res.status(400).json({ success: false, error: "apiPassword is required" });
     if (!serverUrl) return res.status(400).json({ success: false, error: "serverUrl is required" });
+    if (!validateEnrollmentUrl(serverUrl)) {
+      return res.status(400).json({
+        success: false,
+        error: "Remote routers need a public HTTPS server URL. Set VITE_PUBLIC_APP_URL to https://your-domain and use it here.",
+      });
+    }
     if (!enrollApiKey) return res.status(400).json({ success: false, error: "enrollApiKey is required" });
 
     const initialized = await cgnatTunnelService.initialize();

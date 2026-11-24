@@ -53,6 +53,12 @@ export default function RouterLink() {
   const [mgmtPass, setMgmtPass] = useState("");
   const [mgmtPort, setMgmtPort] = useState("8728");
   const [showCredentials, setShowCredentials] = useState(false);
+  const [linkMode, setLinkMode] = useState("direct");
+  const [routerName, setRouterName] = useState("");
+  const [wgScript, setWgScript] = useState("");
+  const [wgGenerating, setWgGenerating] = useState(false);
+  const [wgError, setWgError] = useState("");
+  const [tunnelStatus, setTunnelStatus] = useState(null);
 
   const validateAppUrl = (value) => {
     try {
@@ -60,6 +66,7 @@ export default function RouterLink() {
       const hostname = parsed.hostname.toLowerCase();
       if (!['http:', 'https:'].includes(parsed.protocol)) return 'Use an HTTP or HTTPS URL.';
       if (['localhost', '127.0.0.1', '::1'].includes(hostname)) return 'Use your computer LAN IP or public domain, not localhost.';
+      if (linkMode === 'remote' && parsed.protocol !== 'https:') return 'Remote routers need a public HTTPS server URL.';
       if (parsed.protocol === 'http:' && !/^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)) return 'Use HTTPS for remote routers.';
       return '';
     } catch { return 'Enter a valid server URL.'; }
@@ -135,6 +142,7 @@ export default function RouterLink() {
 
   useEffect(() => {
     fetchTenant();
+    axios.get(`${API}/cgnat-tunnel/status`).then(({ data }) => setTunnelStatus(data)).catch(() => {});
     return () => stopWatching();
   }, []);
 
@@ -268,7 +276,55 @@ export default function RouterLink() {
     localStorage.setItem("router_link_mgmt_user", mgmtUser);
     navigator.clipboard.writeText(buildCommand());
     setCopied(true);
-    toast.success("Command copied to clipboard");
+    setPolling(true);
+    startWatching();
+    toast.success("Command copied — watching for your router");
+    setTimeout(() => setCopied(false), 3000);
+  };
+
+  const generateRemoteScript = async () => {
+    if (!routerName.trim()) { setWgError("Enter a name for the router"); return; }
+    if (!mgmtPass) { setWgError("Add the router admin password first"); return; }
+    if (appUrlError) { setWgError(appUrlError); return; }
+    setWgGenerating(true);
+    setWgError("");
+    setWgScript("");
+    try {
+      const token = getToken();
+      const { data } = await axios.post(
+        `${API}/cgnat-tunnel/new-router-script`,
+        {
+          routerName: routerName.trim(),
+          apiPassword: mgmtPass,
+          apiPort: parseInt(mgmtPort, 10) || 8728,
+          serverUrl: appUrl.replace(/\/$/, ""),
+          tenantSlug,
+          enrollApiKey: apiKey,
+        },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setWgScript(data.script);
+      setTunnelStatus((previous) => ({
+        ...previous,
+        activeTunnels: (previous?.activeTunnels || 0) + 1,
+      }));
+      setPolling(true);
+      startWatching();
+      toast.success("One-command remote link script ready", data.tunnelIp || "");
+    } catch (e) {
+      setWgError(e.response?.data?.error || e.message || "Could not generate the remote link script");
+    } finally {
+      setWgGenerating(false);
+    }
+  };
+
+  const copyRemoteScript = () => {
+    if (!wgScript) {return;}
+    navigator.clipboard.writeText(wgScript);
+    setCopied(true);
+    setPolling(true);
+    startWatching();
+    toast.success("Remote link script copied — paste it once on the router");
     setTimeout(() => setCopied(false), 3000);
   };
 
@@ -586,6 +642,51 @@ export default function RouterLink() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex gap-2 p-1 rounded-xl bg-zinc-800/60 border border-zinc-700/50">
+              <button
+                type="button"
+                onClick={() => setLinkMode("direct")}
+                className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${linkMode === "direct" ? "bg-blue-500/20 text-blue-300" : "text-zinc-400 hover:text-zinc-200"}`}
+              >
+                Direct / LAN
+              </button>
+              <button
+                type="button"
+                onClick={() => setLinkMode("remote")}
+                className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${linkMode === "remote" ? "bg-violet-500/20 text-violet-300" : "text-zinc-400 hover:text-zinc-200"}`}
+              >
+                Remote / CGNAT (one command)
+              </button>
+            </div>
+
+            {linkMode === "remote" && (
+              <div className="space-y-3 rounded-xl border border-violet-500/20 bg-violet-500/5 p-4">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1 font-medium">Router name</label>
+                  <input
+                    type="text"
+                    value={routerName}
+                    onChange={(e) => setRouterName(e.target.value)}
+                    placeholder="e.g. Branch-01"
+                    className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                  />
+                </div>
+                {tunnelStatus?.readiness && !tunnelStatus.readiness.canGenerateScripts && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                    <p className="text-xs font-medium text-amber-300">Remote tunnel not ready yet</p>
+                    <ul className="mt-1 list-disc list-inside text-[11px] text-amber-200/80">
+                      {(tunnelStatus.readiness.blockers || []).map((blocker) => <li key={blocker}>{blocker}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {!mgmtPass && (
+                  <p className="text-xs text-amber-300">
+                    Add the router admin password above — the one-command script needs it to enable the API user.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div>
               <label className="block text-xs text-zinc-400 mb-1.5 font-medium">
                 Server URL
@@ -621,20 +722,46 @@ export default function RouterLink() {
               </div>
             )}
 
-            <pre className="bg-zinc-950 border border-zinc-700/50 rounded-lg p-4 text-sm text-green-400 font-mono overflow-x-auto whitespace-pre-wrap">
-              {buildCommand()}
-            </pre>
-            <p className="text-xs text-zinc-500">
-              Run Step 0 first if you set credentials above. Then run Steps 1-3 in order.
-            </p>
-            <Button onClick={copyCommand} disabled={Boolean(appUrlError)} className="gap-2 w-full">
-              {copied ? (
-                <Check className="w-4 h-4" />
-              ) : (
-                <Copy className="w-4 h-4" />
-              )}
-              {copied ? "Copied!" : "Copy to Clipboard"}
-            </Button>
+            {linkMode === "remote" ? (
+              <>
+                <Button
+                  onClick={generateRemoteScript}
+                  disabled={wgGenerating || Boolean(appUrlError) || !apiKey}
+                  className="gap-2 w-full"
+                >
+                  {wgGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                  Generate one-command remote link script
+                </Button>
+                {wgError && <p className="text-xs text-red-400">{wgError}</p>}
+                {wgScript && (
+                  <>
+                    <pre className="bg-zinc-950 border border-violet-500/30 rounded-lg p-4 text-sm text-green-400 font-mono overflow-x-auto whitespace-pre-wrap">
+                      {wgScript}
+                    </pre>
+                    <p className="text-xs text-zinc-500">
+                      Paste this once in the router terminal. It creates the WireGuard tunnel, enables the API and enrolls the router — no public IP needed.
+                    </p>
+                    <Button onClick={copyRemoteScript} className="gap-2 w-full">
+                      {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                      {copied ? "Copied!" : "Copy script & watch for router"}
+                    </Button>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <pre className="bg-zinc-950 border border-zinc-700/50 rounded-lg p-4 text-sm text-green-400 font-mono overflow-x-auto whitespace-pre-wrap">
+                  {buildCommand()}
+                </pre>
+                <p className="text-xs text-zinc-500">
+                  Run Step 0 first if you set credentials above. Then run Steps 1-3 in order.
+                </p>
+                <Button onClick={copyCommand} disabled={Boolean(appUrlError)} className="gap-2 w-full">
+                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  {copied ? "Copied!" : "Copy command & watch for router"}
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       )}
