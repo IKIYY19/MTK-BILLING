@@ -87,19 +87,20 @@ export function RadiusManagement() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [nasRes, groupsRes, usersRes, accountingRes, authRes] = await Promise.all([
+      const [nasRes, groupsRes, usersRes, accountingRes, authRes, presenceRes] = await Promise.all([
         axios.get(`${API}/radius/nas`).catch(() => ({ data: [] })),
         axios.get(`${API}/radius/groups`).catch(() => ({ data: [] })),
         axios.get(`${API}/radius/users`).catch(() => ({ data: [] })),
         axios.get(`${API}/radius/accounting/online`).catch(() => ({ data: [] })),
         axios.get(`${API}/radius/auth-log?limit=50`).catch(() => ({ data: { data: [] } })),
+        axios.get(`${API}/radius/presence`).catch(() => ({ data: {} })),
       ]);
       setNasClients(nasRes.data);
       setGroups(groupsRes.data);
       setUsers(usersRes.data);
       setAccounting(accountingRes.data);
       setAuthLog(authRes.data.data || authRes.data);
-      setOnlineCount(accountingRes.data.length || 0);
+      setOnlineCount(presenceRes.data?.online_count ?? accountingRes.data.length ?? 0);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
