@@ -19,9 +19,9 @@ function db() {
 
 function sessionId(routerId, username) {
   // radacct.acctuniqueid is VARCHAR(32); keep ids deterministic and short.
-  return crypto.createHash('md5')
+  return `live-${crypto.createHash('md5')
     .update(`${routerId}:${username}`)
-    .digest('hex');
+    .digest('hex')}`;
 }
 
 async function reconcileRadiusAccounting() {
@@ -42,14 +42,17 @@ async function reconcileRadiusAccounting() {
     seen.add(id);
     const nas = routerById.get(session.router_id);
     const existing = await database.query(
-      'SELECT acctsessionid FROM radacct WHERE acctsessionid = $1 LIMIT 1', [id],
+      'SELECT acctsessionid, acctstoptime FROM radacct WHERE acctsessionid = $1 LIMIT 1', [id],
     );
     if (existing.rows.length) {
+      const restarted = Boolean(existing.rows[0].acctstoptime);
+      const startedAt = new Date(Date.now() - (session.uptime_seconds || 0) * 1000).toISOString();
       await database.query(
         `UPDATE radacct SET acctupdatetime = NOW(), framedipaddress = $2,
-         acctsessiontime = $3, acctstoptime = NULL, acctterminatecause = ''
+         acctsessiontime = $3, acctstoptime = NULL, acctterminatecause = '',
+         acctstarttime = CASE WHEN $4 THEN $5 ELSE acctstarttime END
          WHERE acctsessionid = $1`,
-        [id, session.address || '', session.uptime_seconds || 0],
+        [id, session.address || '', session.uptime_seconds || 0, restarted, startedAt],
       );
       updated += 1;
       continue;

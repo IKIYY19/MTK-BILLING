@@ -947,6 +947,15 @@ const startServer = async () => {
         logger.warn("Could not start RADIUS reconciliation cron", { error: e.message });
       }
 
+      // Import real RouterOS pools and track live PPPoE client IPs in IPAM.
+      try {
+        const { startCron: startIpamSync } = require("./services/ipamSync");
+        startIpamSync();
+        logger.info("IPAM live sync cron started");
+      } catch (e) {
+        logger.warn("Could not start IPAM sync cron", { error: e.message });
+      }
+
       // Start WireGuard tunnel health-sync cron (refreshes handshake status)
       try {
         const cgnatTunnelService = require("./services/cgnatTunnelService");

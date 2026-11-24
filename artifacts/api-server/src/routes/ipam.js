@@ -6,6 +6,15 @@ const { v4: uuidv4 } = require("uuid");
 
 const VALID_STATUS = new Set(["free", "used", "reserved"]);
 
+// Import RouterOS PPPoE pools and apply live session IPs to IPAM.
+router.post("/sync", async (req, res) => {
+  try {
+    res.json(await require("../services/ipamSync").syncAll());
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 function parseIp(value) {
   const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(String(value || "").trim());
   if (!match) {return null;}
@@ -64,7 +73,8 @@ router.get("/subnets", async (req, res) => {
     const result = await getDb().query(
       `SELECT s.*,
         COALESCE(SUM(CASE WHEN i.status = 'used' THEN 1 ELSE 0 END), 0) AS used_ips,
-        COUNT(i.id) AS total_ips
+        COALESCE(SUM(CASE WHEN i.status = 'reserved' THEN 1 ELSE 0 END), 0) AS reserved_ips,
+        COUNT(i.id) AS tracked_ips
        FROM ipam_subnets s
        LEFT JOIN ipam_ips i ON i.subnet_id = s.id
        WHERE ($1::uuid IS NULL OR s.tenant_id = $1::uuid)
@@ -72,11 +82,19 @@ router.get("/subnets", async (req, res) => {
        ORDER BY s.name`,
       [tenantId(req)],
     );
-    res.json(result.rows.map((row) => ({
-      ...row,
-      used_ips: Number(row.used_ips),
-      total_ips: Number(row.total_ips),
-    })));
+    res.json(result.rows.map((row) => {
+      const total = Math.max(0, 2 ** (32 - Number(row.mask)) - 2);
+      const used = Number(row.used_ips);
+      const reserved = Number(row.reserved_ips);
+      return {
+        ...row,
+        used_ips: used,
+        reserved_ips: reserved,
+        total_ips: total,
+        tracked_ips: Number(row.tracked_ips),
+        free_ips: Math.max(0, total - used - reserved),
+      };
+    }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -236,14 +254,21 @@ router.get("/stats", async (req, res) => {
        GROUP BY i.status`,
       [tenantId(req)],
     );
+    const masks = await getDb().query(
+      "SELECT mask FROM ipam_subnets WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)",
+      [tenantId(req)],
+    );
     const stats = { subnets: Number(subnets.rows[0].count), total_ips: 0, used_ips: 0, free_ips: 0, reserved_ips: 0 };
+    for (const row of masks.rows) {
+      stats.total_ips += Math.max(0, 2 ** (32 - Number(row.mask)) - 2);
+    }
     ips.rows.forEach((row) => {
       const count = Number(row.count);
-      stats.total_ips += count;
       if (row.status === "used") {stats.used_ips += count;}
       if (row.status === "free") {stats.free_ips += count;}
       if (row.status === "reserved") {stats.reserved_ips += count;}
     });
+    stats.free_ips = Math.max(0, stats.total_ips - stats.used_ips - stats.reserved_ips);
     res.json(stats);
   } catch (e) {
     res.status(500).json({ error: e.message });

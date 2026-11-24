@@ -12,6 +12,7 @@ import {
   Gauge,
   HardDrive,
   Activity,
+  RefreshCw,
 } from "lucide-react";
 import "./ipam.css";
 
@@ -406,6 +407,18 @@ function IPRow({ ip, onEdit }) {
       <td className="px-4 py-2.5 text-sm text-zinc-400 max-w-[200px] truncate">
         {ip.assigned_to || "—"}
       </td>
+      <td className="px-4 py-2.5 text-sm font-mono text-cyan-300">
+        {ip.username || "—"}
+      </td>
+      <td className="px-4 py-2.5 text-sm">
+        {ip.session_key ? (
+          <span className="inline-flex items-center gap-1.5 text-emerald-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Online
+          </span>
+        ) : (
+          <span className="text-zinc-600">—</span>
+        )}
+      </td>
       <td className="px-4 py-2.5 text-right">
         <button
           onClick={() => onEdit(ip)}
@@ -520,6 +533,12 @@ function SubnetCard({
                     <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">
                       Assigned To
                     </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                      PPPoE User
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                      Session
+                    </th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">
                       Actions
                     </th>
@@ -557,6 +576,28 @@ export default function IPAMPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editIP, setEditIP] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
+
+  const syncNow = async () => {
+    setSyncing(true);
+    setSyncMessage("");
+    try {
+      const { data } = await axios.post(`${API}/ipam/sync`);
+      await fetchSubnets();
+      if (expandedId) {
+        const { data: freshIps } = await axios.get(`${API}/ipam/subnets/${expandedId}/ips`);
+        setIpsCache((prev) => ({ ...prev, [expandedId]: freshIps }));
+      }
+      setSyncMessage(
+        `Imported ${data.pools?.imported || 0} pool(s); ${data.sessions?.assigned || 0} live IP(s) tracked`,
+      );
+    } catch (e) {
+      setSyncMessage(e.response?.data?.error || e.message || "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const fetchSubnets = useCallback(async () => {
     try {
@@ -574,6 +615,8 @@ export default function IPAMPage() {
 
   useEffect(() => {
     fetchSubnets();
+    const interval = setInterval(fetchSubnets, 60_000);
+    return () => clearInterval(interval);
   }, [fetchSubnets]);
 
   const toggleExpand = async (id) => {
@@ -650,14 +693,30 @@ export default function IPAMPage() {
             IP Address Management — Track subnets, pools, and assignments
           </p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Add Subnet
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={syncNow}
+            disabled={syncing}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/20 text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
+            Sync router pools & sessions
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Subnet
+          </button>
+        </div>
       </div>
+
+      {syncMessage && (
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-300">
+          {syncMessage}
+        </div>
+      )}
 
       {/* Stats Bar */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">

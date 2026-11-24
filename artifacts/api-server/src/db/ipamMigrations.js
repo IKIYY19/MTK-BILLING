@@ -19,7 +19,15 @@ const migrations = [
     assigned_to VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )`
+  )`,
+  `ALTER TABLE ipam_subnets ADD COLUMN IF NOT EXISTS router_id UUID`,
+  `ALTER TABLE ipam_subnets ADD COLUMN IF NOT EXISTS pool_name VARCHAR(64)`,
+  `ALTER TABLE ipam_ips ADD COLUMN IF NOT EXISTS session_key TEXT`,
+  `ALTER TABLE ipam_ips ADD COLUMN IF NOT EXISTS username TEXT`,
+  `ALTER TABLE ipam_ips ADD COLUMN IF NOT EXISTS router_id UUID`,
+  `ALTER TABLE ipam_ips ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP`,
+  `CREATE INDEX IF NOT EXISTS idx_ipam_ips_address ON ipam_ips(ip_address)`,
+  `CREATE INDEX IF NOT EXISTS idx_ipam_ips_session ON ipam_ips(session_key)`
 ];
 
 async function run() {
