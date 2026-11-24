@@ -182,20 +182,13 @@ export default function RouterLink() {
     setGenerating(true);
     try {
       const token = getToken();
-      const key =
-        "mtk-" +
-        Array.from({ length: 32 }, () => Math.random().toString(36)[2]).join(
-          "",
-        );
-      await axios.put(
+      const { data } = await axios.put(
         `${API}/tenants/${tenantId}/api-key`,
-        { api_key: key },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
+        { api_key: "generate" },
+        { headers: { Authorization: `Bearer ${token}` } },
       );
-      setApiKey(key);
-      localStorage.setItem("router_link_api_key", key);
+      setApiKey(data.api_key);
+      localStorage.setItem("router_link_api_key", data.api_key);
       setPolling(true);
       toast.success("API key generated");
     } catch (e) {
@@ -315,6 +308,25 @@ export default function RouterLink() {
       setWgError(e.response?.data?.error || e.message || "Could not generate the remote link script");
     } finally {
       setWgGenerating(false);
+    }
+  };
+
+  const downloadServerSetup = async () => {
+    try {
+      const token = getToken();
+      const { data } = await axios.get(`${API}/cgnat-tunnel/scripts/server-setup`, {
+        responseType: "text",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const url = URL.createObjectURL(new Blob([data], { type: "text/x-shellscript" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "wg-server-setup.sh";
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success("Server setup script downloaded", "Run it as root on your WireGuard VPS");
+    } catch (e) {
+      toast.error("Could not download server setup script", e.response?.data?.error || e.message);
     }
   };
 
@@ -677,6 +689,9 @@ export default function RouterLink() {
                     <ul className="mt-1 list-disc list-inside text-[11px] text-amber-200/80">
                       {(tunnelStatus.readiness.blockers || []).map((blocker) => <li key={blocker}>{blocker}</li>)}
                     </ul>
+                    <Button variant="outline" size="sm" onClick={downloadServerSetup} className="mt-2 gap-2 border-amber-500/40 text-amber-200">
+                      <Upload className="w-3.5 h-3.5" /> Download server setup script
+                    </Button>
                   </div>
                 )}
                 {!mgmtPass && (
@@ -726,7 +741,7 @@ export default function RouterLink() {
               <>
                 <Button
                   onClick={generateRemoteScript}
-                  disabled={wgGenerating || Boolean(appUrlError) || !apiKey}
+                  disabled={wgGenerating || Boolean(appUrlError) || !apiKey || !mgmtPass || tunnelStatus?.readiness?.canGenerateScripts === false}
                   className="gap-2 w-full"
                 >
                   {wgGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}

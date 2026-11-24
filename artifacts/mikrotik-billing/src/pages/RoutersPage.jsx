@@ -439,10 +439,13 @@ export default function RoutersPage() {
     setGenerating(true);
     try {
       const token = getToken();
-      const key = "mtk-" + Array.from({ length: 32 }, () => Math.random().toString(36)[2]).join("");
-      await axios.put(`${API}/tenants/${tenantId}/api-key`, { api_key: key }, { headers: { Authorization: `Bearer ${token}` } });
-      setApiKey(key);
-      localStorage.setItem("router_link_api_key", key);
+      const { data } = await axios.put(
+        `${API}/tenants/${tenantId}/api-key`,
+        { api_key: "generate" },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setApiKey(data.api_key);
+      localStorage.setItem("router_link_api_key", data.api_key);
       toast.success("API key generated");
     } catch (e) { toast.error("Failed to generate key"); } finally { setGenerating(false); }
   };

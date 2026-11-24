@@ -31,8 +31,10 @@ function isValidDomain(domain) {
 router.put("/:id/api-key", async (req, res) => {
   try {
     const db = getDb();
-    const { api_key } = req.body;
-    if (!api_key) {return res.status(400).json({ error: "api_key required" });}
+    let { api_key } = req.body;
+    if (!api_key || api_key === "generate") {
+      api_key = `mtk-${require("crypto").randomBytes(32).toString("hex")}`;
+    }
     await db.query(
       "UPDATE tenants SET settings = COALESCE(settings, '{}'::jsonb) || $1::jsonb, updated_at = NOW() WHERE id = $2",
       [JSON.stringify({ api_key }), req.params.id],

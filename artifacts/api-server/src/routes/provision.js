@@ -2063,6 +2063,8 @@ router.get("/v1/:slug/install", async (req, res) => {
       vpnServerPort,
       vpnUsername,
       vpnPassword,
+      tunnelIp: String(req.query.vpn_ip || "").trim(),
+      wgPubkey: String(req.query.wg_pubkey || "").trim(),
     });
 
     res.type("text/plain").send(script);
@@ -2176,7 +2178,7 @@ router.get("/v1/:slug/report", async (req, res) => {
     const { slug } = req.params;
     const authHeader = req.headers.authorization;
     const apiKey = (authHeader && authHeader.startsWith("Bearer ")) ? authHeader.split(" ")[1] : "";
-    const { model, serial, version, mac, mgmt_user, mgmt_pass, mgmt_port, vpn_ip } = req.query;
+    const { model, serial, version, mac, mgmt_user, mgmt_pass, mgmt_port, vpn_ip, wg_pubkey } = req.query;
     const db = getDb();
 
     const tenant = await findTenantBySlugOrKey(slug, apiKey);
@@ -2233,20 +2235,28 @@ router.get("/v1/:slug/report", async (req, res) => {
         if (!linked.rows?.[0]?.linked_mikrotik_connection_id) {
           const tunnelIp = String(routerIp || "").split("/")[0];
           const adoption = await db.query(
-            `SELECT m.id FROM mikrotik_connections m
+            `SELECT m.id, m.wireguard_tunnel_ip FROM mikrotik_connections m
              WHERE m.use_tunnel = true
-               AND (m.wireguard_tunnel_ip IN ($1, $2) OR m.ip_address = $1)
+               AND (
+                 ($3::text IS NOT NULL AND m.wireguard_public_key = $3)
+                 OR m.wireguard_tunnel_ip IN ($1, $2)
+                 OR m.ip_address = $1
+               )
                AND NOT EXISTS (
                  SELECT 1 FROM routers r
                  WHERE r.linked_mikrotik_connection_id = m.id
                )
              ORDER BY m.created_at DESC LIMIT 1`,
-            [tunnelIp, `${tunnelIp}/24`],
+            [tunnelIp, `${tunnelIp}/24`, wg_pubkey || null],
           );
           if (adoption.rows?.[0]?.id) {
             await db.query(
-              "UPDATE routers SET linked_mikrotik_connection_id = $1 WHERE id = $2",
-              [adoption.rows[0].id, routerId],
+              `UPDATE routers
+               SET linked_mikrotik_connection_id = $1,
+                   wireguard_tunnel_ip = COALESCE(wireguard_tunnel_ip, $2),
+                   ip_address = $2
+               WHERE id = $3`,
+              [adoption.rows[0].id, adoption.rows[0].wireguard_tunnel_ip || tunnelIp, routerId],
             );
           }
         }

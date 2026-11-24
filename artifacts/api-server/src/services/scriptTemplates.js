@@ -236,8 +236,11 @@ function firewallLines({ baseUrl = "", radiusServer = "" } = {}) {
   ];
 }
 
-function reportingLines({ baseUrl, apiKey, slug, fetchMode, certFlag, hasVpn }) {
-  const reportUrl = `${baseUrl}/api/router/v1/${slug}/report?model=$model&serial=$serial&version=$version&mac=$mac`;
+function reportingLines({ baseUrl, apiKey, slug, fetchMode, certFlag, hasVpn, tunnelIp, wgPubkey }) {
+  const identityParams = [];
+  if (tunnelIp) {identityParams.push(`vpn_ip=${encodeURIComponent(tunnelIp)}`);}
+  if (wgPubkey) {identityParams.push(`wg_pubkey=${encodeURIComponent(wgPubkey)}`);}
+  const reportUrl = `${baseUrl}/api/router/v1/${slug}/report?model=$model&serial=$serial&version=$version&mac=$mac${identityParams.length ? `&${identityParams.join("&")}` : ""}`;
   const syncUrl = `${baseUrl}/api/router/v1/${slug}/sync`;
 
   const lines = [
@@ -326,6 +329,8 @@ function buildInstallScript(config) {
     vpnServerPort,
     vpnUsername,
     vpnPassword,
+    tunnelIp,
+    wgPubkey,
   } = config;
 
   const lines = [];
@@ -392,7 +397,10 @@ function buildInstallScript(config) {
   }
 
   // Reporting
-  lines.push(...reportingLines({ baseUrl, apiKey, slug, fetchMode, certFlag, hasVpn: !!vpnServerAddress }));
+  lines.push(...reportingLines({
+    baseUrl, apiKey, slug, fetchMode, certFlag,
+    hasVpn: !!vpnServerAddress, tunnelIp, wgPubkey,
+  }));
   lines.push("");
 
   lines.push(":put \"==================== SETUP COMPLETED ====================\"");

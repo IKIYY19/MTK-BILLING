@@ -367,6 +367,15 @@ router.post("/new-router-script", async (req, res) => {
       });
     }
     if (!enrollApiKey) return res.status(400).json({ success: false, error: "enrollApiKey is required" });
+    if (tenantSlug) {
+      const tenantResult = await db.query(
+        "SELECT settings->>'api_key' AS api_key FROM tenants WHERE slug = $1 AND is_active = true LIMIT 1",
+        [tenantSlug],
+      );
+      if (!tenantResult.rows[0]?.api_key || tenantResult.rows[0].api_key !== enrollApiKey) {
+        return res.status(403).json({ success: false, error: "API key does not match this tenant" });
+      }
+    }
 
     const initialized = await cgnatTunnelService.initialize();
     if (!initialized) {
@@ -422,6 +431,7 @@ router.post("/new-router-script", async (req, res) => {
       serverUrl: serverUrl.replace(/\/$/, ""),
       slugPath,
       enrollApiKey,
+      routerPublicKey: tunnel.routerPublicKey,
     });
 
     res.json({

@@ -79,7 +79,10 @@ The script will:
 2. assign the tunnel IP (`10.200.0.x`),
 3. enable the MikroTik API service and create the `billing` user,
 4. wait for the tunnel, then fetch and import the billing install script using
-   the tenant API key.
+   the tenant API key. The enrollment URL carries the tunnel IP and router
+   public key, so the first check-in automatically adopts the pre-created
+   connection and marks the router managed — no manual "Link to Billing" step
+   and no manual tunnel-IP entry.
 
 ## 4. Verify
 

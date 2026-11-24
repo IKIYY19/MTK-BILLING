@@ -25,7 +25,8 @@ Deferred until the PPPoE workflow is production-tested:
 - OLT provisioning
 - TR-069 device management
 - Reseller workflows
-- Advanced CGNAT automation
+- Advanced CGNAT automation (now available as the one-command WireGuard link
+  flow; still requires a public HTTPS app URL and a Linux WireGuard VPS)
 
 ## Next implementation session: real-router acceptance test
 
