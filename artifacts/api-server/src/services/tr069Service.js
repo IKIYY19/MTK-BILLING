@@ -11,8 +11,9 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 
-const ACS_URL = process.env.TR069_ACS_URL || process.env.TR069_NBI_URL || null;
-const NBI_URL = process.env.TR069_NBI_URL || process.env.TR069_ACS_URL || null;
+// Never advertise the NBI port as a CWMP endpoint for CPEs.
+const ACS_URL = process.env.TR069_ACS_URL || null;
+const NBI_URL = process.env.TR069_NBI_URL || null;
 
 function notConfigured() {
   return {
@@ -104,15 +105,24 @@ class TR069Service {
 
   parseDevice(device) {
     const identity = device._deviceId || {};
+    // Some CPEs report the TR-069 1.0 root instead of Device.*.
+    const parameters = {
+      ...flattenParameters(device.InternetGatewayDevice || {}, "InternetGatewayDevice"),
+      ...flattenParameters(device.Device || {}, "Device"),
+    };
     return {
       serial: String(
-        flattenParameters(device.Device || {}, "Device")['Device.SerialNumber'] ||
+        parameters['Device.SerialNumber'] ||
+        parameters['InternetGatewayDevice.DeviceInfo.SerialNumber'] ||
         identity._SerialNumber || device._id || '',
       ),
       manufacturer: String(identity._Manufacturer || '').slice(0, 100),
       model: String(identity._ProductClass || '').slice(0, 100),
-      firmware: String(flattenParameters(device.Device || {}, "Device")['Device.SoftwareVersion'] || '').slice(0, 50),
-      parameters: flattenParameters(device.Device || {}, "Device"),
+      firmware: String(
+        parameters['Device.SoftwareVersion'] ||
+        parameters['InternetGatewayDevice.DeviceInfo.SoftwareVersion'] || ''
+      ).slice(0, 50),
+      parameters,
     };
   }
 
@@ -138,12 +148,27 @@ class TR069Service {
     return Array.isArray(devices) ? devices[0] : null;
   }
 
+  async findDeviceBySerial(serial) {
+    if (!NBI_URL || !serial) {return null;}
+    try {
+      const query = encodeURIComponent(JSON.stringify({ "_deviceId._SerialNumber": String(serial) }));
+      const devices = await this.request('get', `/devices?query=${query}&limit=1`);
+      return Array.isArray(devices) ? devices[0] : null;
+    } catch (error) {
+      logger.warn('GenieACS serial lookup failed', { error: error.message });
+      return null;
+    }
+  }
+
   async getParameters(deviceId) {
     if (!NBI_URL) {return notConfigured();}
     try {
       const device = await this.queryDevice(deviceId);
       if (!device) {return { success: false, configured: true, message: 'Device not found in GenieACS' };}
-      const values = flattenParameters(device.Device || {}, "Device");
+      const values = {
+        ...flattenParameters(device.InternetGatewayDevice || {}, "InternetGatewayDevice"),
+        ...flattenParameters(device.Device || {}, "Device"),
+      };
       const parameters = Object.entries(values).map(([name, value]) => ({ name, value }));
       return { success: true, configured: true, parameters };
     } catch (error) { return failure(error, 'get parameters'); }

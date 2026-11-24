@@ -27,7 +27,18 @@ async function findDeviceRow(id) {
 }
 
 function acsId(row) {
-  return row.acs_device_id || row.serial_number;
+  // GenieACS IDs are not serial numbers. Only synced devices have a valid ID.
+  return row.acs_device_id || null;
+}
+
+function requireAcsDevice(res, row) {
+  if (!acsId(row)) {
+    res.status(409).json({
+      error: "This CPE has not informed to GenieACS yet. Point it at the ACS URL and wait for it to appear in 'Sync from ACS'.",
+    });
+    return false;
+  }
+  return true;
 }
 
 function respondWithTask(res, result) {
@@ -133,6 +144,7 @@ router.get('/:id/parameters', async (req, res) => {
   try {
     const row = await findDeviceRow(req.params.id);
     if (!row) {return res.status(404).json({ error: 'Device not found' });}
+    if (!requireAcsDevice(res, row)) {return;}
     const result = await tr069Service.getParameters(acsId(row));
     if (!result.configured) {return res.status(503).json(result);}
     if (!result.success) {return res.status(502).json(result);}
@@ -145,6 +157,7 @@ router.put('/:id/parameters', async (req, res) => {
   try {
     const row = await findDeviceRow(req.params.id);
     if (!row) {return res.status(404).json({ error: 'Device not found' });}
+    if (!requireAcsDevice(res, row)) {return;}
     const result = await tr069Service.setParameters(acsId(row), req.body?.parameters || {});
     respondWithTask(res, result);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -155,6 +168,7 @@ router.post('/:id/download', async (req, res) => {
   try {
     const row = await findDeviceRow(req.params.id);
     if (!row) {return res.status(404).json({ error: 'Device not found' });}
+    if (!requireAcsDevice(res, row)) {return;}
     const result = await tr069Service.downloadFirmware(acsId(row), req.body?.file_url);
     respondWithTask(res, result);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -194,14 +208,18 @@ router.post('/', async (req, res) => {
     const { v4: uuidv4 } = require('uuid');
 
     const id = uuidv4();
+    // Link to the real GenieACS device when it already exists. Otherwise leave
+    // acs_device_id empty so RPC actions honestly report "not informed yet".
+    const acsDevice = await tr069Service.findDeviceBySerial(serial_number);
+    const acsDeviceId = acsDevice?._id || null;
     const result = await db.query(
-      `INSERT INTO tr069_devices (id, serial_number, manufacturer, model, firmware_version, connection_id, ip_address, status, last_inform, parameters, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `INSERT INTO tr069_devices (id, serial_number, manufacturer, model, firmware_version, connection_id, ip_address, status, last_inform, parameters, acs_device_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'unknown', NULL, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
        ON CONFLICT (serial_number) DO UPDATE SET
          manufacturer = $3, model = $4, firmware_version = $5, connection_id = $6, ip_address = $7,
-         last_inform = CURRENT_TIMESTAMP, parameters = $9, updated_at = CURRENT_TIMESTAMP
+         parameters = $8, acs_device_id = COALESCE($9, tr069_devices.acs_device_id), updated_at = CURRENT_TIMESTAMP
        RETURNING *`,
-      [id, serial_number, manufacturer, model, firmware_version, connection_id || null, ip_address, 'online', parameters ? JSON.stringify(parameters) : null]
+      [id, serial_number, manufacturer, model, firmware_version, connection_id || null, ip_address, parameters ? JSON.stringify(parameters) : null, acsDeviceId]
     );
 
     logger.info('TR-069 device registered', { id, serial_number });
@@ -284,7 +302,7 @@ router.post('/:id/reboot', async (req, res) => {
     if (result.rows.length === 0) {return res.status(404).json({ error: 'Device not found' });}
 
     const device = result.rows[0];
-    
+    if (!requireAcsDevice(res, device)) {return;}
     const rebootResult = await tr069Service.rebootDevice(acsId(device));
     logger.info('TR-069 device reboot requested', { id: req.params.id, serial: device.serial_number });
     respondWithTask(res, rebootResult);
@@ -302,7 +320,7 @@ router.post('/:id/factory-reset', async (req, res) => {
     if (result.rows.length === 0) {return res.status(404).json({ error: 'Device not found' });}
 
     const device = result.rows[0];
-    
+    if (!requireAcsDevice(res, device)) {return;}
     const resetResult = await tr069Service.factoryResetDevice(acsId(device));
     logger.info('TR-069 device factory reset requested', { id: req.params.id, serial: device.serial_number });
     respondWithTask(res, resetResult);
