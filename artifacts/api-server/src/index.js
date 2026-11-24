@@ -937,6 +937,16 @@ const startServer = async () => {
         logger.warn("Could not start FUP cron", { error: e.message });
       }
 
+      // Keep RADIUS accounting aligned with live router sessions even if
+      // FreeRADIUS accounting is unavailable.
+      try {
+        const { startCron: startRadiusReconcile } = require("./cron/reconcileRadiusAccounting");
+        startRadiusReconcile();
+        logger.info("RADIUS accounting reconciliation cron started");
+      } catch (e) {
+        logger.warn("Could not start RADIUS reconciliation cron", { error: e.message });
+      }
+
       // Start WireGuard tunnel health-sync cron (refreshes handshake status)
       try {
         const cgnatTunnelService = require("./services/cgnatTunnelService");
