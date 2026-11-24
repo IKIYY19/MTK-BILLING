@@ -384,14 +384,6 @@ async function handleProviderVerification(checkoutRequestId, verification) {
   return current;
 }
 
-function formatRate(value) {
-  const rate = String(value || "").trim();
-  if (!/^\d+(?:\.\d+)?[KMG]$/i.test(rate)) {
-    throw new Error("The selected hotspot plan has an invalid speed limit.");
-  }
-  return rate;
-}
-
 async function authorizePaidSession(session) {
   if (!session || !["payment_confirmed", "authorization_failed"].includes(session.status)) {
     return session;
@@ -422,7 +414,8 @@ async function authorizePaidSession(session) {
       routerId: working.router_id,
     });
     const planResult = await database().query(
-      `SELECT speed_up, speed_down, validity_days, quota_gb, tenant_id
+      `SELECT speed_up, speed_down, burst_limit, burst_threshold, burst_time,
+              hotspot_profile, validity_days, quota_gb, tenant_id
        FROM service_plans WHERE id = $1 AND plan_type = 'hotspot' AND is_active = true`,
       [working.plan_id],
     );
@@ -443,12 +436,21 @@ async function authorizePaidSession(session) {
     );
     const userExists = existingUsers.some((user) => user.comment === comment);
     if (!userExists) {
+      const rateLimit = require("./rateLimit").buildHotspotRateLimit(plan);
+      if (!rateLimit) {
+        throw new Error("The selected hotspot package has no speed limit configured.");
+      }
+      const profileName = await require("./hotspotProvisioning").ensureRateLimitProfile(
+        working.router_id,
+        rateLimit,
+        plan.hotspot_profile || "default",
+      );
       const params = {
         name: username,
         password,
         "mac-address": working.mac_address,
         "limit-uptime": `${days}d`,
-        "rate-limit": `${formatRate(plan.speed_up)}/${formatRate(plan.speed_down)}`,
+        profile: profileName,
         comment,
       };
       if (Number(plan.quota_gb) > 0) {

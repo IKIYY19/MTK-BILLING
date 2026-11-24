@@ -33,13 +33,7 @@ async function print(connectionId, path, properties = null) {
   return routerConnectionManager.print(connectionId, path, properties);
 }
 
-function buildRateLimit(plan) {
-  if (!plan?.speed_down || !plan?.speed_up) {
-    return "";
-  }
-
-  return `${plan.speed_down}/${plan.speed_up}`;
-}
+const { buildRateLimit } = require("./rateLimit");
 
 function buildRateLimitProfileName(rateLimit) {
   return `billing_${String(rateLimit).replace(/[^A-Za-z0-9]/g, "_")}`;

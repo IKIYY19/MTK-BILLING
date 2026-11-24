@@ -103,7 +103,7 @@ function UserForm({ show, onClose, editing, profiles, connections, onSubmit }) {
             </div>
             <div>
               <label className="block text-sm font-medium text-zinc-300 mb-1.5">Rate Limit</label>
-              <input value={form.rate_limit} onChange={e => setForm({ ...form, rate_limit: e.target.value })} className="modern-input" placeholder="5M/5M" />
+              <input value={form.rate_limit} onChange={e => setForm({ ...form, rate_limit: e.target.value })} className="modern-input" placeholder="5M/10M 10M/20M 6M/12M 10" />
             </div>
             <div>
               <label className="block text-sm font-medium text-zinc-300 mb-1.5">Data Limit (bytes)</label>
@@ -167,7 +167,7 @@ function ProfileForm({ show, onClose, editing, connections, onSubmit }) {
             </div>
             <div>
               <label className="block text-sm font-medium text-zinc-300 mb-1.5">Rate Limit</label>
-              <input value={form.rate_limit} onChange={e => setForm({ ...form, rate_limit: e.target.value })} className="modern-input" placeholder="5M/5M" />
+              <input value={form.rate_limit} onChange={e => setForm({ ...form, rate_limit: e.target.value })} className="modern-input" placeholder="5M/10M 10M/20M 6M/12M 10" />
             </div>
             <div>
               <label className="block text-sm font-medium text-zinc-300 mb-1.5">Shared Users</label>
@@ -227,6 +227,7 @@ export function HotspotManagement() {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState([]);
   const [profiles, setProfiles] = useState([]);
+  const [userProfiles, setUserProfiles] = useState([]);
   const [active, setActive] = useState([]);
   const [bindings, setBindings] = useState([]);
   const [bindingMac, setBindingMac] = useState('');
@@ -243,15 +244,17 @@ export function HotspotManagement() {
     setLoading(true);
     try {
       const query = selectedConnection ? `?connection_id=${selectedConnection}` : '';
-      const [usersRes, profilesRes, activeRes, bindingsRes, connRes] = await Promise.all([
+      const [usersRes, profilesRes, userProfilesRes, activeRes, bindingsRes, connRes] = await Promise.all([
         axios.get(`${API}/network/hotspot/users${query}`).catch(() => ({ data: [] })),
         axios.get(`${API}/network/hotspot/profiles${query}`).catch(() => ({ data: [] })),
+        axios.get(`${API}/network/hotspot/user-profiles${query}`).catch(() => ({ data: [] })),
         axios.get(`${API}/network/hotspot/active${query}`).catch(() => ({ data: [] })),
         axios.get(`${API}/network/hotspot/mac-bindings${query}`).catch(() => ({ data: [] })),
         axios.get(`${API}/mikrotik`).catch(() => ({ data: [] })),
       ]);
       setUsers(Array.isArray(usersRes.data) ? usersRes.data : []);
       setProfiles(Array.isArray(profilesRes.data) ? profilesRes.data : []);
+      setUserProfiles(Array.isArray(userProfilesRes.data) ? userProfilesRes.data : []);
       setActive(Array.isArray(activeRes.data) ? activeRes.data : []);
       setBindings(Array.isArray(bindingsRes.data) ? bindingsRes.data : []);
       setConnections(Array.isArray(connRes.data) ? connRes.data : []);
@@ -699,7 +702,7 @@ export function HotspotManagement() {
       )}
 
       <UserForm show={showUserForm} onClose={() => { setShowUserForm(false); setEditingUser(null); }}
-        editing={editingUser} profiles={profiles} connections={connections} onSubmit={handleCreateUser} />
+        editing={editingUser} profiles={userProfiles} connections={connections} onSubmit={handleCreateUser} />
       <ProfileForm show={showProfileForm} onClose={() => { setShowProfileForm(false); setEditingProfile(null); }}
         editing={editingProfile} connections={connections} onSubmit={handleCreateProfile} />
     </div>

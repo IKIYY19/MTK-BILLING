@@ -154,8 +154,9 @@ const plans = {
     const result = await db.query(
       `INSERT INTO service_plans (
          id, name, speed_up, speed_down, price, quota_gb, priority, description,
-         is_active, plan_type, validity_days, tenant_id
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+         is_active, plan_type, validity_days, tenant_id,
+         burst_limit, burst_threshold, burst_time, hotspot_profile
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
       [
         id,
         data.name,
@@ -169,6 +170,10 @@ const plans = {
         data.plan_type || "monthly",
         data.validity_days || 30,
         data.tenant_id || null,
+        data.burst_limit || null,
+        data.burst_threshold || null,
+        data.burst_time || null,
+        data.hotspot_profile || null,
       ],
     );
     if (userId)
@@ -184,7 +189,9 @@ const plans = {
        speed_down = COALESCE($3, speed_down), price = COALESCE($4, price), quota_gb = COALESCE($5, quota_gb),
        priority = COALESCE($6, priority), description = COALESCE($7, description),
        is_active = COALESCE($8, is_active), plan_type = COALESCE($9, plan_type),
-       validity_days = COALESCE($10, validity_days), tenant_id = COALESCE($11, tenant_id)
+       validity_days = COALESCE($10, validity_days), tenant_id = COALESCE($11, tenant_id),
+       burst_limit = COALESCE($13, burst_limit), burst_threshold = COALESCE($14, burst_threshold),
+       burst_time = COALESCE($15, burst_time), hotspot_profile = COALESCE($16, hotspot_profile)
        WHERE id = $12 RETURNING *`,
       [
         data.name,
@@ -199,6 +206,10 @@ const plans = {
         data.validity_days,
         data.tenant_id,
         id,
+        data.burst_limit,
+        data.burst_threshold,
+        data.burst_time,
+        data.hotspot_profile,
       ],
     );
     if (userId)

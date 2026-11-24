@@ -1,6 +1,7 @@
 const billing = require("./billingData");
 const radiusSync = require("./radiusSync");
 const notificationService = require("./notificationService");
+const mikrotikProvisioning = require("./mikrotikProvisioning");
 const logger = require("../utils/logger");
 const crypto = require("crypto");
 
@@ -53,8 +54,24 @@ async function autoProvisionOnPayment(payment) {
         logger.error("[AutoProvision] RADIUS sync failed:", { error: e.message });
       }
 
+      try {
+        const result = await mikrotikProvisioning.executeUpsertSecretDirectly({
+          ...sub,
+          pppoe_username: username,
+          pppoe_password: password,
+          customer: { id: customer.id, name: customer.name },
+          plan,
+          status: "active",
+        });
+        if (result.success) {
+          logger.info("[AutoProvision] MikroTik secret synced", { username });
+        }
+      } catch (e) {
+        logger.error("[AutoProvision] MikroTik sync failed:", { error: e.message });
+      }
+
       const planName = plan?.name || "Active";
-      const speed = plan ? `${plan.speed_up}/${plan.speed_down}` : "N/A";
+      const speed = require("./rateLimit").buildRateLimit(plan) || "N/A";
       const phone = customer.phone || "";
 
       if (phone) {
@@ -129,6 +146,17 @@ async function reactivateOnPayment(payment) {
         });
       } catch (e) {
         logger.error('[AutoProvision] RADIUS reactivation failed:', { error: e.message });
+      }
+
+      try {
+        await mikrotikProvisioning.executeUpsertSecretDirectly({
+          ...sub,
+          status: "active",
+          customer: { id: customer.id, name: customer.name },
+          plan,
+        });
+      } catch (e) {
+        logger.error('[AutoProvision] MikroTik reactivation failed:', { error: e.message });
       }
 
       if (customer.phone) {

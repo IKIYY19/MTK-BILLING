@@ -56,6 +56,7 @@ const schemaFixesMigrations = [
   `ALTER TABLE service_plans ADD COLUMN IF NOT EXISTS burst_limit VARCHAR(50)`,
   `ALTER TABLE service_plans ADD COLUMN IF NOT EXISTS burst_threshold VARCHAR(50)`,
   `ALTER TABLE service_plans ADD COLUMN IF NOT EXISTS burst_time VARCHAR(20)`,
+  `ALTER TABLE service_plans ADD COLUMN IF NOT EXISTS hotspot_profile VARCHAR(100)`,
   `ALTER TABLE service_plans ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 8`,
   `ALTER TABLE service_plans ADD COLUMN IF NOT EXISTS fup_limit BIGINT`,
   `ALTER TABLE service_plans ADD COLUMN IF NOT EXISTS fup_speed VARCHAR(50)`,

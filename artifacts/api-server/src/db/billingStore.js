@@ -118,6 +118,9 @@ module.exports = {
       plan_type: data.plan_type || "monthly",
       validity_days: data.validity_days || 30,
       tenant_id: data.tenant_id || null,
+      burst_limit: data.burst_limit || null,
+      burst_threshold: data.burst_threshold || null,
+      burst_time: data.burst_time || null,
       created_at: new Date().toISOString(),
     };
     billingStore.service_plans.push(plan);

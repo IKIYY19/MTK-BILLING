@@ -236,6 +236,32 @@ The app collects real metrics every 5 minutes:
 
 Data is stored in `usage_records` table for reporting.
 
+## 🚀 Pushing PPPoE and Hotspot settings to MikroTik
+
+Service plan fields are pushed to both enforcement paths:
+
+- **Direct RouterOS API**: each active subscription gets a `/ppp/profile` named
+  `billing_<rate>` whose `rate-limit` is built from the plan's download/upload
+  speeds plus optional burst fields. The PPPoE secret is linked to that profile.
+- **RADIUS**: `Mikrotik-Rate-Limit` is written to `radreply` and
+  `radgroupreply` using the **same** string, so RADIUS and direct-API modes
+  shape traffic identically.
+- **Hotspot**: paid portal users receive `rate-limit`, `limit-uptime` (from
+  validity days), optional `limit-bytes-total` (from quota), and the plan's
+  optional hotspot profile name. Voucher pushes include `limit-uptime` and
+  `limit-bytes-total` from the voucher form.
+
+The rate string uses RouterOS' `rx/tx` convention (upload/download, from the
+router's point of view): `upload/download burst/threshold burst-time`, e.g.
+`5M/10M 10M/20M 6M/12M 10`. Burst fields are entered on the service plan and
+are validated before being sent. Use **Billing → Service Plans → Sync** to
+re-push a changed plan to every subscriber on it, or the per-subscription sync
+button for a single user.
+
+`RADIUS_SECRET` must match on the app and the router. The router-link script
+now enables PPP and hotspot RADIUS AAA and the FreeRADIUS server listens for
+CoA/PoD on port 3799 so policy changes can disconnect active sessions.
+
 ## ⚖️ Fair Usage Policy (FUP)
 
 FUP is enforced on real RADIUS accounting data:

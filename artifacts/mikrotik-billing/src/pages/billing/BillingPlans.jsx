@@ -14,7 +14,7 @@ export function BillingPlans() {
   const [plans, setPlans] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-  const emptyForm = { name: '', speed_up: '10M', speed_down: '10M', price: 25, quota_gb: '', priority: 8, description: '', plan_type: 'monthly', validity_days: 30 };
+  const emptyForm = { name: '', speed_up: '10M', speed_down: '10M', burst_limit: '', burst_threshold: '', burst_time: '', hotspot_profile: '', price: 25, quota_gb: '', priority: 8, description: '', plan_type: 'monthly', validity_days: 30 };
   const [form, setForm] = useState(emptyForm);
 
   useEffect(() => { fetchPlans(); }, []);
@@ -77,7 +77,7 @@ export function BillingPlans() {
                     <CardTitle className="text-lg">{plan.name}</CardTitle>
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => { setEditing(plan); setForm({ name: plan.name, speed_up: plan.speed_up, speed_down: plan.speed_down, price: plan.price, quota_gb: plan.quota_gb, priority: plan.priority, description: plan.description, plan_type: plan.plan_type || 'monthly', validity_days: plan.validity_days || 30 }); setShowForm(true); }}>
+                    <Button variant="ghost" size="sm" onClick={() => { setEditing(plan); setForm({ name: plan.name, speed_up: plan.speed_up, speed_down: plan.speed_down, burst_limit: plan.burst_limit || '', burst_threshold: plan.burst_threshold || '', burst_time: plan.burst_time || '', hotspot_profile: plan.hotspot_profile || '', price: plan.price, quota_gb: plan.quota_gb, priority: plan.priority, description: plan.description, plan_type: plan.plan_type || 'monthly', validity_days: plan.validity_days || 30 }); setShowForm(true); }}>
                       <Edit2 className="w-4 h-4" />
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => handleDelete(plan.id)} className="text-red-400">
@@ -90,8 +90,9 @@ export function BillingPlans() {
                 <p className="text-sm text-slate-400 mb-4">{plan.description}</p>
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div className="bg-zinc-800 rounded p-3 text-center">
-                    <div className="text-xs text-zinc-400">Speed</div>
+                    <div className="text-xs text-zinc-400">Speed (up/down)</div>
                     <div className="text-white font-bold">{plan.speed_up}/{plan.speed_down}</div>
+                    {plan.burst_limit && <div className="text-[10px] text-amber-400 mt-0.5">burst {plan.burst_limit}</div>}
                   </div>
                   <div className="bg-zinc-800 rounded p-3 text-center">
                     <div className="text-xs text-zinc-400">Price</div>
@@ -154,6 +155,26 @@ export function BillingPlans() {
                       {speeds.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <Label htmlFor="burst-limit">Burst limit</Label>
+                    <Input id="burst-limit" value={form.burst_limit || ''} onChange={e => setForm({...form, burst_limit: e.target.value})} placeholder="20M" />
+                  </div>
+                  <div>
+                    <Label htmlFor="burst-threshold">Burst threshold</Label>
+                    <Input id="burst-threshold" value={form.burst_threshold || ''} onChange={e => setForm({...form, burst_threshold: e.target.value})} placeholder="5M" />
+                  </div>
+                  <div>
+                    <Label htmlFor="burst-time">Burst time</Label>
+                    <Input id="burst-time" value={form.burst_time || ''} onChange={e => setForm({...form, burst_time: e.target.value})} placeholder="10s" />
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500">Burst is pushed to RouterOS and RADIUS as part of the rate limit, e.g. <code>5M/10M 10M/20M 6M/12M 10</code> (upload/download).</p>
+                <div>
+                  <Label htmlFor="hotspot-profile">Hotspot profile (name on router)</Label>
+                  <Input id="hotspot-profile" value={form.hotspot_profile || ''} onChange={e => setForm({...form, hotspot_profile: e.target.value})} placeholder="e.g. billing-profile" />
+                  <p className="text-xs text-slate-500 mt-1">Applied to hotspot users created after a paid package is activated.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>

@@ -116,7 +116,7 @@ async function ensurePlanRadiusGroup(plan) {
     await db.query(
       `INSERT INTO radgroupreply (groupname, attribute, op, value) VALUES ($1, 'Mikrotik-Rate-Limit', '=', $2)
        ON CONFLICT (groupname, attribute) DO UPDATE SET value = EXCLUDED.value`,
-      [groupName, `${plan.speed_down}/${plan.speed_up}`]
+      [groupName, require("./rateLimit").buildRateLimit(plan)]
     );
   }
 
@@ -158,7 +158,7 @@ async function upsertRadiusUser(subscription) {
     }
 
     if (plan && plan.speed_up && plan.speed_down) {
-      const rateLimit = `${plan.speed_down}/${plan.speed_up}`;
+      const rateLimit = require("./rateLimit").buildRateLimit(plan);
       const existingReply = await db.query(
         "SELECT id FROM radreply WHERE username = $1 AND attribute = 'Mikrotik-Rate-Limit'",
         [username]

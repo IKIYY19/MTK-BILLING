@@ -196,7 +196,7 @@ export function HotspotVouchers() {
     try {
       const [connRes, profilesRes] = await Promise.all([
         axios.get(`${API}/mikrotik`).catch(() => ({ data: [] })),
-        selectedConnection ? axios.get(`${API}/network/hotspot/profiles?connection_id=${selectedConnection}`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+        selectedConnection ? axios.get(`${API}/network/hotspot/user-profiles?connection_id=${selectedConnection}`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
       ]);
       setConnections(connRes.data);
       setProfiles(profilesRes.data);

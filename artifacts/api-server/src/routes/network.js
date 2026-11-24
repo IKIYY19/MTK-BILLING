@@ -3,6 +3,7 @@ const router = express.Router();
 
 const routerConnectionManager = require('../services/routerConnectionManager');
 const mikrotikProvisioning = require('../services/mikrotikProvisioning');
+const hotspotProvisioning = require('../services/hotspotProvisioning');
 
 // Helper: get MikroTik connection
 async function getMikrotikConnection(connectionId) {
@@ -60,7 +61,7 @@ router.get('/pppoe/secrets', async (req, res) => {
 // Update PPPoE secret
 router.put('/pppoe/secrets/:name', async (req, res) => {
   try {
-    const { connection_id, password, profile, service, comment, rate_limit, disabled } = req.body;
+    const { connection_id, password, profile, service, comment, rate_limit, disabled, local_address, remote_address, routes } = req.body;
     const { name } = req.params;
     if (!connection_id) {return res.status(400).json({ error: 'Connection ID required' });}
 
@@ -74,6 +75,9 @@ router.put('/pppoe/secrets/:name', async (req, res) => {
     if (service !== undefined) {args.service = String(service);}
     if (comment !== undefined) {args.comment = String(comment);}
     if (disabled !== undefined) {args.disabled = disabled ? 'yes' : 'no';}
+    if (local_address) {args['local-address'] = String(local_address);}
+    if (remote_address) {args['remote-address'] = String(remote_address);}
+    if (routes) {args.routes = String(routes);}
     if (rate_limit) {
       args.profile = await mikrotikProvisioning.ensureRateLimitProfile(device, rate_limit, profile);
     } else if (profile !== undefined) {
@@ -88,7 +92,7 @@ router.put('/pppoe/secrets/:name', async (req, res) => {
 // Create PPPoE secret
 router.post('/pppoe/secrets', async (req, res) => {
   try {
-    const { connection_id, name, password, service, profile, rate_limit, comment } = req.body;
+    const { connection_id, name, password, service, profile, rate_limit, comment, local_address, remote_address, routes } = req.body;
     if (!connection_id) {return res.status(400).json({ error: 'Connection ID required' });}
 
     const device = await getMikrotikConnection(connection_id);
@@ -96,6 +100,9 @@ router.post('/pppoe/secrets', async (req, res) => {
     if (rate_limit) {args.profile = await mikrotikProvisioning.ensureRateLimitProfile(device, rate_limit, profile);}
     else if (profile) {args.profile = profile;}
     if (comment) {args.comment = comment;}
+    if (local_address) {args['local-address'] = String(local_address);}
+    if (remote_address) {args['remote-address'] = String(remote_address);}
+    if (routes) {args.routes = String(routes);}
 
     await executeCommand(device, '/ppp/secret/add', args);
     res.json({ success: true, message: 'PPPoE secret created' });
@@ -236,7 +243,11 @@ router.get('/hotspot/users', async (req, res) => {
     if (!connection_id) {return res.json([]);}
 
     const device = await getMikrotikConnection(connection_id);
-    const result = await getFromMikrotik(device, '/ip/hotspot/user');
+    const result = await getFromMikrotik(
+      device,
+      '/ip/hotspot/user',
+      '.id,name,profile,comment,disabled,limit-uptime,limit-bytes-total',
+    );
     res.json(Array.isArray(result) ? result : []);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -249,11 +260,16 @@ router.post('/hotspot/users', async (req, res) => {
 
     const device = await getMikrotikConnection(connection_id);
     const args = { name, password };
-    if (profile) {args.profile = profile;}
+    if (rate_limit) {
+      args.profile = await hotspotProvisioning.ensureRateLimitProfile(
+        connection_id, rate_limit, profile || 'default',
+      );
+    } else if (profile) {
+      args.profile = profile;
+    }
     if (disabled) {args.disabled = disabled;}
     if (comment) {args.comment = comment;}
     if (limit_bytes_total) {args['limit-bytes-total'] = limit_bytes_total;}
-    if (rate_limit) {args['rate-limit'] = rate_limit;}
 
     await executeCommand(device, '/ip/hotspot/user/add', args);
     res.json({ success: true, message: 'Hotspot user created' });
@@ -370,6 +386,43 @@ router.get('/hotspot/profiles', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// User profiles are a different RouterOS menu from hotspot server profiles.
+// Hotspot users and vouchers must reference /ip/hotspot/user/profile names.
+router.get('/hotspot/user-profiles', async (req, res) => {
+  try {
+    const { connection_id } = req.query;
+    if (!connection_id) {return res.json([]);}
+    const device = await getMikrotikConnection(connection_id);
+    const result = await getFromMikrotik(device, '/ip/hotspot/user/profile', '.id,name,rate-limit');
+    res.json(Array.isArray(result) ? result : []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Create a hotspot USER profile (where RouterOS applies rate limits)
+router.post('/hotspot/user-profiles', async (req, res) => {
+  try {
+    const { connection_id, name, rate_limit, session_timeout, shared_users } = req.body;
+    if (!connection_id || !name) {return res.status(400).json({ error: 'Connection ID and name required' });}
+    const device = await getMikrotikConnection(connection_id);
+    const args = { name };
+    if (rate_limit) {args['rate-limit'] = rate_limit;}
+    if (session_timeout) {args['session-timeout'] = session_timeout;}
+    if (shared_users) {args['shared-users'] = shared_users;}
+    await executeCommand(device, '/ip/hotspot/user/profile/add', args);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.delete('/hotspot/user-profiles/:name', async (req, res) => {
+  try {
+    const { connection_id } = req.query;
+    if (!connection_id) {return res.status(400).json({ error: 'Connection ID required' });}
+    const device = await getMikrotikConnection(connection_id);
+    await executeCommand(device, '/ip/hotspot/user/profile/remove', { numbers: req.params.name });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Create Hotspot profile
 router.post('/hotspot/profiles', async (req, res) => {
   try {
@@ -437,6 +490,21 @@ router.get('/network/vouchers', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+function voucherUptime(value) {
+  const text = String(value || '').trim();
+  if (!text) {return null;}
+  if (/^\d+(?:\.\d+)?[smhdw]$/i.test(text)) {return text;}
+  if (/^\d+(?:\.\d+)?$/.test(text)) {return `${text}h`;}
+  return null;
+}
+
+function voucherBytes(value) {
+  const match = String(value || '').trim().match(/^(\d+(?:\.\d+)?)\s*([KMGT]?)B?$/i);
+  if (!match) {return null;}
+  const multiplier = { '': 1, K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 }[match[2].toUpperCase()];
+  return Math.floor(Number(match[1]) * multiplier);
+}
+
 // Create Hotspot vouchers (batch)
 router.post('/network/vouchers', async (req, res) => {
   try {
@@ -469,8 +537,19 @@ router.post('/network/vouchers', async (req, res) => {
       for (const entry of inserted) {
         const v = entry.voucher;
         const args = { name: v.username, password: v.password };
-        if (v.profile) {args.profile = v.profile;}
-        if (v.rate_limit) {args['rate-limit'] = v.rate_limit;}
+        if (v.rate_limit) {
+          args.profile = await hotspotProvisioning.ensureRateLimitProfile(
+            connection_id,
+            v.rate_limit,
+            v.profile || 'default',
+          );
+        } else if (v.profile) {
+          args.profile = v.profile;
+        }
+        const uptime = voucherUptime(v.valid_for);
+        if (uptime) {args['limit-uptime'] = uptime;}
+        const bytes = voucherBytes(v.data_limit);
+        if (bytes) {args['limit-bytes-total'] = String(bytes);}
         if (v.comment) {args.comment = v.comment;}
         try {
           await executeCommand(device, '/ip/hotspot/user/add', args);
@@ -528,7 +607,7 @@ router.get('/network/queues', async (req, res) => {
 // Create Simple Queue
 router.post('/network/queues', async (req, res) => {
   try {
-    const { connection_id, name, target, max_limit, priority, parent, comment } = req.body;
+    const { connection_id, name, target, max_limit, priority, parent, comment, limit_at, burst_limit, burst_threshold, burst_time, queue_type } = req.body;
     if (!connection_id) {return res.status(400).json({ error: 'Connection ID required' });}
 
     const device = await getMikrotikConnection(connection_id);
@@ -537,6 +616,11 @@ router.post('/network/queues', async (req, res) => {
     if (max_limit) {args['max-limit'] = max_limit;}
     if (priority) {args.priority = priority;}
     if (parent) {args.parent = parent;}
+    if (limit_at) {args['limit-at'] = limit_at;}
+    if (burst_limit) {args['burst-limit'] = burst_limit;}
+    if (burst_threshold) {args['burst-threshold'] = burst_threshold;}
+    if (burst_time) {args['burst-time'] = burst_time;}
+    if (queue_type) {args['queue-type'] = queue_type;}
     if (comment) {args.comment = comment;}
 
     await executeCommand(device, '/queue/simple/add', args);

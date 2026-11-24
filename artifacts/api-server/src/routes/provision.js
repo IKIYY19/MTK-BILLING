@@ -1878,7 +1878,12 @@ router.get("/v1/scripts/install", async (req, res) => {
     const fetchMode = isHttps ? "https" : "http";
     const certCheck = isHttps ? " check-certificate=no" : "";
     const radiusServer = process.env.RADIUS_SERVER || req.get("host");
-    const radiusSecret = process.env.RADIUS_SECRET || apiKey.substring(0, 16);
+    // RADIUS_SECRET must match the server-side NAS secret. Never derive it
+    // from the API key, otherwise the router and server disagree.
+    const radiusSecret = process.env.RADIUS_SECRET || "";
+    const radiusConfigLine = radiusSecret
+      ? `:do { /radius add address=${radiusServer} secret="${radiusSecret}" service=ppp,hotspot timeout=300ms comment="Billing RADIUS" disabled=no; :put "[Billing] RADIUS configured" } on-error={ :put "[Billing] RADIUS skipped (unsupported or exists)" }`
+      : ':put "[Billing] RADIUS_SECRET not configured - skipping RADIUS setup"';
     const wgEndpoint = process.env.WIREGUARD_ENDPOINT || "";
     const wgServerPubkey = process.env.WIREGUARD_SERVER_PUBKEY || "";
 
@@ -1900,7 +1905,9 @@ router.get("/v1/scripts/install", async (req, res) => {
       "",
       "# RADIUS",
       `:put "[Billing] Setting up RADIUS..."`,
-      `:do { /radius add address=${radiusServer} secret="${radiusSecret}" service=ppp,hotspot timeout=300ms comment="Billing RADIUS" disabled=no; :put "[Billing] RADIUS configured" } on-error={ :put "[Billing] RADIUS skipped (unsupported or exists)" }`,
+      radiusConfigLine,
+      `:do { /ppp aaa set use-radius=yes accounting=yes interim-update=5m; :put "[Billing] PPP RADIUS AAA enabled" } on-error={ :put "[Billing] PPP AAA not supported" }`,
+      `:do { /ip hotspot aaa set use-radius=yes; :put "[Billing] Hotspot RADIUS AAA enabled" } on-error={ :put "[Billing] Hotspot AAA not supported" }`,
       "",
       "# PPPoE",
       `:put "[Billing] Setting up PPPoE..."`,

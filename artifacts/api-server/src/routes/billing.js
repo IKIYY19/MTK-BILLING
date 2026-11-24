@@ -143,8 +143,18 @@ async function syncSubscription(action, subscription) {
     syncResult = { success: false, status: "skipped", error: "Auto provisioning is disabled" };
   }
 
-  const combinedSuccess = syncResult?.success || radiusResult?.success;
-  const combinedStatus = combinedSuccess ? "synced"
+  // Both enabled targets must succeed. A partial sync must be visible so an
+  // operator does not assume the router was updated when only RADIUS was.
+  const required = [];
+  if (radiusEnabled) {required.push(radiusResult);}
+  if (subscription.mikrotik_connection_id && subscription.auto_provision !== false) {
+    required.push(syncResult);
+  }
+  const allSuccess = required.length > 0 && required.every((result) => result?.success);
+  const anySuccess = required.some((result) => result?.success);
+  const combinedSuccess = allSuccess;
+  const combinedStatus = allSuccess ? "synced"
+    : anySuccess ? "partial"
     : (syncResult?.status === "failed" || radiusResult?.status === "failed") ? "failed"
     : "skipped";
   const combinedError = [syncResult?.error, radiusResult?.error].filter(Boolean).join(" | ") || null;
@@ -162,6 +172,7 @@ async function syncSubscription(action, subscription) {
   return {
     syncResult,
     radiusResult,
+    partial: combinedStatus === "partial",
     provisionScript: combinedSuccess ? null : fallbackScript,
   };
 }
@@ -170,7 +181,7 @@ function normalizeDisabledFlag(value) {
   return value === true || value === "true" || value === "yes";
 }
 
-function buildSubscriptionDrift(subscription, secret) {
+function buildSubscriptionDrift(subscription, secret, profiles = []) {
   const issues = [];
   const expectedRateLimit = mikrotikProvisioning.buildRateLimit(
     subscription.plan,
@@ -198,6 +209,15 @@ function buildSubscriptionDrift(subscription, secret) {
         code: "profile_mismatch",
         message: `Router profile is "${actualProfile || "default"}" but billing expects "${expectedProfile || "default"}"`,
       });
+    } else if (expectedRateLimit && profiles.length > 0) {
+      const profile = profiles.find((item) => item.name === actualProfile);
+      const actualRateLimit = String(profile?.["rate-limit"] || "").trim();
+      if (actualRateLimit && actualRateLimit !== expectedRateLimit) {
+        issues.push({
+          code: "rate_limit_mismatch",
+          message: `Router speed is "${actualRateLimit}" but billing expects "${expectedRateLimit}"`,
+        });
+      }
     }
 
     if (expectedDisabled !== actualDisabled) {
@@ -359,6 +379,14 @@ router.put("/customers/:id", async (req, res) => {
           await billing.updateSubscription(existingSub.id, {
             plan_id: req.body.plan_id,
           });
+          // A plan change changes speed/burst/quota, so re-push to both
+          // RADIUS and the router immediately.
+          try {
+            const expanded = await getExpandedSubscription(existingSub.id);
+            await syncSubscription("reconcile", expanded);
+          } catch (syncErr) {
+            console.error("Failed to re-sync subscription after plan change:", syncErr.message);
+          }
         } else {
           await billing.createSubscription({
             customer_id: req.params.id,
@@ -665,6 +693,40 @@ router.put("/plans/:id", async (req, res) => {
   }
 });
 
+// Re-push a plan's speed/burst/quota settings to every subscriber on it.
+router.post("/plans/:id/sync", async (req, res) => {
+  try {
+    const plan = await billing.getPlanById(req.params.id);
+    if (!plan) {return res.status(404).json({ error: "Plan not found" });}
+    const subscriptions = await billing.listSubscriptions();
+    const targets = subscriptions.filter(
+      (subscription) => subscription.plan_id === req.params.id && subscription.status === "active",
+    );
+    const results = { total: targets.length, synced: 0, failed: 0, errors: [] };
+    for (const subscription of targets) {
+      try {
+        const expanded = await getExpandedSubscription(subscription.id);
+        const result = await syncSubscription("reconcile", expanded);
+        if (!result.partial && (result.syncResult?.success || result.radiusResult?.success)) {
+          results.synced += 1;
+        } else {
+          results.failed += 1;
+          results.errors.push({
+            username: expanded.pppoe_username,
+            error: result.syncResult?.error || result.radiusResult?.error || "not synced",
+          });
+        }
+      } catch (error) {
+        results.failed += 1;
+        results.errors.push({ username: subscription.pppoe_username, error: error.message });
+      }
+    }
+    res.json(results);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.delete("/plans/:id", async (req, res) => {
   try {
     const plan = await billing.deletePlan(req.params.id);
@@ -845,6 +907,7 @@ router.get("/reconcile", async (req, res) => {
     });
 
     const secretsByConnection = new Map();
+    const profilesByConnection = new Map();
     const connectionErrors = [];
 
     for (const connection of mikrotikConnections) {
@@ -855,6 +918,12 @@ router.get("/reconcile", async (req, res) => {
           ".id,name,profile,comment,disabled,rate-limit",
         );
         secretsByConnection.set(connection.id, secrets);
+        const profiles = await mikrotikProvisioning.print(
+          connection.id,
+          "/ppp/profile",
+          ".id,name,rate-limit",
+        ).catch(() => []);
+        profilesByConnection.set(connection.id, profiles);
       } catch (error) {
         connectionErrors.push({
           connection_id: connection.id,
@@ -872,7 +941,13 @@ router.get("/reconcile", async (req, res) => {
       const secret = subscription.pppoe_username
         ? secrets.find((item) => item.name === subscription.pppoe_username)
         : null;
-      const issues = buildSubscriptionDrift(subscription, secret);
+      const issues = buildSubscriptionDrift(
+        subscription,
+        secret,
+        subscription.mikrotik_connection_id
+          ? profilesByConnection.get(subscription.mikrotik_connection_id) || []
+          : [],
+      );
 
       return {
         type: "subscription",
