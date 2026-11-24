@@ -29,7 +29,8 @@ USER root
 # Expose RADIUS ports
 # 1812/udp - Authentication
 # 1813/udp - Accounting
-EXPOSE 1812/udp 1813/udp
+# 3799/udp - Change of Authorization / Packet of Disconnect
+EXPOSE 1812/udp 1813/udp 3799/udp
 
 # Set entrypoint
 ENTRYPOINT ["/entrypoint.sh"]
