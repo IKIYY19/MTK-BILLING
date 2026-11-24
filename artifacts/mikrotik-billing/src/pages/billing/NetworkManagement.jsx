@@ -261,13 +261,19 @@ export function NetworkManagement() {
           </div>
         </div>
 
+        {data?.errors?.length > 0 && (
+          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+            Live router data is incomplete: {data.errors.join('; ')}
+          </div>
+        )}
+
         {/* ─── STAT CARDS ─── */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <StatCard label="Total Routers"    value={routers?.total}   sub={`${routers?.online ?? 0} online`}            icon={Router}    color="blue"    linkTo="/routers" />
           <StatCard label="Online Routers"   value={routers?.online}  sub={`${routerOnlinePct}% uptime`}                icon={CheckCircle2} color="emerald" linkTo="/routers" />
           <StatCard label="Offline Routers"  value={routers?.offline} sub="Requires attention"                           icon={XCircle}   color={routers?.offline > 0 ? 'red' : 'emerald'} linkTo="/routers" />
           <StatCard label="NAS Devices"      value={nas?.total}       sub="RADIUS clients"                              icon={Shield}    color="violet"  linkTo="/radius" />
-          <StatCard label="PPPoE Sessions"   value={pppoe_sessions}   sub="Active right now"                            icon={Wifi}      color="cyan"    linkTo="/pppoe" />
+          <StatCard label="PPPoE Sessions"   value={pppoe_sessions}   sub={data?.pppoe_sessions_status === 'unavailable' ? 'Live data unavailable' : 'Live RouterOS sessions'} icon={Wifi} color="cyan" linkTo="/pppoe" />
           <StatCard label="Active Subs"      value={subs?.active}     sub={`${subs?.suspended ?? 0} suspended`}         icon={Users}     color="amber"   linkTo="/billing-subscriptions" />
         </div>
 

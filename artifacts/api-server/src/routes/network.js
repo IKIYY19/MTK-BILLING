@@ -4,7 +4,7 @@ const router = express.Router();
 const routerConnectionManager = require('../services/routerConnectionManager');
 const mikrotikProvisioning = require('../services/mikrotikProvisioning');
 const hotspotProvisioning = require('../services/hotspotProvisioning');
-const { parseUptime } = require('../services/onlineStatus');
+const { parseUptime, getOnlineStatus } = require('../services/onlineStatus');
 
 // Helper: get MikroTik connection
 async function getMikrotikConnection(connectionId) {
@@ -905,6 +905,14 @@ router.get('/network/management/dashboard', async (req, res) => {
       console.warn('[NetDashboard] Could not fetch connections:', e.message);
     }
 
+    // Live sessions are read independently of /system/resource so a slow or
+    // failing resource query can never make an active PPPoE user look offline.
+    const liveSessions = await getOnlineStatus().catch((error) => ({
+      pppoe: [], hotspot: [], total: 0, errors: [error.message],
+    }));
+    dashboard.errors = liveSessions.errors || [];
+    dashboard.session_source = 'router';
+
     const { decrypt } = require('../utils/encryption');
     for (const conn of connections) {
       const routerEntry = {
@@ -928,9 +936,13 @@ router.get('/network/management/dashboard', async (req, res) => {
 
       const device = { ...conn };
       if (device.password_encrypted) {
-        try { device.password = decrypt(device.password_encrypted); } catch (e) { continue; }
+        device.password = routerConnectionManager.decryptPassword(device.password_encrypted);
       }
-      if (!device.password) continue;
+      if (!device.password) {
+        routerEntry.status = 'unknown';
+        dashboard.routers.push(routerEntry);
+        continue;
+      }
 
       try {
         const resources = await routerConnectionManager.executeCommand(device, '/system/resource/print');
@@ -999,6 +1011,30 @@ router.get('/network/management/dashboard', async (req, res) => {
       dashboard.routers.push(routerEntry);
     }
 
+    // Authoritative session data from the shared live presence service.
+    dashboard.pppoeSessions.sessions = liveSessions.pppoe.map((session) => ({
+      id: session.username,
+      username: session.username,
+      ip_address: session.address,
+      caller_id: '',
+      uptime: session.uptime,
+      bytes_in: 0,
+      bytes_out: 0,
+      router_id: session.router_id,
+      router_name: session.router_name,
+    }));
+    dashboard.pppoeSessions.total = liveSessions.pppoe.length;
+    dashboard.pppoeSessions.byRouter = {};
+    for (const session of liveSessions.pppoe) {
+      const entry = dashboard.pppoeSessions.byRouter[session.router_id] || {
+        name: session.router_name, count: 0, bandwidthIn: 0, bandwidthOut: 0,
+      };
+      entry.count += 1;
+      dashboard.pppoeSessions.byRouter[session.router_id] = entry;
+      const router = dashboard.routers.find((item) => item.id === session.router_id);
+      if (router) {router.activePPPoE = entry.count;}
+    }
+
     dashboard.summary.totalRouters = connections.length;
     dashboard.summary.onlineRouters = dashboard.routers.filter(r => r.status === 'online').length;
     dashboard.summary.totalPPPoEActive = dashboard.pppoeSessions.total;
@@ -1043,7 +1079,9 @@ router.get('/network/management/dashboard', async (req, res) => {
           let activeSessions = 0;
           try {
             const sessResult = await db.query(
-              "SELECT COUNT(*) as count FROM radacct WHERE nasipaddress = $1 AND acctstoptime IS NULL",
+              `SELECT COUNT(*) as count FROM radacct WHERE nasipaddress = $1 AND acctstoptime IS NULL
+               AND GREATEST(COALESCE(acctupdatetime, acctstarttime), acctstarttime)
+                   > NOW() - INTERVAL '15 minutes'`,
               [nas.nasname]
             );
             activeSessions = parseInt(sessResult.rows[0].count) || 0;
@@ -1089,7 +1127,7 @@ async function networkSummaryHandler(req, res) {
       nasRes,
       ipamRes,
       subsRes,
-      pppoeSessionsRes,
+      liveSessionsRes,
     ] = await Promise.allSettled([
       db.query(`SELECT id, name, ip_address, connection_type, is_online, last_seen FROM mikrotik_connections ORDER BY name`),
       db.query(`SELECT id, nasname, shortname, type, description, connection_id FROM nas ORDER BY shortname`),
@@ -1105,19 +1143,20 @@ async function networkSummaryHandler(req, res) {
           COUNT(*) FILTER (WHERE status = 'suspended') AS suspended,
           COUNT(*) FILTER (WHERE status = 'expired') AS expired
         FROM subscriptions`).catch(() => ({ rows: [{ total: 0, active: 0, suspended: 0, expired: 0 }] })),
-      db.query(`SELECT COUNT(*) AS total FROM radius_sessions WHERE end_time IS NULL`).catch(() => ({ rows: [{ total: 0 }] })),
+      getOnlineStatus(),
     ]);
 
     const routers = routersRes.status === 'fulfilled' ? routersRes.value.rows : [];
     const nas = nasRes.status === 'fulfilled' ? nasRes.value.rows : [];
     const ipam = ipamRes.status === 'fulfilled' ? ipamRes.value.rows[0] : {};
     const subs = subsRes.status === 'fulfilled' ? subsRes.value.rows[0] : {};
-    const pppoeSessionCount = pppoeSessionsRes.status === 'fulfilled'
-      ? pppoeSessionsRes.value?.rows?.[0]?.total
-      : undefined;
-    const inMemoryPppoeSessionCount = require('../db/radiusStore').radiusStore.sessions
-      .filter((session) => session.status === 'active' && !session.end_time)
-      .length;
+    const liveSessions = liveSessionsRes.status === 'fulfilled'
+      ? liveSessionsRes.value
+      : null;
+    const pppoeSessionCount = liveSessions ? liveSessions.total : null;
+    const sessionErrors = liveSessions
+      ? liveSessions.errors || []
+      : [liveSessionsRes.reason?.message || 'Live session query failed'];
 
     const onlineRouters = routers.filter((r) => r.is_online).length;
     const offlineRouters = routers.filter((r) => !r.is_online).length;
@@ -1143,7 +1182,10 @@ async function networkSummaryHandler(req, res) {
       nas: { total: nas.length, list: nas },
       ipam: { ...ipam, subnets },
       subscriptions: subs,
-      pppoe_sessions: Number(pppoeSessionCount ?? inMemoryPppoeSessionCount) || 0,
+      pppoe_sessions: pppoeSessionCount,
+      pppoe_sessions_status: pppoeSessionCount === null ? 'unavailable' : 'ok',
+      session_source: 'router',
+      errors: sessionErrors,
       generated_at: new Date().toISOString(),
     });
   } catch (e) {

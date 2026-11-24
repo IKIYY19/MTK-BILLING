@@ -146,8 +146,8 @@ async function updateRouterStatus(routerId, status, details = {}) {
   try {
     if (global.dbAvailable && db) {
       await db.query(
-        `UPDATE mikrotik_connections SET last_seen = $1, status = $2 WHERE id = $3`,
-        [new Date().toISOString(), status, routerId]
+        `UPDATE mikrotik_connections SET last_seen = $1, is_online = $2 WHERE id = $3`,
+        [new Date().toISOString(), status === 'online', routerId]
       );
     }
     // Also store in device metrics table if available
