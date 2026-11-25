@@ -173,7 +173,11 @@ router.get('/pppoe/profiles', async (req, res) => {
     const { connection_id } = req.query;
     const rows = [];
     for (const device of await listConnections(connection_id)) {
-      const result = await getFromMikrotik(device, '/ppp/profile').catch(() => []);
+      const result = await getFromMikrotik(
+        device,
+        '/ppp/profile',
+        '.id,name,rate-limit,local-address,remote-address,dns-server,only-one,comment',
+      ).catch(() => []);
       for (const row of (Array.isArray(result) ? result : [])) {
         rows.push({ ...row, connection_id: device.id, router_name: device.name });
       }

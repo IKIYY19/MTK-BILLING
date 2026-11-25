@@ -74,6 +74,10 @@ function normalizePlanRef(row) {
     price: row.plan_price !== undefined ? row.plan_price : row.price,
     quota_gb: row.plan_quota_gb ?? null,
     priority: row.plan_priority ?? null,
+    burst_limit: row.burst_limit ?? null,
+    burst_threshold: row.burst_threshold ?? null,
+    burst_time: row.burst_time ?? null,
+    hotspot_profile: row.hotspot_profile ?? null,
   });
 }
 

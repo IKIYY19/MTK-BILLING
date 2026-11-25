@@ -194,7 +194,14 @@ function ProfileForm({ show, onClose, editing, onSubmit }) {
   });
 
   useEffect(() => {
-    if (editing) {setForm({ ...editing });}
+    if (editing) {
+      setForm({
+        ...editing,
+        rate_limit: editing.rate_limit ?? editing['rate-limit'] ?? '',
+        local_address: editing.local_address ?? editing['local-address'] ?? '',
+        remote_address: editing.remote_address ?? editing['remote-address'] ?? '',
+      });
+    }
     else {setForm({ name: '', local_address: '', remote_address: '', rate_limit: '', only_one: 'yes', change_tcp_mss: 'yes', use_compression: 'no', use_encryption: 'yes', dns_server: '', wins_server: '', parent_queue: '' });}
   }, [editing, show]);
 
@@ -446,7 +453,9 @@ export function PPPoEManagement() {
                     </td>
                     <td><span className="badge badge-blue">{s.service}</span></td>
                     <td className="text-sm text-zinc-400">{s.profile || 'default'}</td>
-                    <td className="text-sm text-zinc-300 font-mono">{s.rate_limit || <span className="text-zinc-600">—</span>}</td>
+                    <td className="text-sm text-zinc-300 font-mono">
+                      {s.rate_limit || profiles.find((p) => p.name === (s.profile || 'default'))?.['rate-limit'] || <span className="text-zinc-600">—</span>}
+                    </td>
                     <td className="text-sm text-zinc-400 max-w-[180px] truncate">{s.comment || <span className="text-zinc-600">—</span>}</td>
                     <td>
                       <span className={`badge ${s.disabled === 'true' || s.disabled === 'yes' ? 'badge-red' : 'badge-green'}`}>
@@ -513,7 +522,7 @@ export function PPPoEManagement() {
                         <span className="text-white font-medium">{p.name}</span>
                       </div>
                     </td>
-                    <td className="text-sm text-zinc-300 font-mono">{p.rate_limit || <span className="text-zinc-600">—</span>}</td>
+                    <td className="text-sm text-zinc-300 font-mono">{p['rate-limit'] || p.rate_limit || <span className="text-zinc-600">—</span>}</td>
                     <td className="text-sm text-zinc-400">{p.local_address || <span className="text-zinc-600">—</span>}</td>
                     <td className="text-sm text-zinc-400">{p.remote_address || <span className="text-zinc-600">—</span>}</td>
                     <td className="text-sm text-zinc-400">{p.dns_server || <span className="text-zinc-600">—</span>}</td>

@@ -59,7 +59,9 @@ async function getExpandedSubscription(subscriptionId) {
 
   const customer =
     sub.customer || (await billing.getCustomerById(sub.customer_id));
-  const plan = sub.plan || (await billing.getPlanById(sub.plan_id));
+  // Always load the full plan row: subscription joins only carry a limited
+  // plan reference, which would drop speed/burst fields during provisioning.
+  const plan = (sub.plan_id ? await billing.getPlanById(sub.plan_id) : null) || sub.plan;
   return { ...sub, customer, plan };
 }
 
