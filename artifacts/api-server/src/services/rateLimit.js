@@ -54,9 +54,46 @@ function buildRateLimit(plan, options = {}) {
   return parts.join(" ");
 }
 
+/** Convert a RouterOS rate string (5M, 512k, 1G or plain bps) to bits/sec. */
+function toBps(value) {
+  const match = clean(value).match(/^(\d+(?:\.\d+)?)\s*([KMGT]?)B?$/i);
+  if (!match) {return 0;}
+  const multiplier = { '': 1, K: 1000, M: 1000000, G: 1000000000, T: 1000000000000 }[
+    match[2].toUpperCase()
+  ];
+  return Math.round(Number(match[1]) * multiplier);
+}
+
+/** Split a RouterOS rate-limit string into its queue properties. */
+function toQueueParams(rateLimit) {
+  const parts = clean(rateLimit).split(/\s+/).filter(Boolean);
+  if (!parts[0]) {return null;}
+  const [rx, tx = rx] = parts[0].split('/');
+  // RouterOS queue order matches the rate-limit string: upload/download.
+  const params = {
+    'max-limit': `${toBps(rx)}/${toBps(tx)}`,
+    'limit-at': `${toBps(rx)}/${toBps(tx)}`,
+  };
+  if (parts[1]) {
+    const [burstRx, burstTx = burstRx] = parts[1].split('/');
+    params['burst-limit'] = `${toBps(burstRx)}/${toBps(burstTx)}`;
+  }
+  if (parts[2]) {
+    const [thresholdRx, thresholdTx = thresholdRx] = parts[2].split('/');
+    params['burst-threshold'] = `${toBps(thresholdRx)}/${toBps(thresholdTx)}`;
+  }
+  if (parts[3]) {params['burst-time'] = `${parts[3]}s`;}
+  return params;
+}
+
 function buildHotspotRateLimit(plan) {
   // Hotspot user profiles use the same rx/tx (upload/download) convention.
   return buildRateLimit(plan);
 }
 
-module.exports = { buildRateLimit, buildHotspotRateLimit };
+module.exports = {
+  buildRateLimit,
+  buildHotspotRateLimit,
+  toBps,
+  toQueueParams,
+};

@@ -5,6 +5,7 @@ const routerConnectionManager = require('../services/routerConnectionManager');
 const mikrotikProvisioning = require('../services/mikrotikProvisioning');
 const hotspotProvisioning = require('../services/hotspotProvisioning');
 const { parseUptime, getOnlineStatus } = require('../services/onlineStatus');
+const billingData = require('../services/billingData');
 const realtimeTraffic = require('../services/realtimeTraffic');
 
 // Live RX/TX rates sampled from RouterOS counters (not cumulative byte totals).
@@ -264,6 +265,39 @@ router.get('/pppoe/active', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Apply a plan's current speed/burst to an already-connected PPPoE session.
+router.post('/pppoe/secrets/:name/apply-rate', async (req, res) => {
+  try {
+    const username = req.params.name;
+    const subscriptions = await billingData.listSubscriptions();
+    const subscription = subscriptions.find((sub) => sub.pppoe_username === username);
+    if (!subscription) {
+      return res.status(404).json({ error: 'No billing subscription uses this PPPoE username' });
+    }
+    const plan = subscription.plan_id
+      ? await billingData.getPlanById(subscription.plan_id)
+      : subscription.plan;
+    const rateLimit = mikrotikProvisioning.buildRateLimit(plan);
+    if (!rateLimit) {
+      return res.status(400).json({ error: 'The plan has no speed limit configured' });
+    }
+    const connectionId = req.body?.connection_id || subscription.mikrotik_connection_id;
+    const applied = await mikrotikProvisioning.applyRateLimitToActiveSession(
+      connectionId, username, rateLimit,
+    );
+    res.json({
+      success: Boolean(applied),
+      rate_limit: rateLimit,
+      applied,
+      message: applied
+        ? `Applied ${rateLimit} to the live session`
+        : 'Session is not connected or its queue was not found',
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Kick PPPoE user

@@ -3,7 +3,7 @@ import axios from 'axios';
 import {
   Network, Users, Activity, Plus, Search, Trash2, Pencil, RefreshCw,
   Play, Pause, Wifi, Eye, EyeOff, Copy, Check, Settings, Server,
-  ArrowUpRight, ArrowDownRight, Zap, AlertCircle
+  ArrowUpRight, ArrowDownRight, Zap, AlertCircle, Gauge
 } from 'lucide-react';
 
 import './pppoe.css';
@@ -341,6 +341,19 @@ export function PPPoEManagement() {
     } catch (e) { alert('Failed to delete profile'); }
   };
 
+  const handleApplyRate = async (name) => {
+    try {
+      const { data } = await axios.post(
+        `${API}/pppoe/secrets/${encodeURIComponent(name)}/apply-rate`,
+        { connection_id: selectedConnection },
+      );
+      alert(data.message || `Applied ${data.rate_limit}`);
+      fetchData();
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to apply speed limit');
+    }
+  };
+
   const handleKickUser = async (name) => {
     try {
       await axios.post(`${API}/pppoe/active/${encodeURIComponent(name)}/kick${selectedConnection ? `?connection_id=${selectedConnection}` : ''}`);
@@ -464,6 +477,9 @@ export function PPPoEManagement() {
                     </td>
                     <td>
                       <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => handleApplyRate(s.name)} className="btn-ghost p-2 text-cyan-400" title="Apply current plan speed/burst to the live session">
+                          <Gauge className="w-4 h-4" />
+                        </button>
                         <button onClick={() => handleToggleSecret(s.name, s.disabled)} className="btn-ghost p-2" title={s.disabled === 'true' ? 'Enable' : 'Disable'}>
                           {s.disabled === 'true' || s.disabled === 'yes' ? <Play className="w-4 h-4 text-emerald-400" /> : <Pause className="w-4 h-4 text-amber-400" />}
                         </button>

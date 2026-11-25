@@ -1,5 +1,7 @@
 const routerConnectionManager = require("./routerConnectionManager");
 const provisioningQueue = require("./provisioningQueue");
+const rateLimitUtil = require("./rateLimit");
+const logger = require("../utils/logger");
 
 const db = global.db || require("../db/memory");
 
@@ -102,6 +104,55 @@ async function findSecret(connectionId, username) {
   return secrets.find((secret) => secret.name === username) || null;
 }
 
+/**
+ * Apply a rate limit to an already-connected PPPoE session.
+ * PPPoE profiles only take effect on the next login, so the dynamic simple
+ * queue must be updated in place for plan changes to apply immediately.
+ */
+async function applyRateLimitToActiveSession(connectionId, username, rateLimitString) {
+  const params = rateLimitUtil.toQueueParams(rateLimitString);
+  if (!params) {return null;}
+  const active = await print(connectionId, "/ppp/active", ".id,name");
+  if (!active.some((session) => session.name === username)) {return null;}
+  const queues = await print(
+    connectionId,
+    "/queue/simple",
+    ".id,name,target,max-limit",
+  );
+  const queue = queues.find((item) =>
+    String(item.name || "") === `<pppoe-${username}>` ||
+    String(item.target || "") === `<pppoe-${username}>` ||
+    String(item.name || "").includes(username),
+  );
+  if (!queue) {return null;}
+  if (String(queue['max-limit'] || '') === params['max-limit']) {
+    return { username, queue: queue.name, rate_limit: rateLimitString, unchanged: true };
+  }
+  try {
+    await execute(connectionId, "/queue/simple/set", {
+      numbers: queue[".id"] || queue.name,
+      ...params,
+    });
+    return {
+      username,
+      queue: queue.name,
+      rate_limit: rateLimitString,
+      applied: params,
+    };
+  } catch (error) {
+    if (!/dynamic/i.test(error.message)) {throw error;}
+    // RouterOS forbids editing dynamic PPPoE queues. Disconnect the session so
+    // it reconnects using the updated PPP profile and picks up the new rate.
+    await disconnectActiveSession(connectionId, username);
+    return {
+      username,
+      rate_limit: rateLimitString,
+      kicked: true,
+      message: 'Session disconnected to apply the new speed on reconnect',
+    };
+  }
+}
+
 async function executeUpsertSecretDirectly(subscription) {
   if (!subscription.mikrotik_connection_id) {
     return {
@@ -130,11 +181,11 @@ async function executeUpsertSecretDirectly(subscription) {
     comment: buildComment(subscription),
   };
 
-  const rateLimit = buildRateLimit(subscription.plan);
-  if (rateLimit) {
+  const rateLimitString = buildRateLimit(subscription.plan);
+  if (rateLimitString) {
     args.profile = await ensureRateLimitProfile(
       subscription.mikrotik_connection_id,
-      rateLimit,
+      rateLimitString,
       subscription.pppoe_profile,
     );
   } else if (subscription.pppoe_profile) {
@@ -154,6 +205,21 @@ async function executeUpsertSecretDirectly(subscription) {
     await execute(subscription.mikrotik_connection_id, "/ppp/secret/add", args);
   }
 
+  let liveRate = null;
+  if (subscription.status === "active" && rateLimitString) {
+    try {
+      liveRate = await applyRateLimitToActiveSession(
+        subscription.mikrotik_connection_id,
+        subscription.pppoe_username,
+        rateLimitString,
+      );
+    } catch (error) {
+      logger.warn("[Provisioning] live rate update failed", {
+        username: subscription.pppoe_username, error: error.message,
+      });
+    }
+  }
+
   if (subscription.status !== "active") {
     await disconnectActiveSession(
       subscription.mikrotik_connection_id,
@@ -165,6 +231,7 @@ async function executeUpsertSecretDirectly(subscription) {
     success: true,
     status: "synced",
     action: existing ? "updated" : "created",
+    live_rate: liveRate,
     message: existing
       ? "PPPoE secret updated on MikroTik"
       : "PPPoE secret created on MikroTik",
@@ -321,6 +388,7 @@ module.exports = {
   deleteSubscriptionSecret,
   reconcileSubscription,
   executeUpsertSecretDirectly,
+  applyRateLimitToActiveSession,
   executeSuspendSecretDirectly,
   executeDeleteSecretDirectly,
 };
