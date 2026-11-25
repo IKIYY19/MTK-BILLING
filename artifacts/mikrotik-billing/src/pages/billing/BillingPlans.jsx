@@ -164,17 +164,19 @@ export function BillingPlans() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="speed-up">Upload Speed</Label>
-                    <select id="speed-up" value={form.speed_up} onChange={e => setForm({...form, speed_up: e.target.value})} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background">
-                      {speeds.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                    <Input id="speed-up" required value={form.speed_up || ''} onChange={e => setForm({...form, speed_up: e.target.value})} placeholder="e.g. 5M, 1500k, 1G" />
                   </div>
                   <div>
                     <Label htmlFor="speed-down">Download Speed</Label>
-                    <select id="speed-down" value={form.speed_down} onChange={e => setForm({...form, speed_down: e.target.value})} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background">
-                      {speeds.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                    <Input id="speed-down" required value={form.speed_down || ''} onChange={e => setForm({...form, speed_down: e.target.value})} placeholder="e.g. 20M, 500k, 1G" />
                   </div>
                 </div>
+                <p className="text-xs text-slate-500">
+                  Type any RouterOS rate (for example <code>1M</code>, <code>1500k</code>, <code>50M</code>, <code>1G</code>). Quick picks:{' '}
+                  {speeds.slice(0, 8).map(s => (
+                    <button key={s} type="button" onClick={() => setForm({...form, speed_down: s})} className="mx-0.5 rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400 hover:text-white">{s}</button>
+                  ))}
+                </p>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <Label htmlFor="burst-limit">Burst limit</Label>

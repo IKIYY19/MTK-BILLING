@@ -695,6 +695,8 @@ router.get("/plans", async (req, res) => {
 
 router.post("/plans", async (req, res) => {
   try {
+    const rate = validatePlanRate(req.body);
+    if (rate?.error) {return res.status(400).json({ error: rate.error });}
     const plan = await billing.createPlan({
       ...req.body,
       tenant_id: req.tenantId || req.body.tenant_id || null,
@@ -736,6 +738,24 @@ async function pushPlanToSubscribers(planId) {
   return results;
 }
 
+// Validate before saving so a typo never reaches RouterOS or RADIUS.
+function validatePlanRate(body) {
+  const speedUp = body?.speed_up;
+  const speedDown = body?.speed_down;
+  if (speedUp === undefined && speedDown === undefined) {return null;}
+  try {
+    return require("../services/rateLimit").buildRateLimit({
+      speed_up: speedUp,
+      speed_down: speedDown,
+      burst_limit: body.burst_limit,
+      burst_threshold: body.burst_threshold,
+      burst_time: body.burst_time,
+    });
+  } catch (error) {
+    return { error: error.message };
+  }
+}
+
 // Blank optional fields from forms must not overwrite saved plan settings.
 function normalizePlanPayload(body) {
   const payload = { ...body };
@@ -752,6 +772,8 @@ function normalizePlanPayload(body) {
 
 router.put("/plans/:id", async (req, res) => {
   try {
+    const rate = validatePlanRate(req.body);
+    if (rate?.error) {return res.status(400).json({ error: rate.error });}
     const plan = await billing.updatePlan(req.params.id, normalizePlanPayload(req.body));
     if (!plan) {return res.status(404).json({ error: "Plan not found" });}
     let push = null;
