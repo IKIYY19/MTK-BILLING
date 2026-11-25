@@ -12,6 +12,7 @@ const API = import.meta.env.VITE_API_URL || '/api';
 export function BillingPlans() {
   const toast = useToast();
   const [plans, setPlans] = useState([]);
+  const [pushInfo, setPushInfo] = useState({});
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const emptyForm = { name: '', speed_up: '10M', speed_down: '10M', burst_limit: '', burst_threshold: '', burst_time: '', hotspot_profile: '', price: 25, quota_gb: '', priority: 8, description: '', plan_type: 'monthly', validity_days: 30 };
@@ -28,6 +29,7 @@ export function BillingPlans() {
       if (editing) {
         const { data } = await axios.put(`${API}/billing/plans/${editing.id}`, form);
         const push = data?.push;
+        setPushInfo((previous) => ({ ...previous, [data.id]: push }));
         if (push?.total) {
           const kicked = push.live_updates?.filter((u) => u.kicked).length || 0;
           toast.success(
@@ -119,6 +121,12 @@ export function BillingPlans() {
                   </div>
                 </div>
                 <div className="text-xs text-zinc-500">{plan.active_subscribers} active subscriber{plan.active_subscribers !== 1 ? 's' : ''}</div>
+                {pushInfo[plan.id] && (
+                  <div className="mt-2 text-[11px] text-emerald-400">
+                    Pushed to {pushInfo[plan.id].synced}/{pushInfo[plan.id].total} subscribers
+                    {pushInfo[plan.id].live_updates?.some((item) => item.kicked) ? ' · live sessions restarted' : ''}
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}

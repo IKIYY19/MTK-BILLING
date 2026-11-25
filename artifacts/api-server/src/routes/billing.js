@@ -736,9 +736,23 @@ async function pushPlanToSubscribers(planId) {
   return results;
 }
 
+// Blank optional fields from forms must not overwrite saved plan settings.
+function normalizePlanPayload(body) {
+  const payload = { ...body };
+  for (const key of [
+    "burst_limit", "burst_threshold", "burst_time", "hotspot_profile",
+    "fup_limit", "fup_speed", "quota_gb", "radius_profile", "data_limit",
+    "description",
+  ]) {
+    if (payload[key] === "") {payload[key] = null;}
+    if (payload[key] === undefined) {delete payload[key];}
+  }
+  return payload;
+}
+
 router.put("/plans/:id", async (req, res) => {
   try {
-    const plan = await billing.updatePlan(req.params.id, req.body);
+    const plan = await billing.updatePlan(req.params.id, normalizePlanPayload(req.body));
     if (!plan) {return res.status(404).json({ error: "Plan not found" });}
     let push = null;
     try {
