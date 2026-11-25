@@ -168,12 +168,15 @@ function SplynxStatCard({ icon: Icon, label, value, prefix = "", color, onClick,
 }
 
 // ─── Splynx-style Customer Status Bar ─────────────────────────────────────────
-function CustomerStatusBar({ stats, currencySymbol }) {
+function CustomerStatusBar({ stats }) {
+  const live = stats?.customerStatus || {};
+  const unavailable = live.source === "unavailable";
   const items = [
-    { key: "active", label: "Active customers", value: stats?.activeCustomers || 0, tone: "green" },
-    { key: "sessions", label: "Active sessions", value: stats?.activeRadiusSessions || 0, tone: "blue" },
-    { key: "suspended", label: "Suspended", value: stats?.suspendedCustomers || 0, tone: "red" },
-    { key: "overdue", label: "Overdue invoices", value: stats?.overdueInvoices || 0, tone: "amber" },
+    { key: "online", label: "Online sessions", value: live.online_sessions, tone: "blue" },
+    { key: "authorized", label: "Authorized · online", value: live.active_authorized, tone: "green" },
+    { key: "unauthorized", label: "Unauthorized · online", value: live.active_unauthorized, tone: "red" },
+    { key: "offline", label: "Authorized · offline", value: live.offline_authorized, tone: "amber" },
+    { key: "suspended", label: "Suspended", value: live.suspended, tone: "red" },
   ];
   return (
     <section className="splynx-status-bar" aria-label="Customer status overview">
@@ -182,10 +185,78 @@ function CustomerStatusBar({ stats, currencySymbol }) {
           <span className="splynx-status-bar-dot" />
           <span className="splynx-status-bar-info">
             <span className="splynx-status-bar-label">{item.label}</span>
-            <span className="splynx-status-bar-value">{item.value.toLocaleString()}</span>
+            <span className="splynx-status-bar-value">
+              {unavailable || item.value === null || item.value === undefined
+                ? "—"
+                : Number(item.value).toLocaleString()}
+            </span>
           </span>
         </div>
       ))}
+    </section>
+  );
+}
+
+// ─── Live subscriber status matrix ───────────────────────────────────────────
+function LiveSubscriberStatus({ stats, navigate }) {
+  const status = stats?.customerStatus;
+  if (!status || status.source === "unavailable") {return null;}
+  const lists = status.lists || {};
+  const groups = [
+    {
+      key: "activeAuthorized",
+      label: "Authorized & online",
+      count: status.active_authorized,
+      note: "Paying customers currently connected",
+      route: "/pppoe",
+    },
+    {
+      key: "activeUnauthorized",
+      label: "Unauthorized & online",
+      count: status.active_unauthorized,
+      note: "Live sessions without an active subscription",
+      route: "/pppoe",
+    },
+    {
+      key: "offlineAuthorized",
+      label: "Authorized & offline",
+      count: status.offline_authorized,
+      note: "Active subscriptions with no live session",
+      route: "/billing-subscriptions",
+    },
+    {
+      key: "suspended",
+      label: "Suspended",
+      count: status.suspended,
+      note: "Suspended subscriptions",
+      route: "/billing-auto-suspend",
+    },
+  ];
+  return (
+    <section className="dashboard-snapshot" aria-label="Live subscriber status">
+      {groups.map((group) => {
+        const rows = lists[group.key] || [];
+        return (
+          <button
+            key={group.key}
+            type="button"
+            className="dashboard-metric"
+            onClick={() => navigate(group.route)}
+          >
+            <span className="splynx-status-bar-label">{group.label}</span>
+            <span className="splynx-status-bar-value">
+              {group.count === null || group.count === undefined ? "—" : Number(group.count).toLocaleString()}
+            </span>
+            <span className="splynx-status-bar-note">{group.note}</span>
+            <span className="dashboard-live-names">
+              {rows.length === 0
+                ? "None"
+                : rows.slice(0, 4).map((row) => `${row.customer_name || row.username}${row.username ? ` (${row.username})` : ""}`).join(" · ")}
+              {rows.length > 4 ? ` · +${rows.length - 4} more` : ""}
+            </span>
+          </button>
+        );
+      })}
     </section>
   );
 }
@@ -448,6 +519,7 @@ export function Dashboard() {
           </section>
 
           <CustomerStatusBar stats={stats} currencySymbol={currencySymbol} />
+          <LiveSubscriberStatus stats={stats} navigate={navigate} />
         </>
       )}
 

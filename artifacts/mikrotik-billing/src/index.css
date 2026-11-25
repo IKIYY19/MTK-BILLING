@@ -3271,6 +3271,21 @@ body {
     cursor: pointer;
 }
 
+.splynx-status-bar-note {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted, #71717a);
+    line-height: 1.35;
+}
+
+.dashboard-live-names {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text-secondary, #a1a1aa);
+    line-height: 1.4;
+}
+
 .dashboard-snapshot {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));

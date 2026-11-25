@@ -6,6 +6,7 @@
 
 const express = require("express");
 const { getDb } = require("../db");
+const billing = require("../services/billingData");
 const router = express.Router();
 
 // Simple in-memory cache with TTL
@@ -183,10 +184,83 @@ router.get("/stats", async (req, res) => {
       revenueByDayResult.status === "fulfilled"
         ? revenueByDayResult.value.rows
         : [];
-    stats.activeRadiusSessions = presenceResult.status === "fulfilled" && presenceResult.value
-      ? presenceResult.value.total
-      : 0;
+    const presence = presenceResult.status === "fulfilled" && presenceResult.value
+      ? presenceResult.value
+      : { pppoe: [], hotspot: [], total: 0, errors: [] };
+    stats.activeRadiusSessions = presence.total;
     stats.onlineSessionsSource = "router";
+
+    // Real-time customer status matrix, derived from live RouterOS sessions
+    // joined to billing subscriptions (not from cached radacct/in-memory state).
+    try {
+      const [allSubscriptions, allCustomers] = await Promise.all([
+        billing.listSubscriptions(),
+        billing.listCustomers(),
+      ]);
+      const customerById = new Map(allCustomers.map((customer) => [customer.id, customer]));
+      const activeSubs = allSubscriptions.filter((subscription) => subscription.status === "active");
+      const suspendedSubs = allSubscriptions.filter((subscription) => subscription.status === "suspended");
+      const onlineKeys = new Set(presence.pppoe.map((session) => session.username));
+
+      const activeAuthorized = [];
+      for (const subscription of activeSubs) {
+        if (subscription.pppoe_username && onlineKeys.has(subscription.pppoe_username)) {
+          activeAuthorized.push({
+            customer_id: subscription.customer_id,
+            customer_name: customerById.get(subscription.customer_id)?.name || subscription.customer_name || "Unknown",
+            username: subscription.pppoe_username,
+            subscription_id: subscription.id,
+            plan_name: subscription.plan_name || "",
+          });
+        }
+      }
+      const activeUnauthorized = presence.pppoe
+        .filter((session) => !activeSubs.some((subscription) => subscription.pppoe_username === session.username))
+        .map((session) => ({
+          customer_id: session.customer_id || null,
+          customer_name: session.customer_name || "Unknown",
+          username: session.username,
+          router_name: session.router_name,
+          address: session.address,
+        }));
+      const offlineAuthorized = activeSubs
+        .filter((subscription) => subscription.pppoe_username && !onlineKeys.has(subscription.pppoe_username))
+        .map((subscription) => ({
+          customer_id: subscription.customer_id,
+          customer_name: customerById.get(subscription.customer_id)?.name || subscription.customer_name || "Unknown",
+          username: subscription.pppoe_username,
+          plan_name: subscription.plan_name || "",
+        }));
+      const suspended = suspendedSubs.map((subscription) => ({
+        customer_id: subscription.customer_id,
+        customer_name: customerById.get(subscription.customer_id)?.name || subscription.customer_name || "Unknown",
+        username: subscription.pppoe_username,
+        plan_name: subscription.plan_name || "",
+      }));
+
+      stats.customerStatus = {
+        online_sessions: presence.total,
+        active_authorized: activeAuthorized.length,
+        active_unauthorized: activeUnauthorized.length,
+        offline_authorized: offlineAuthorized.length,
+        suspended: suspended.length,
+        lists: { activeAuthorized, activeUnauthorized, offlineAuthorized, suspended },
+        source: "router+subscriptions",
+        errors: presence.errors || [],
+        generated_at: new Date().toISOString(),
+      };
+    } catch (error) {
+      stats.customerStatus = {
+        online_sessions: presence.total,
+        active_authorized: null,
+        active_unauthorized: null,
+        offline_authorized: null,
+        suspended: null,
+        lists: {},
+        source: "unavailable",
+        errors: [error.message],
+      };
+    }
     stats.recentPayments =
       recentPaymentsResult.status === "fulfilled"
         ? recentPaymentsResult.value.rows
