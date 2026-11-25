@@ -191,7 +191,9 @@ export function BillingPlans() {
                     <Input id="burst-time" value={form.burst_time || ''} onChange={e => setForm({...form, burst_time: e.target.value})} placeholder="10s" />
                   </div>
                 </div>
-                <p className="text-xs text-slate-500">Burst is pushed to RouterOS and RADIUS as part of the rate limit, e.g. <code>5M/10M 10M/20M 6M/12M 10</code> (upload/download).</p>
+                <p className="text-xs text-slate-500">
+                  Burst limit must be ≥ the speeds, and burst threshold must be ≤ burst limit — otherwise RouterOS rejects the PPPoE session. Example: speeds <code>20M/10M</code>, burst <code>20M</code>, threshold <code>15M</code>, time <code>10</code>.
+                </p>
                 <div>
                   <Label htmlFor="hotspot-profile">Hotspot profile (name on router)</Label>
                   <Input id="hotspot-profile" value={form.hotspot_profile || ''} onChange={e => setForm({...form, hotspot_profile: e.target.value})} placeholder="e.g. billing-profile" />

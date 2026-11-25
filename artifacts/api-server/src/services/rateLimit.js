@@ -42,6 +42,12 @@ function buildRateLimit(plan, options = {}) {
   valid(burst, "burst limit");
   valid(threshold, "burst threshold");
 
+  if (burst && threshold && toBps(threshold) > toBps(burst)) {
+    throw new Error("Burst threshold must not exceed burst limit (RouterOS will reject the PPPoE session)");
+  }
+  if (burst && toBps(burst) < Math.max(toBps(down), toBps(up))) {
+    throw new Error("Burst limit must be greater than or equal to the speeds");
+  }
   if (burst) {parts.push(`${burst}/${burst}`);}
   if (threshold) {parts.push(`${threshold}/${threshold}`);}
   if (time) {
