@@ -26,9 +26,20 @@ export function BillingPlans() {
     e.preventDefault();
     try {
       if (editing) {
-        await axios.put(`${API}/billing/plans/${editing.id}`, form);
+        const { data } = await axios.put(`${API}/billing/plans/${editing.id}`, form);
+        const push = data?.push;
+        if (push?.total) {
+          const kicked = push.live_updates?.filter((u) => u.kicked).length || 0;
+          toast.success(
+            `Plan saved and pushed to ${push.synced}/${push.total} subscriber(s)`,
+            kicked ? `${kicked} active session(s) disconnected to apply the new speed` : '',
+          );
+        } else {
+          toast.success('Plan saved');
+        }
       } else {
         await axios.post(`${API}/billing/plans`, form);
+        toast.success('Plan created');
       }
       setShowForm(false); setEditing(null);
       setForm(emptyForm);

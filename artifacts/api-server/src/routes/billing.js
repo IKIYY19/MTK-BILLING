@@ -59,9 +59,16 @@ async function getExpandedSubscription(subscriptionId) {
 
   const customer =
     sub.customer || (await billing.getCustomerById(sub.customer_id));
-  // Always load the full plan row: subscription joins only carry a limited
-  // plan reference, which would drop speed/burst fields during provisioning.
-  const plan = (sub.plan_id ? await billing.getPlanById(sub.plan_id) : null) || sub.plan;
+  // Always load the full plan row directly: subscription joins only carry a
+  // limited plan reference, which would drop speed/burst fields.
+  let plan = null;
+  if (sub.plan_id && global.dbAvailable && global.db) {
+    const planResult = await global.db.query(
+      "SELECT * FROM service_plans WHERE id = $1", [sub.plan_id],
+    );
+    plan = planResult.rows[0] || null;
+  }
+  if (!plan) {plan = (sub.plan_id ? await billing.getPlanById(sub.plan_id) : null) || sub.plan;}
   return { ...sub, customer, plan };
 }
 
@@ -698,11 +705,48 @@ router.post("/plans", async (req, res) => {
   }
 });
 
+// Push a saved plan to RADIUS, RouterOS secrets and live sessions immediately.
+async function pushPlanToSubscribers(planId) {
+  const subscriptions = await billing.listSubscriptions();
+  const targets = subscriptions.filter(
+    (subscription) => subscription.plan_id === planId && subscription.status === "active",
+  );
+  const results = { total: targets.length, synced: 0, failed: 0, live_updates: [], errors: [] };
+  for (const subscription of targets) {
+    try {
+      const expanded = await getExpandedSubscription(subscription.id);
+      const result = await syncSubscription("reconcile", expanded);
+      if (result.syncResult?.live_rate) {
+        results.live_updates.push(result.syncResult.live_rate);
+      }
+      if (!result.partial && (result.syncResult?.success || result.radiusResult?.success)) {
+        results.synced += 1;
+      } else {
+        results.failed += 1;
+        results.errors.push({
+          username: expanded.pppoe_username,
+          error: result.syncResult?.error || result.radiusResult?.error || "not synced",
+        });
+      }
+    } catch (error) {
+      results.failed += 1;
+      results.errors.push({ username: subscription.pppoe_username, error: error.message });
+    }
+  }
+  return results;
+}
+
 router.put("/plans/:id", async (req, res) => {
   try {
     const plan = await billing.updatePlan(req.params.id, req.body);
     if (!plan) {return res.status(404).json({ error: "Plan not found" });}
-    res.json(plan);
+    let push = null;
+    try {
+      push = await pushPlanToSubscribers(req.params.id);
+    } catch (pushError) {
+      push = { total: 0, synced: 0, failed: 1, errors: [pushError.message] };
+    }
+    res.json({ ...plan, push });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -713,30 +757,7 @@ router.post("/plans/:id/sync", async (req, res) => {
   try {
     const plan = await billing.getPlanById(req.params.id);
     if (!plan) {return res.status(404).json({ error: "Plan not found" });}
-    const subscriptions = await billing.listSubscriptions();
-    const targets = subscriptions.filter(
-      (subscription) => subscription.plan_id === req.params.id && subscription.status === "active",
-    );
-    const results = { total: targets.length, synced: 0, failed: 0, errors: [] };
-    for (const subscription of targets) {
-      try {
-        const expanded = await getExpandedSubscription(subscription.id);
-        const result = await syncSubscription("reconcile", expanded);
-        if (!result.partial && (result.syncResult?.success || result.radiusResult?.success)) {
-          results.synced += 1;
-        } else {
-          results.failed += 1;
-          results.errors.push({
-            username: expanded.pppoe_username,
-            error: result.syncResult?.error || result.radiusResult?.error || "not synced",
-          });
-        }
-      } catch (error) {
-        results.failed += 1;
-        results.errors.push({ username: subscription.pppoe_username, error: error.message });
-      }
-    }
-    res.json(results);
+    res.json(await pushPlanToSubscribers(req.params.id));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
