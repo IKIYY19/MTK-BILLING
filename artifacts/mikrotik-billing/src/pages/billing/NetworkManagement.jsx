@@ -32,6 +32,14 @@ function pct(used, total) {
   return Math.round((parseInt(used) / parseInt(total)) * 100);
 }
 
+function fmtRate(bps) {
+  const value = Number(bps) || 0;
+  if (value <= 0) return '0 bps';
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)} Mbps`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)} Kbps`;
+  return `${value} bps`;
+}
+
 // ─── Stat Card ─────────────────────────────────────────────────────────────────
 function StatCard({ label, value, sub, icon: Icon, color, linkTo }) {
   const colors = {
@@ -168,6 +176,7 @@ export function NetworkManagement() {
   const [error, setError]     = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [refreshing, setRefreshing]   = useState(false);
+  const [traffic, setTraffic]          = useState(null);
   const timerRef = useRef(null);
 
   const load = useCallback(async (silent = false) => {
@@ -175,8 +184,12 @@ export function NetworkManagement() {
     else setRefreshing(true);
     setError(null);
     try {
-      const res = await axios.get(`${API}/network/summary`);
+      const [res, trafficRes] = await Promise.all([
+        axios.get(`${API}/network/summary`),
+        axios.get(`${API}/network/realtime`).catch(() => ({ data: null })),
+      ]);
       setData(res.data);
+      setTraffic(trafficRes.data);
       setLastUpdated(new Date());
     } catch (e) {
       setError(e.response?.data?.error || e.message);
@@ -191,6 +204,14 @@ export function NetworkManagement() {
     timerRef.current = setInterval(() => load(true), AUTO_REFRESH_MS);
     return () => clearInterval(timerRef.current);
   }, [load]);
+
+  useEffect(() => {
+    const fetchTraffic = () => axios.get(`${API}/network/realtime`)
+      .then((r) => setTraffic(r.data))
+      .catch(() => {});
+    const timer = setInterval(fetchTraffic, 10_000);
+    return () => clearInterval(timer);
+  }, []);
 
   // ─── Loading ────────────────────────────────────────────────────────────────
   if (loading) {
@@ -465,6 +486,79 @@ export function NetworkManagement() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* ─── REAL-TIME TRAFFIC ─── */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-white font-bold text-lg flex items-center gap-2">
+              <Activity className="w-5 h-5 text-emerald-400" /> Live traffic
+              <span className="text-xs font-normal text-gray-500">
+                {traffic?.warming
+                  ? 'warming up — rates appear after the next sample'
+                  : traffic?.sampled_at ? `sampled ${fmtTime(traffic.sampled_at)}` : 'waiting for sample'}
+              </span>
+            </h2>
+            {traffic?.errors?.length > 0 && (
+              <span className="text-xs text-amber-400">{traffic.errors.length} router error(s)</span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            {(traffic?.routers || []).map((router) => (
+              <div key={router.id} className="rounded-2xl border border-white/10 bg-[#151821] p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-semibold text-white">{router.name}</span>
+                  <span className="text-[11px] text-gray-500">{router.interface || 'uplink'}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-[11px] text-gray-500 uppercase">RX</div>
+                    <div className="text-lg font-bold text-emerald-400 tabular-nums">{fmtRate(router.rx_bps)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-gray-500 uppercase">TX</div>
+                    <div className="text-lg font-bold text-blue-400 tabular-nums">{fmtRate(router.tx_bps)}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-[#151821] overflow-hidden">
+            <div className="px-5 py-3 border-b border-white/10 text-sm font-semibold text-white">
+              Active PPPoE sessions · live speed
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-[11px] uppercase text-gray-500 border-b border-white/10">
+                    <th className="px-5 py-2.5 text-left">Customer</th>
+                    <th className="px-5 py-2.5 text-left">Username</th>
+                    <th className="px-5 py-2.5 text-left">IP</th>
+                    <th className="px-5 py-2.5 text-right">RX</th>
+                    <th className="px-5 py-2.5 text-right">TX</th>
+                    <th className="px-5 py-2.5 text-right">Limit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(traffic?.sessions || []).map((session) => (
+                    <tr key={session.key} className="border-b border-white/5 text-sm">
+                      <td className="px-5 py-2.5 text-white">{session.customer_name || 'Unknown'}</td>
+                      <td className="px-5 py-2.5 font-mono text-cyan-300">{session.username}</td>
+                      <td className="px-5 py-2.5 font-mono text-gray-400">{session.address || '—'}</td>
+                      <td className="px-5 py-2.5 text-right font-bold text-emerald-400 tabular-nums">{fmtRate(session.rx_bps)}</td>
+                      <td className="px-5 py-2.5 text-right font-bold text-blue-400 tabular-nums">{fmtRate(session.tx_bps)}</td>
+                      <td className="px-5 py-2.5 text-right text-xs text-gray-500">{session.rate_limit || '—'}</td>
+                    </tr>
+                  ))}
+                  {(!traffic || traffic.sessions.length === 0) && (
+                    <tr><td colSpan="6" className="px-5 py-6 text-center text-gray-500">No active PPPoE sessions</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
 
         {/* ─── QUICK LINKS ─── */}

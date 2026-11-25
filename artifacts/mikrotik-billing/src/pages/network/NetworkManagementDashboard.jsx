@@ -20,6 +20,14 @@ function formatBytes(bytes) {
   return `${val.toFixed(i > 1 ? 1 : 0)} ${units[i]}`;
 }
 
+function formatRate(bps) {
+  const value = Number(bps) || 0;
+  if (value <= 0) return '0 bps';
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)} Mbps`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)} Kbps`;
+  return `${value} bps`;
+}
+
 function formatUptime(uptimeFormatted) {
   return uptimeFormatted || '—';
 }
@@ -105,7 +113,7 @@ function SummaryCard({ label, value, icon: Icon, color, sub }) {
 }
 
 /* ── Router Health Card ── */
-function RouterHealthCard({ router }) {
+function RouterHealthCard({ router, live }) {
   return (
     <Card className="card-hover">
       <CardContent className="p-5">
@@ -158,11 +166,11 @@ function RouterHealthCard({ router }) {
               </div>
               <div className="text-center p-2 rounded-lg bg-zinc-800/50">
                 <div className="text-[10px] text-zinc-500 mb-0.5 flex items-center justify-center gap-0.5"><ArrowDownRight className="w-2.5 h-2.5 text-emerald-400" /> RX</div>
-                <div className="text-xs font-medium text-zinc-300">{formatBytes(router.bandwidthIn)}</div>
+                <div className="text-xs font-medium text-emerald-400">{formatRate(live?.rx_bps)}</div>
               </div>
               <div className="text-center p-2 rounded-lg bg-zinc-800/50">
                 <div className="text-[10px] text-zinc-500 mb-0.5 flex items-center justify-center gap-0.5"><ArrowUpRight className="w-2.5 h-2.5 text-blue-400" /> TX</div>
-                <div className="text-xs font-medium text-zinc-300">{formatBytes(router.bandwidthOut)}</div>
+                <div className="text-xs font-medium text-blue-400">{formatRate(live?.tx_bps)}</div>
               </div>
             </div>
 
@@ -228,15 +236,15 @@ function NASRow({ nas }) {
 }
 
 /* ── PPPoE Session Row ── */
-function PPPoESessionRow({ session }) {
+function PPPoESessionRow({ session, live }) {
   return (
     <tr className="border-b border-zinc-800/30 hover:bg-zinc-800/20 transition-colors">
       <td className="py-2.5 px-3 text-sm text-white">{session.username}</td>
       <td className="py-2.5 px-3 text-sm text-zinc-400">{session.ip_address}</td>
       <td className="py-2.5 px-3 text-sm text-zinc-500">{session.router_name}</td>
       <td className="py-2.5 px-3 text-sm text-zinc-500">{session.uptime}</td>
-      <td className="py-2.5 px-3 text-sm text-emerald-400">{formatBytes(session.bytes_in)}</td>
-      <td className="py-2.5 px-3 text-sm text-blue-400">{formatBytes(session.bytes_out)}</td>
+      <td className="py-2.5 px-3 text-sm text-emerald-400">{formatRate(live?.rx_bps)}</td>
+      <td className="py-2.5 px-3 text-sm text-blue-400">{formatRate(live?.tx_bps)}</td>
     </tr>
   );
 }
@@ -247,12 +255,17 @@ export function NetworkManagementDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [traffic, setTraffic] = useState(null);
 
   const fetchData = useCallback(async () => {
     try {
       setRefreshing(true);
-      const res = await axios.get(`${API}/network/management/dashboard`);
+      const [res, trafficRes] = await Promise.all([
+        axios.get(`${API}/network/management/dashboard`),
+        axios.get(`${API}/network/realtime`).catch(() => ({ data: null })),
+      ]);
       setData(res.data);
+      setTraffic(trafficRes.data);
       setError(null);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
@@ -268,6 +281,13 @@ export function NetworkManagementDashboard() {
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      axios.get(`${API}/network/realtime`).then((r) => setTraffic(r.data)).catch(() => {});
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, []);
 
   if (loading) {
     return (
@@ -370,7 +390,13 @@ export function NetworkManagementDashboard() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {routers.map(r => <RouterHealthCard key={r.id} router={r} />)}
+            {routers.map(r => (
+              <RouterHealthCard
+                key={r.id}
+                router={r}
+                live={(traffic?.routers || []).find((item) => item.id === r.id)}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -446,12 +472,19 @@ export function NetworkManagementDashboard() {
                     <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500">IP Address</th>
                     <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500">Router</th>
                     <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500">Uptime</th>
-                    <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500">↓ RX</th>
-                    <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500">↑ TX</th>
+                    <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500">↓ RX rate</th>
+                    <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500">↑ TX rate</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {topSessions.map(session => <PPPoESessionRow key={session.id} session={session} />)}
+                  {topSessions.map(session => (
+                    <PPPoESessionRow
+                      key={session.id}
+                      session={session}
+                      live={(traffic?.sessions || []).find((item) =>
+                        item.username === session.username && item.router_id === session.router_id)}
+                    />
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -475,11 +508,11 @@ export function NetworkManagementDashboard() {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-zinc-500 flex items-center gap-1"><ArrowDownRight className="w-3 h-3 text-emerald-400" /> RX</span>
-                      <span className="text-xs font-medium text-emerald-400">{formatBytes(r.bandwidthIn)}</span>
+                      <span className="text-xs font-medium text-emerald-400">{formatRate((traffic?.routers || []).find((item) => item.id === id)?.rx_bps)}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-zinc-500 flex items-center gap-1"><ArrowUpRight className="w-3 h-3 text-blue-400" /> TX</span>
-                      <span className="text-xs font-medium text-blue-400">{formatBytes(r.bandwidthOut)}</span>
+                      <span className="text-xs font-medium text-blue-400">{formatRate((traffic?.routers || []).find((item) => item.id === id)?.tx_bps)}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-zinc-500 flex items-center gap-1"><Users className="w-3 h-3 text-violet-400" /> Sessions</span>

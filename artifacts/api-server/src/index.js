@@ -947,6 +947,15 @@ const startServer = async () => {
         logger.warn("Could not start RADIUS reconciliation cron", { error: e.message });
       }
 
+      // Sample real-time RX/TX rates from RouterOS counters.
+      try {
+        const { startCron: startTrafficSample } = require("./services/realtimeTraffic");
+        startTrafficSample();
+        logger.info("Real-time traffic sampling started");
+      } catch (e) {
+        logger.warn("Could not start real-time traffic sampling", { error: e.message });
+      }
+
       // Import real RouterOS pools and track live PPPoE client IPs in IPAM.
       try {
         const { startCron: startIpamSync } = require("./services/ipamSync");

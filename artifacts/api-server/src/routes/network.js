@@ -5,6 +5,21 @@ const routerConnectionManager = require('../services/routerConnectionManager');
 const mikrotikProvisioning = require('../services/mikrotikProvisioning');
 const hotspotProvisioning = require('../services/hotspotProvisioning');
 const { parseUptime, getOnlineStatus } = require('../services/onlineStatus');
+const realtimeTraffic = require('../services/realtimeTraffic');
+
+// Live RX/TX rates sampled from RouterOS counters (not cumulative byte totals).
+router.get('/network/realtime', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(realtimeTraffic.getLatest());
+});
+
+router.post('/network/realtime/sample', async (req, res) => {
+  try {
+    res.json(await realtimeTraffic.sample());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // Helper: get MikroTik connection
 async function getMikrotikConnection(connectionId) {
