@@ -117,7 +117,7 @@ router.get("/plans", async (req, res) => {
         validity_label: require("../services/validity").label(plan),
       })),
       activeSession: activeSession
-        ? { expiresAt: activeSession.expires_at }
+        ? await captiveHotspot.publicSession(activeSession)
         : null,
     });
   } catch (error) {

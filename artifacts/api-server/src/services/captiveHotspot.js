@@ -183,7 +183,7 @@ async function listPlans(routerId, tenantId) {
 
 async function findActiveSession(routerId, macAddress) {
   const result = await database().query(
-    `SELECT id, status, expires_at, plan_id
+    `SELECT *
      FROM captive_hotspot_sessions
      WHERE router_id = $1 AND mac_address = $2 AND status = 'authorized'
        AND expires_at > CURRENT_TIMESTAMP

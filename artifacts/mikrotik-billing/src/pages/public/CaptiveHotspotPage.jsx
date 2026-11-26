@@ -227,6 +227,7 @@ export default function CaptiveHotspotPage() {
   const [redeemingVoucher, setRedeemingVoucher] = useState(false);
   const [showVoucher, setShowVoucher] = useState(() => Boolean(context.voucherCode));
   const connectFormRef = useRef(null);
+  const activeConnectRef = useRef(null);
 
   useEffect(() => {
     if (!portalFont || portalFont === "Inter") {return undefined;}
@@ -487,6 +488,16 @@ export default function CaptiveHotspotPage() {
     return () => window.clearTimeout(timer);
   }, [authorized]);
 
+  // A paid session can be active in the database while the device has no live
+  // hotspot login (e.g. after suspend/renew or a radio reset). Connect it.
+  useEffect(() => {
+    if (!activeSession?.linkLoginOnly || !activeConnectRef.current) {return undefined;}
+    const timer = window.setTimeout(() => {
+      try {activeConnectRef.current.submit();} catch { /* keep the button */ }
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [activeSession?.linkLoginOnly]);
+
   // After a suspend/renew cycle the account can be authorized in the database
   // while the device has no live hotspot session. Re-submit the login so the
   // client is connected again without asking the customer to do anything.
@@ -541,8 +552,22 @@ export default function CaptiveHotspotPage() {
           eyebrow="Already active"
           title="Your access is ready"
         >
-          <p>This device already has a paid package on this network. You can reconnect any time.</p>
+          <p>This device already has a paid package on this network. Connect to start browsing.</p>
           <div className="hp-status-meta">Access ends {formatExpiry(activeSession.expiresAt)}</div>
+          {activeSession.linkLoginOnly && (
+            <form
+              ref={activeConnectRef}
+              action={activeSession.linkLoginOnly}
+              method="post"
+            >
+              <button type="submit" className="hp-btn" style={{ marginTop: 16 }}>
+                Connect to Wi-Fi <ArrowRight className="h-4 w-4" />
+              </button>
+              <input type="hidden" name="username" value={activeSession.username || ""} />
+              <input type="hidden" name="password" value={activeSession.password || ""} />
+              <input type="hidden" name="dst" value={activeSession.originalUrl || ""} />
+            </form>
+          )}
         </StatusCard>
       </PortalShell>
     );
