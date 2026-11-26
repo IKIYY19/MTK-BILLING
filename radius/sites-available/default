@@ -33,6 +33,8 @@ server default {
     }
 
     authenticate {
+        # FreeRADIUS 3.2 sets Auth-Type to lowercase names; both spellings
+        # are configured so PAP, CHAP and MS-CHAP all authenticate.
         Auth-Type PAP {
             pap
         }
@@ -41,6 +43,15 @@ server default {
         }
         Auth-Type MS-CHAP {
             mschap
+        }
+        Auth-Type mschap {
+            mschap
+        }
+        Auth-Type chap {
+            chap
+        }
+        Auth-Type pap {
+            pap
         }
     }
 
