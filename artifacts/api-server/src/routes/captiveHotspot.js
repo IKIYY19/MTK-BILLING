@@ -20,6 +20,12 @@ function requireRouterId(value) {
   return routerId;
 }
 
+function normalizeClientIp(value) {
+  let ip = String(value || "").split(",")[0].trim();
+  if (ip.startsWith("::ffff:")) {ip = ip.slice(7);}
+  return ip.startsWith("$(") ? "" : ip;
+}
+
 function publicError(res, error) {
   if (error.statusCode) {
     return res.status(error.statusCode).json({ error: error.message });
@@ -54,7 +60,10 @@ async function checkProviderStatus(session) {
 router.get("/plans", async (req, res) => {
   try {
     const routerId = requireRouterId(req.query.router_id);
-    const clientIp = String(req.query.ip || "").trim();
+    const clientIp =
+      normalizeClientIp(req.query.ip) ||
+      normalizeClientIp(req.headers["x-forwarded-for"]) ||
+      normalizeClientIp(req.ip);
     let macAddress = captiveHotspot.normalizeMac(req.query.mac);
     if (!macAddress && clientIp) {
       // Some RouterOS versions leave $(mac) empty in the hotspot HTML. Resolve

@@ -18,15 +18,23 @@ import {
 import "../../hotspot-portal.css";
 
 const API = import.meta.env.VITE_API_URL || "/api";
+
+// RouterOS sometimes serves literal $(...) placeholders instead of substituting
+// them in hotspot HTML files. Treat those as missing values.
+function cleanParam(value) {
+  const text = String(value || "").trim();
+  return text.startsWith("$(") ? "" : text;
+}
 const SESSION_KEY = "captive_hotspot_session";
 const POLL_INTERVAL_MS = 5000;
 const MAX_AUTOMATIC_POLLS = 30;
 
 function getPortalContext() {
   const params = new URLSearchParams(window.location.search);
-  const linkLoginOnly =
-    params.get("link_login_only") || params.get("link-login-only") || "";
-  let gatewayIp = params.get("gateway_ip") || params.get("gateway") || "";
+  const linkLoginOnly = cleanParam(
+    params.get("link_login_only") || params.get("link-login-only") || "",
+  );
+  let gatewayIp = cleanParam(params.get("gateway_ip") || params.get("gateway") || "");
   if (!gatewayIp && linkLoginOnly) {
     try {
       gatewayIp = new URL(linkLoginOnly).hostname;
@@ -34,12 +42,13 @@ function getPortalContext() {
       gatewayIp = "";
     }
   }
-  let mac =
+  let mac = cleanParam(
     params.get("mac") ||
-    params.get("client_mac") ||
-    params.get("client-mac") ||
-    params.get("mac_address") ||
-    "";
+      params.get("client_mac") ||
+      params.get("client-mac") ||
+      params.get("mac_address") ||
+      "",
+  );
   if (!mac && linkLoginOnly) {
     try {
       mac = new URL(linkLoginOnly).searchParams.get("mac") || "";
@@ -49,9 +58,9 @@ function getPortalContext() {
   }
 
   return {
-    routerId: params.get("router_id") || params.get("routerId") || "",
+    routerId: cleanParam(params.get("router_id") || params.get("routerId") || ""),
     mac,
-    ip: params.get("ip") || "",
+    ip: cleanParam(params.get("ip") || ""),
     gatewayIp,
     linkLoginOnly,
     brand: params.get("brand") || "",
@@ -60,11 +69,12 @@ function getPortalContext() {
     support: params.get("support") || "",
     font: params.get("font") || "Inter",
     terms: params.get("terms") || "",
-    originalUrl:
+    originalUrl: cleanParam(
       params.get("original_url") ||
-      params.get("link-orig") ||
-      params.get("dst") ||
-      "",
+        params.get("link-orig") ||
+        params.get("dst") ||
+        "",
+    ),
   };
 }
 
@@ -201,10 +211,10 @@ export default function CaptiveHotspotPage() {
   // RouterOS can leave $(mac) empty in the hotspot HTML. When that happens the
   // API resolves the client from $(ip) and returns the authoritative MAC.
   const activeMac = context.mac || resolvedMac;
-  const preview = !context.routerId || (!context.mac && !context.ip && !resolvedMac);
+  const preview = !context.routerId;
 
   useEffect(() => {
-    if (!context.routerId || (!context.mac && !context.ip)) {
+    if (!context.routerId) {
       let cancelled = false;
       axios
         .get(`${API}/public/hotspot-plans`, {

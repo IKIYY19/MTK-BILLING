@@ -61,6 +61,16 @@ export default defineConfig({
       "/api": {
         target: localApiTarget,
         changeOrigin: true,
+        configure: (proxy) => {
+          // Preserve the hotspot client's IP for captive portal MAC resolution.
+          proxy.on("proxyReq", (proxyReq, req) => {
+            const forwarded =
+              req.headers["x-forwarded-for"] || req.socket?.remoteAddress;
+            if (forwarded) {
+              proxyReq.setHeader("X-Forwarded-For", String(forwarded));
+            }
+          });
+        },
       },
       "/speedtest": {
         target: localApiTarget,
