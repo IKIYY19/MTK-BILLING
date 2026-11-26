@@ -754,14 +754,13 @@ async function redeemVoucherCode({
     });
   }
 
-  let gateway = parsePrivateIpv4(gatewayIp);
-  let loginUrl = String(linkLoginOnly || "").trim();
-  if (!gateway || !loginUrl) {
-    const resolved = await resolveHotspotGateway(routerId);
-    gateway = gateway || resolved.gateway;
-    loginUrl = loginUrl || resolved.loginUrl;
-  }
-  const redirect = validateRedirect(gateway, loginUrl);
+  // Always use the router's own hotspot address and login URL. The captive
+  // browser often supplies $(link-login-only) with a different hostname
+  // (e.g. hot.spot) or port, which must not be trusted for the auto-connect
+  // form action.
+  const resolved = await resolveHotspotGateway(routerId);
+  const gateway = parsePrivateIpv4(gatewayIp) || resolved.gateway;
+  const loginUrl = resolved.loginUrl;
   const original = safeOriginalUrl(originalUrl);
 
   const claimed = await db.query(
@@ -781,9 +780,9 @@ async function redeemVoucherCode({
     plan,
     macAddress,
     clientIp,
-    gateway: redirect.gateway,
+    gateway,
     originalUrl: original,
-    loginUrl: redirect.loginUrl,
+    loginUrl,
     phone: "voucher",
   });
   await db.query(
