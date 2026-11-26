@@ -899,6 +899,69 @@ async function bulkSessionAction(ids, tenantId, action, reason = "") {
   };
 }
 
+/**
+ * Re-apply a saved hotspot plan's speed/quota to every currently authorized
+ * hotspot user on that plan, and kick their live session so the new rate takes
+ * effect immediately. Called when a plan is edited from the admin UI.
+ */
+async function syncActiveSessionsToPlan(planId) {
+  const result = { total: 0, synced: 0, failed: 0, kicked: 0, errors: [] };
+  const db = database();
+  const planResult = await db.query(
+    `SELECT * FROM service_plans
+     WHERE id = $1 AND plan_type = 'hotspot' AND is_active = true`,
+    [planId],
+  );
+  const plan = planResult.rows[0];
+  if (!plan) {return result;}
+
+  const sessions = await db.query(
+    `SELECT * FROM captive_hotspot_sessions
+     WHERE plan_id = $1 AND status = 'authorized' AND expires_at > CURRENT_TIMESTAMP`,
+    [planId],
+  );
+  result.total = sessions.rows.length;
+  if (!result.total) {return result;}
+
+  const rateLimit = require("./rateLimit").buildHotspotRateLimit(plan);
+  if (!rateLimit) {
+    result.failed = result.total;
+    result.errors.push("The plan has no valid speed limit.");
+    return result;
+  }
+
+  const manager = require("./routerConnectionManager");
+  for (const session of sessions.rows) {
+    try {
+      const profileName = await require("./hotspotProvisioning").ensureRateLimitProfile(
+        session.router_id,
+        rateLimit,
+        plan.hotspot_profile || "default",
+      );
+      const users = await manager.print(session.router_id, "/ip/hotspot/user", ".id,name,comment");
+      const user = users.find((entry) => entry.comment === `paid-hotspot:${session.id}`);
+      if (!user) {
+        result.failed += 1;
+        result.errors.push({ mac: session.mac_address, error: "Router hotspot user not found" });
+        continue;
+      }
+      const params = { numbers: user[".id"] || user.id, profile: profileName };
+      if (Number(plan.quota_gb) > 0) {
+        params["limit-bytes-total"] = String(Math.floor(Number(plan.quota_gb) * 1024 ** 3));
+      }
+      await manager.executeCommand(session.router_id, "/ip/hotspot/user/set", params);
+
+      const kicked = await kickHotspotClient(session);
+      if (kicked) {result.kicked += 1;}
+      result.synced += 1;
+    } catch (error) {
+      result.failed += 1;
+      result.errors.push({ mac: session.mac_address, error: error.message });
+    }
+  }
+  return result;
+}
+
 async function findExpiringSessions(tenantId, withinMinutes = 60) {
   const result = await database().query(
     `SELECT s.id, s.mac_address, s.phone, s.amount, s.expires_at,
@@ -1274,6 +1337,7 @@ module.exports = {
   renewHotspotSession,
   deleteHotspotSession,
   bulkSessionAction,
+  syncActiveSessionsToPlan,
   findExpiringSessions,
   listEvents,
   expireHotspotSessions,

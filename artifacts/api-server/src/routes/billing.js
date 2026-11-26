@@ -735,6 +735,21 @@ async function pushPlanToSubscribers(planId) {
       results.errors.push({ username: subscription.pppoe_username, error: error.message });
     }
   }
+  // Hotspot users live in captive_hotspot_sessions, not subscriptions. Push the
+  // new speed to them too and drop their live session so the new rate applies.
+  try {
+    const hotspot = await require("../services/captiveHotspot").syncActiveSessionsToPlan(planId);
+    results.hotspot = hotspot;
+    results.total += hotspot.total;
+    results.synced += hotspot.synced;
+    results.failed += hotspot.failed;
+    if (hotspot.kicked) {
+      results.live_updates.push({ hotspot: `${hotspot.kicked} live session(s) restarted` });
+    }
+    if (hotspot.errors?.length) {results.errors.push(...hotspot.errors);}
+  } catch (hotspotError) {
+    results.hotspot = { error: hotspotError.message };
+  }
   return results;
 }
 
