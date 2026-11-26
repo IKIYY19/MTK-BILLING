@@ -52,12 +52,16 @@ function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeTe
   const escapeAttribute = (value) => String(value).replace(/[&<>"']/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[char]);
+  const directPortal = new URL(hostedPortal.toString());
+  directPortal.searchParams.set("router_id", routerId);
+  directPortal.searchParams.set("brand", companyName || "Wi-Fi access");
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
+  <meta http-equiv="refresh" content="3;url=${escapeAttribute(directPortal.toString())}">
   <title>${company} Wi-Fi</title>
   <style>
     *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#09090b;color:#f4f4f5;font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -68,7 +72,8 @@ function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeTe
 <body>
   <main role="status" aria-live="polite">
     <h1>${company}</h1>
-    <p>Opening the secure Wi-Fi access page…</p>
+    <p>Opening the secure Wi-Fi access page&hellip;</p>
+    <a href="${escapeAttribute(directPortal.toString())}" style="display:block;margin:14px 0;padding:13px;border-radius:10px;background:#6366f1;color:#fff;font-weight:600;text-decoration:none">Open packages now</a>
     <form id="portal-handoff" action="${escapeAttribute(hostedPortal.toString())}" method="get">
       <input type="hidden" name="router_id" value="${escapeAttribute(routerId)}">
       <input type="hidden" name="brand" value="${escapeAttribute(companyName || "Wi-Fi access")}">
@@ -76,7 +81,7 @@ function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeTe
       <input type="hidden" name="ip" value="$(ip)">
       <input type="hidden" name="link_login_only" value="$(link-login-only)">
       <input type="hidden" name="original_url" value="$(link-orig)">
-      <noscript><button type="submit">Continue to Wi-Fi access</button></noscript>
+      <button type="submit" style="width:100%;margin-top:12px;padding:13px;border:0;border-radius:10px;background:#3f3f46;color:#fff;font-weight:600">Continue with this device</button>
     </form>
   </main>
   <script>
@@ -90,7 +95,10 @@ function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeTe
           input.value = value;
         }
       });
-      document.getElementById("portal-handoff").submit();
+      setTimeout(function () {
+        var form = document.getElementById("portal-handoff");
+        if (form) { form.submit(); }
+      }, 1500);
     })();
   </script>
 </body>
