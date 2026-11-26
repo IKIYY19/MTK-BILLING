@@ -1,0 +1,12 @@
+# Automatic HTTPS via Let's Encrypt. Set DOMAIN in .env (or the shell).
+{$DOMAIN} {
+  encode gzip
+
+  # Public API + built frontend (SPA) are both served by the app on port 5000.
+  reverse_proxy app:5000
+
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy strict-origin-when-cross-origin
+  }
+}

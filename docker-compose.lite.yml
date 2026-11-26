@@ -1,0 +1,121 @@
+# Lite deployment: app + Postgres + FreeRADIUS + WireGuard + Caddy HTTPS.
+# TR-069 (GenieACS / Mongo / Redis) is intentionally omitted to fit a 2-4 GB VPS.
+#
+# Usage:
+#   cp .env.example .env   (then fill in secrets)
+#   DOMAIN=billing.example.com docker compose -f docker-compose.lite.yml up -d --build
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-mikrotik_config_builder}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./radius/radius_schema.sql:/docker-entrypoint-initdb.d/radius_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-mikrotik_config_builder}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  radius:
+    build:
+      context: ./radius
+      dockerfile: Dockerfile.radius
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-mikrotik_config_builder}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      RADIUS_DB_NAME: ${RADIUS_DB_NAME:-${DB_NAME:-mikrotik_config_builder}}
+      RADIUS_SECRET: ${RADIUS_SECRET}
+      RUN_RADIUS_MIGRATIONS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+      - "3799:3799/udp"
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      APP_URL: ${APP_URL:-https://${DOMAIN:-localhost}}
+      DATABASE_URL: ""
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-mikrotik_config_builder}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://${DOMAIN:-localhost}}
+      RADIUS_SERVER: radius
+      RADIUS_SECRET: ${RADIUS_SECRET}
+      ENABLE_ROUTER_CONNECTIVITY: ${ENABLE_ROUTER_CONNECTIVITY:-true}
+      ENABLE_MONITORING_API: ${ENABLE_MONITORING_API:-true}
+      TR069_ACS_URL: ""
+      TR069_NBI_URL: ""
+      DNS_ADBLOCK_PUBLIC_BASE_URL: ${DNS_ADBLOCK_PUBLIC_BASE_URL:-}
+      DNS_ADBLOCK_FEED_SECRET: ${DNS_ADBLOCK_FEED_SECRET:-}
+      WG_SERVER_ENDPOINT: ${WG_SERVER_ENDPOINT:-${DOMAIN:-}}
+      WG_TUNNEL_SUBNET: ${WG_TUNNEL_SUBNET:-10.200.0}
+      WG_TUNNEL_PORT: ${WG_TUNNEL_PORT:-51820}
+      WG_INTERFACE: ${WG_INTERFACE:-wg-billing}
+      WG_PERSISTENT_KEEPALIVE: ${WG_PERSISTENT_KEEPALIVE:-25}
+      MPESA_CALLBACK_URL: ${MPESA_CALLBACK_URL:-}
+    ports:
+      # App is reached through Caddy; only WireGuard needs a public UDP port.
+      - "51820:51820/udp"
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    volumes:
+      - wg-config:/etc/wireguard
+    depends_on:
+      postgres:
+        condition: service_healthy
+      radius:
+        condition: service_started
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: mtk-caddy
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  wg-config:
+  caddy-data:
+  caddy-config:
