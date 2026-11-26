@@ -24,6 +24,7 @@ router.get('/hotspot-sessions', async (req, res) => {
       'all', 'initiating', 'pending', 'payment_confirmed', 'provisioning',
       'authorization_failed', 'authorized', 'expiration_pending',
       'expiration_cleanup_failed', 'expired', 'failed', 'payment_review',
+      'suspended',
     ]);
     if (!validStatuses.has(requestedStatus)) {
       return res.status(400).json({ error: 'The requested session status is invalid.' });
@@ -75,6 +76,55 @@ router.post('/hotspot-sessions/:id/retry-authorization', async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
+  }
+});
+
+async function adminSessionAction(req, res, action) {
+  if (!req.tenantId) {
+    return res.status(400).json({ error: 'Select a tenant before managing hotspot sessions.' });
+  }
+  if (!UUID_PATTERN.test(req.params.id)) {
+    return res.status(400).json({ error: 'The hotspot session identifier is invalid.' });
+  }
+  const result = await action(req.params.id, req.tenantId);
+  res.set('Cache-Control', 'no-store');
+  return res.json(result);
+}
+
+router.post('/hotspot-sessions/:id/suspend', async (req, res) => {
+  try {
+    return await adminSessionAction(req, res, async (id, tenantId) => {
+      const updated = await captiveHotspot.suspendHotspotSession(id, tenantId);
+      return { status: updated.status, error: updated.error_message || null };
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+router.post('/hotspot-sessions/:id/renew', async (req, res) => {
+  try {
+    return await adminSessionAction(req, res, async (id, tenantId) => {
+      const updated = await captiveHotspot.renewHotspotSession(id, tenantId);
+      return {
+        status: updated.status,
+        error: updated.error_message || null,
+        expiresAt: updated.expires_at,
+      };
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+router.delete('/hotspot-sessions/:id', async (req, res) => {
+  try {
+    return await adminSessionAction(req, res, async (id, tenantId) => {
+      const result = await captiveHotspot.deleteHotspotSession(id, tenantId);
+      return { success: result.success, errors: result.errors || [] };
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 

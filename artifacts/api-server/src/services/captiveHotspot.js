@@ -575,6 +575,7 @@ async function listSessions({ tenantId, status = "all", search = "", limit = 25,
     `SELECT s.id, s.status, s.mac_address, s.client_ip, RIGHT(s.phone, 4) AS phone_last4,
             s.amount, s.mpesa_receipt, s.error_code, s.error_message,
             s.created_at, s.paid_at, s.authorized_at, s.expires_at,
+            s.suspended_at, s.renewal_count, s.hotspot_username, s.router_id,
             p.name AS plan_name, r.name AS router_name
      FROM captive_hotspot_sessions s
      JOIN service_plans p ON p.id = s.plan_id AND p.tenant_id = s.tenant_id
@@ -590,6 +591,7 @@ async function listSessions({ tenantId, status = "all", search = "", limit = 25,
        COUNT(*) FILTER (WHERE status IN ('initiating', 'pending'))::integer AS pending_count,
        COUNT(*) FILTER (WHERE status = 'authorized' AND expires_at > CURRENT_TIMESTAMP)::integer AS active_count,
        COUNT(*) FILTER (WHERE status IN ('authorization_failed', 'expiration_cleanup_failed', 'payment_review'))::integer AS attention_count,
+       COUNT(*) FILTER (WHERE status = 'suspended')::integer AS suspended_count,
        COALESCE(SUM(amount) FILTER (WHERE paid_at IS NOT NULL), 0)::numeric AS paid_total
      FROM captive_hotspot_sessions
      WHERE tenant_id = $1`,
@@ -603,6 +605,7 @@ async function listSessions({ tenantId, status = "all", search = "", limit = 25,
       pending_count: 0,
       active_count: 0,
       attention_count: 0,
+      suspended_count: 0,
       paid_total: 0,
     },
   };
@@ -617,6 +620,176 @@ async function findSessionForAdminRetry(sessionId, tenantId) {
     [sessionId, tenantId],
   );
   return result.rows[0] || null;
+}
+
+async function removeRouterHotspotUser(session) {
+  const routerManager = require("./routerConnectionManager");
+  const comment = `paid-hotspot:${session.id}`;
+  const users = await routerManager.print(
+    session.router_id,
+    "/ip/hotspot/user",
+    ".id,name,comment",
+  );
+  const user = users.find(
+    (entry) => entry.comment === comment ||
+      (session.hotspot_username && entry.name === session.hotspot_username),
+  );
+  if (user) {
+    await routerManager.executeCommand(session.router_id, "/ip/hotspot/user/remove", {
+      numbers: user[".id"] || user.id,
+    });
+    return user.name;
+  }
+  return null;
+}
+
+async function kickHotspotClient(session) {
+  const routerManager = require("./routerConnectionManager");
+  const active = await routerManager
+    .print(session.router_id, "/ip/hotspot/active", ".id,user,address,mac-address")
+    .catch(() => []);
+  const match = active.find((entry) => {
+    const mac = String(entry["mac-address"] || "").toLowerCase();
+    return (session.hotspot_username && entry.user === session.hotspot_username) ||
+      (session.client_ip && entry.address === session.client_ip) ||
+      (session.mac_address && mac === session.mac_address.toLowerCase());
+  });
+  if (match) {
+    await routerManager
+      .executeCommand(session.router_id, "/ip/hotspot/active/remove", {
+        numbers: match[".id"] || match.id,
+      })
+      .catch(() => {});
+    return true;
+  }
+  return false;
+}
+
+async function suspendHotspotSession(sessionId, tenantId) {
+  const session = await findSessionForAdminRetry(sessionId, tenantId);
+  if (!session) {
+    throw Object.assign(new Error("The hotspot session was not found."), { statusCode: 404 });
+  }
+  if (!["authorized", "provisioning", "payment_confirmed", "authorization_failed"].includes(session.status)) {
+    throw Object.assign(
+      new Error("Only active or provisioned sessions can be suspended."),
+      { statusCode: 409 },
+    );
+  }
+  const errors = [];
+  try { await removeRouterHotspotUser(session); }
+  catch (error) { errors.push(`Router user removal: ${error.message}`); }
+  try { await kickHotspotClient(session); }
+  catch (error) { errors.push(`Client disconnect: ${error.message}`); }
+
+  const result = await database().query(
+    `UPDATE captive_hotspot_sessions
+     SET status = 'suspended', suspended_at = CURRENT_TIMESTAMP,
+         error_code = NULL, error_message = NULL, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1 AND tenant_id = $2 RETURNING *`,
+    [sessionId, tenantId],
+  );
+  await recordEvent(session.tenant_id, sessionId, "admin.suspended", {
+    routerId: session.router_id,
+    mac: session.mac_address,
+    errors,
+  });
+  return result.rows[0];
+}
+
+async function renewHotspotSession(sessionId, tenantId) {
+  const session = await findSessionForAdminRetry(sessionId, tenantId);
+  if (!session) {
+    throw Object.assign(new Error("The hotspot session was not found."), { statusCode: 404 });
+  }
+  if (!["authorized", "suspended", "expired", "expiration_cleanup_failed"].includes(session.status)) {
+    throw Object.assign(
+      new Error("Only authorized, suspended or expired sessions can be renewed."),
+      { statusCode: 409 },
+    );
+  }
+  const planResult = await database().query(
+    `SELECT * FROM service_plans
+     WHERE id = $1 AND tenant_id = $2 AND plan_type = 'hotspot' AND is_active = true`,
+    [session.plan_id, tenantId],
+  );
+  const plan = planResult.rows[0];
+  if (!plan) {
+    throw Object.assign(new Error("The package for this session is no longer available."), { statusCode: 404 });
+  }
+  const days = Number(plan.validity_days);
+  if (!Number.isInteger(days) || days < 1 || days > 365) {
+    throw Object.assign(new Error("The package has an invalid validity period."), { statusCode: 400 });
+  }
+
+  const username = session.hotspot_username || `wifi_${session.id.replace(/-/g, "").slice(0, 16)}`;
+  const password = session.hotspot_password_encrypted
+    ? decrypt(session.hotspot_password_encrypted)
+    : crypto.randomBytes(18).toString("base64url");
+  const encryptedPassword = encrypt(password);
+
+  const routerManager = require("./routerConnectionManager");
+  await removeRouterHotspotUser(session);
+  const rateLimit = require("./rateLimit").buildHotspotRateLimit(plan);
+  if (!rateLimit) {
+    throw Object.assign(new Error("The package has no speed limit configured."), { statusCode: 400 });
+  }
+  const profileName = await require("./hotspotProvisioning").ensureRateLimitProfile(
+    session.router_id,
+    rateLimit,
+    plan.hotspot_profile || "default",
+  );
+  const params = {
+    name: username,
+    password,
+    "mac-address": session.mac_address,
+    "limit-uptime": `${days}d`,
+    profile: profileName,
+    comment: `paid-hotspot:${session.id}`,
+  };
+  if (Number(plan.quota_gb) > 0) {
+    params["limit-bytes-total"] = Math.floor(Number(plan.quota_gb) * 1024 ** 3);
+  }
+  await routerManager.executeCommand(session.router_id, "/ip/hotspot/user/add", params);
+
+  const expiry = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  const result = await database().query(
+    `UPDATE captive_hotspot_sessions
+     SET status = 'authorized', suspended_at = NULL, expires_at = $3,
+         authorized_at = COALESCE(authorized_at, CURRENT_TIMESTAMP),
+         renewal_count = COALESCE(renewal_count, 0) + 1,
+         hotspot_username = $4, hotspot_password_encrypted = $5,
+         error_code = NULL, error_message = NULL, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1 AND tenant_id = $2 RETURNING *`,
+    [sessionId, tenantId, expiry.toISOString(), username, encryptedPassword],
+  );
+  await recordEvent(tenantId, sessionId, "admin.renewed", {
+    expiresAt: expiry.toISOString(),
+    days,
+    username,
+  });
+  return result.rows[0];
+}
+
+async function deleteHotspotSession(sessionId, tenantId) {
+  const session = await findSessionForAdminRetry(sessionId, tenantId);
+  if (!session) {
+    throw Object.assign(new Error("The hotspot session was not found."), { statusCode: 404 });
+  }
+  const errors = [];
+  try { await removeRouterHotspotUser(session); }
+  catch (error) { errors.push(`Router user removal: ${error.message}`); }
+  try { await kickHotspotClient(session); }
+  catch (error) { errors.push(`Client disconnect: ${error.message}`); }
+  await database().query(
+    "DELETE FROM captive_hotspot_events WHERE session_id = $1 AND tenant_id = $2",
+    [sessionId, tenantId],
+  );
+  await database().query(
+    "DELETE FROM captive_hotspot_sessions WHERE id = $1 AND tenant_id = $2",
+    [sessionId, tenantId],
+  );
+  return { success: true, errors };
 }
 
 async function listEvents(tenantId, limit = 100, sessionId = null) {
@@ -952,6 +1125,9 @@ module.exports = {
   publicSession,
   listSessions,
   findSessionForAdminRetry,
+  suspendHotspotSession,
+  renewHotspotSession,
+  deleteHotspotSession,
   listEvents,
   expireHotspotSessions,
   startExpiryWorker,

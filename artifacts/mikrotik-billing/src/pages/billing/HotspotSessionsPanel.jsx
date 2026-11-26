@@ -21,6 +21,7 @@ const STATUS_OPTIONS = [
   ["all", "All sessions"],
   ["pending", "Awaiting payment"],
   ["authorized", "Authorized"],
+  ["suspended", "Suspended"],
   ["authorization_failed", "Router authorization failed"],
   ["expiration_cleanup_failed", "Expiry cleanup failed"],
   ["failed", "Payment failed"],
@@ -35,6 +36,7 @@ const STATUS_STYLES = {
   provisioning: "border-amber-400/30 bg-amber-400/10 text-amber-200",
   authorization_failed: "border-rose-400/30 bg-rose-400/10 text-rose-200",
   authorized: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
+  suspended: "border-orange-400/30 bg-orange-400/10 text-orange-200",
   expiration_pending: "border-amber-400/30 bg-amber-400/10 text-amber-200",
   expiration_cleanup_failed: "border-rose-400/30 bg-rose-400/10 text-rose-200",
   expired: "border-zinc-700 bg-zinc-800 text-zinc-300",
@@ -62,6 +64,17 @@ function humanize(value) {
   return String(value || "unknown")
     .replace(/[._-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function timeLeft(expiresAt, now) {
+  if (!expiresAt) {return "—";}
+  const diff = new Date(expiresAt).getTime() - now;
+  if (!Number.isFinite(diff)) {return "—";}
+  if (diff <= 0) {return "Expired";}
+  const hours = Math.floor(diff / 3600000);
+  const minutes = Math.floor((diff % 3600000) / 60000);
+  if (hours >= 24) {return `${Math.floor(hours / 24)}d ${hours % 24}h left`;}
+  return `${hours}h ${minutes}m left`;
 }
 
 function StatusBadge({ status }) {
@@ -105,7 +118,22 @@ export default function HotspotSessionsPanel() {
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [retryingId, setRetryingId] = useState("");
   const [retryError, setRetryError] = useState("");
+  const [actionBusy, setActionBusy] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
   const eventRequestId = useRef(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!autoRefresh) {return undefined;}
+    const timer = window.setInterval(() => setRefreshKey((key) => key + 1), 5000);
+    return () => window.clearInterval(timer);
+  }, [autoRefresh]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -194,6 +222,31 @@ export default function HotspotSessionsPanel() {
     }
   };
 
+  const runAction = async (session, action) => {
+    const label = action === "delete" ? "Delete" : action === "renew" ? "Renew" : "Suspend";
+    const message = action === "delete"
+      ? `Delete session for ${session.mac_address}? Router access is removed immediately.`
+      : action === "suspend"
+        ? `Suspend access for ${session.mac_address}? The client is disconnected immediately.`
+        : `Renew ${session.plan_name || "this package"} for ${session.mac_address}? Access extends immediately.`;
+    if (!window.confirm(message)) {return;}
+    setActionBusy(`${action}:${session.id}`);
+    setActionError("");
+    try {
+      if (action === "delete") {
+        await axios.delete(`${API}/captive-portal/hotspot-sessions/${session.id}`);
+        setExpandedId("");
+      } else {
+        await axios.post(`${API}/captive-portal/hotspot-sessions/${session.id}/${action}`);
+      }
+      setRefreshKey((key) => key + 1);
+    } catch (requestError) {
+      setActionError(requestError.response?.data?.error || `${label} failed. Try again.`);
+    } finally {
+      setActionBusy("");
+    }
+  };
+
   const lastPage = Math.max(0, Math.ceil(total / PAGE_SIZE) - 1);
   const start = total === 0 ? 0 : page * PAGE_SIZE + 1;
   const end = Math.min((page + 1) * PAGE_SIZE, total);
@@ -209,15 +262,29 @@ export default function HotspotSessionsPanel() {
             Track guest payments, router access, and session expiry.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setRefreshKey((key) => key + 1)}
-          disabled={loading}
-          className="inline-flex items-center gap-2 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-amber-400/60 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 disabled:cursor-wait disabled:opacity-60"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setAutoRefresh((value) => !value)}
+            className={`inline-flex items-center gap-2 border px-3 py-2 text-xs font-medium transition-colors ${
+              autoRefresh
+                ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                : "border-zinc-700 text-zinc-400 hover:text-white"
+            }`}
+          >
+            <span className={`h-2 w-2 rounded-full ${autoRefresh ? "animate-pulse bg-emerald-400" : "bg-zinc-500"}`} />
+            {autoRefresh ? "Live · 5s" : "Paused"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setRefreshKey((key) => key + 1)}
+            disabled={loading}
+            className="inline-flex items-center gap-2 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-amber-400/60 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 disabled:cursor-wait disabled:opacity-60"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
       </header>
 
       <div className="grid grid-cols-2 gap-x-4 border-y border-zinc-800 px-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -284,6 +351,12 @@ export default function HotspotSessionsPanel() {
         <div role="alert" className="flex items-start gap-2 border border-rose-400/30 bg-rose-400/5 p-3 text-sm text-rose-200">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{retryError}</span>
+        </div>
+      )}
+      {actionError && (
+        <div role="alert" className="flex items-start gap-2 border border-rose-400/30 bg-rose-400/5 p-3 text-sm text-rose-200">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{actionError}</span>
         </div>
       )}
 
@@ -379,6 +452,15 @@ export default function HotspotSessionsPanel() {
                           </td>
                           <td className="px-4 py-4">
                             <p className="text-zinc-200">{formatDate(session.expires_at)}</p>
+                            <p className={`mt-1 text-xs font-medium ${
+                              session.status === "authorized" ? "text-emerald-300" : "text-zinc-500"
+                            }`}>
+                              {timeLeft(session.expires_at, now)}
+                              {Number(session.renewal_count) > 0 && ` · renewed ${session.renewal_count}×`}
+                            </p>
+                            {session.suspended_at && (
+                              <p className="mt-1 text-xs text-orange-200">Suspended {formatDate(session.suspended_at)}</p>
+                            )}
                             {session.paid_at && (
                               <p className="mt-1 text-xs text-zinc-500">Paid {formatDate(session.paid_at)}</p>
                             )}
@@ -396,6 +478,37 @@ export default function HotspotSessionsPanel() {
                                   Retry router
                                 </button>
                               )}
+                              {["authorized", "suspended", "expired", "expiration_cleanup_failed"].includes(session.status) && (
+                                <button
+                                  type="button"
+                                  onClick={() => runAction(session, "renew")}
+                                  disabled={Boolean(actionBusy)}
+                                  className="inline-flex items-center gap-1.5 whitespace-nowrap border border-emerald-400/40 px-2.5 py-1.5 text-xs font-medium text-emerald-200 hover:border-emerald-300 hover:text-white disabled:cursor-wait disabled:opacity-60"
+                                >
+                                  {actionBusy === `renew:${session.id}` && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+                                  Renew
+                                </button>
+                              )}
+                              {["authorized", "provisioning", "payment_confirmed"].includes(session.status) && (
+                                <button
+                                  type="button"
+                                  onClick={() => runAction(session, "suspend")}
+                                  disabled={Boolean(actionBusy)}
+                                  className="inline-flex items-center gap-1.5 whitespace-nowrap border border-orange-400/40 px-2.5 py-1.5 text-xs font-medium text-orange-200 hover:border-orange-300 hover:text-white disabled:cursor-wait disabled:opacity-60"
+                                >
+                                  {actionBusy === `suspend:${session.id}` && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+                                  Suspend
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => runAction(session, "delete")}
+                                disabled={Boolean(actionBusy)}
+                                className="inline-flex items-center gap-1.5 whitespace-nowrap border border-rose-400/30 px-2.5 py-1.5 text-xs font-medium text-rose-200 hover:border-rose-300 hover:text-white disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {actionBusy === `delete:${session.id}` && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+                                Delete
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => openEvents(session.id)}

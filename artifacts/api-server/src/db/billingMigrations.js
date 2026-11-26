@@ -661,6 +661,10 @@ const billingMigrations = [
   `ALTER TABLE hotspot_vouchers ADD COLUMN IF NOT EXISTS redeemed_mac VARCHAR(17)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_hotspot_vouchers_code
    ON hotspot_vouchers(upper(code)) WHERE code IS NOT NULL`,
+
+  // Admin session controls (suspend / renew) need audit state.
+  `ALTER TABLE captive_hotspot_sessions ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMP`,
+  `ALTER TABLE captive_hotspot_sessions ADD COLUMN IF NOT EXISTS renewal_count INTEGER DEFAULT 0`,
 ];
 
 async function runBillingMigrations(db) {
