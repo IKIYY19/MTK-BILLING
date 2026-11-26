@@ -14,6 +14,7 @@ import {
   Sparkles,
   Ticket,
   Wifi,
+  X,
   Zap,
 } from "lucide-react";
 import "../../hotspot-portal.css";
@@ -231,6 +232,7 @@ export default function CaptiveHotspotPage() {
   const [voucherCode, setVoucherCode] = useState(() => context.voucherCode || "");
   const [redeemingVoucher, setRedeemingVoucher] = useState(false);
   const [showVoucher, setShowVoucher] = useState(() => Boolean(context.voucherCode));
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const connectFormRef = useRef(null);
   const activeConnectRef = useRef(null);
 
@@ -364,6 +366,7 @@ export default function CaptiveHotspotPage() {
       setPayment({ status: "pending", planName: plan.name, amount: plan.price });
       setPollCount(0);
       setTimedOut(false);
+      setShowPaymentModal(false);
     } catch (requestError) {
       setError(
         requestError.response?.data?.error ||
@@ -460,6 +463,7 @@ export default function CaptiveHotspotPage() {
     setError("");
   };
 
+  const selectedPlanData = plans.find((item) => item.id === selectedPlan) || null;
   const authorized = payment?.status === "authorized";
   const paymentConfirmed = [
     "payment_confirmed",
@@ -597,6 +601,7 @@ export default function CaptiveHotspotPage() {
   }
 
   return (
+    <>
     <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont} logoUrl={context.logoUrl || "/giraffe-logo.svg"}>
       <div className="hp-layout">
         <section className="hp-hero">
@@ -713,18 +718,12 @@ export default function CaptiveHotspotPage() {
               ) : (
                 <div className="hp-plans">
                   {plans.map((plan) => (
-                    <label
+                    <button
+                      type="button"
                       key={plan.id}
                       className={`hp-plan ${selectedPlan === plan.id ? "is-selected" : ""}`}
+                      onClick={() => {setSelectedPlan(plan.id); setShowPaymentModal(true);}}
                     >
-                      <input
-                        type="radio"
-                        name="hotspot-plan"
-                        value={plan.id}
-                        checked={selectedPlan === plan.id}
-                        onChange={() => setSelectedPlan(plan.id)}
-                        className="hp-plan-radio"
-                      />
                       <span className="hp-plan-check"><Check className="h-3.5 w-3.5" strokeWidth={3} /></span>
                       <span className="hp-plan-body">
                         <span className="hp-plan-name">
@@ -743,27 +742,14 @@ export default function CaptiveHotspotPage() {
                         <span className="hp-price">{formatPrice(plan.price)}</span>
                         <span className="hp-price-label">one-off</span>
                       </span>
-                    </label>
+                    </button>
                   ))}
                 </div>
               )}
 
-              <label className="hp-field" htmlFor="mpesa-phone">M-Pesa phone number</label>
-              <div className="hp-input-wrap">
-                <Smartphone className="h-4 w-4" />
-                <input
-                  id="mpesa-phone"
-                  className="hp-input"
-                  type="tel"
-                  autoComplete="tel"
-                  inputMode="tel"
-                  required
-                  value={phone}
-                  onChange={(event) => setPhone(event.target.value)}
-                  placeholder="07XX XXX XXX"
-                />
-              </div>
-              <p className="hp-card-note" style={{ marginTop: 8 }}>We'll send the payment prompt to this number.</p>
+              <p className="hp-card-note" style={{ marginTop: 14 }}>
+                Tap a package above — we'll ask for your M-Pesa number and send the prompt.
+              </p>
 
               <button
                 type="button"
@@ -857,13 +843,6 @@ export default function CaptiveHotspotPage() {
                   Payments are not enabled for this network yet. Contact the network operator.
                 </div>
               )}
-              <button
-                type="submit"
-                disabled={preview || !paymentsEnabled || submitting || plans.length === 0 || !selectedPlan || (Boolean(portalTerms) && !termsAccepted)}
-                className="hp-btn"
-              >
-                {submitting ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <><span>Pay with M-Pesa</span><ArrowRight className="h-4 w-4" /></>}
-              </button>
               {sessionToken && (
                 <button type="button" className="hp-link" onClick={refreshPayment}>Recover a pending payment</button>
               )}
@@ -872,5 +851,86 @@ export default function CaptiveHotspotPage() {
         </section>
       </div>
     </PortalShell>
+    {showPaymentModal && !payment && (
+      <div className="hp-modal-backdrop" role="presentation" onClick={() => setShowPaymentModal(false)}>
+        <div
+          className="hp-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Pay with M-Pesa"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="hp-modal-close"
+            onClick={() => setShowPaymentModal(false)}
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <div className="hp-ring"><Smartphone className="h-6 w-6" /></div>
+          <div className="hp-brand-sub" style={{ marginTop: 16 }}>M-Pesa payment</div>
+          <h2 className="hp-card-title">{selectedPlanData?.name || "Choose a package"}</h2>
+          <p className="hp-card-note">
+            {selectedPlanData
+              ? `${formatPrice(selectedPlanData.price)} · ${selectedPlanData.speed_up}/${selectedPlanData.speed_down} · ${selectedPlanData.validity_label || `${selectedPlanData.validity_days || 0}d`}`
+              : "Select a package first."}
+          </p>
+          <form onSubmit={startPayment} className="hp-modal-form">
+            <label className="hp-field" htmlFor="modal-mpesa-phone">M-Pesa phone number</label>
+            <div className="hp-input-wrap">
+              <Smartphone className="h-4 w-4" />
+              <input
+                id="modal-mpesa-phone"
+                className="hp-input"
+                type="tel"
+                autoComplete="tel"
+                inputMode="tel"
+                required
+                autoFocus
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                placeholder="07XX XXX XXX"
+              />
+            </div>
+            <p className="hp-card-note" style={{ marginTop: 8 }}>
+              You'll get an M-Pesa prompt — enter your PIN to approve.
+            </p>
+            {portalTerms && (
+              <label className="flex items-start gap-2 mt-4 text-xs text-zinc-400 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={termsAccepted}
+                  onChange={(event) => setTermsAccepted(event.target.checked)}
+                  className="mt-0.5 accent-cyan-300"
+                  required
+                />
+                <span>{portalTerms}</span>
+              </label>
+            )}
+            {error && (
+              <div role="alert" className="hp-error">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+            {!paymentsEnabled && (
+              <div role="alert" className="hp-notice">
+                <AlertTriangle className="mb-1 h-4 w-4" />
+                Payments are not enabled for this network yet. Contact the network operator.
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={preview || !paymentsEnabled || submitting || !selectedPlanData || (Boolean(portalTerms) && !termsAccepted)}
+              className="hp-btn"
+            >
+              {submitting ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <>Send M-Pesa prompt <ArrowRight className="h-4 w-4" /></>}
+            </button>
+          </form>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
