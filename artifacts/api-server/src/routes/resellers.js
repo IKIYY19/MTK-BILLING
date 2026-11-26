@@ -24,7 +24,9 @@ function validatePortalUrl(value) {
     const localHttp =
       hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" ||
       /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(hostname);
-    if (!localHttp || process.env.ALLOW_INSECURE_PORTAL_URL !== "true") {return null;}
+    // Private/LAN URLs are valid for local labs and direct RouterOS API pushes.
+    // Public plain-HTTP URLs still require the explicit opt-in below.
+    if (!localHttp && process.env.ALLOW_INSECURE_PORTAL_URL !== "true") {return null;}
   }
   return url;
 }
@@ -59,6 +61,26 @@ async function provisionWalledGarden(connectionId, portalUrl) {
     added.push(host);
   }
   return added;
+}
+
+// The active hotspot server's profile decides which directory RouterOS serves.
+async function resolveHotspotHtmlDirectory(connectionId) {
+  const servers = await routerConnectionManager.print(
+    connectionId,
+    "/ip/hotspot",
+    "name,profile,disabled,invalid",
+  );
+  const server =
+    servers.find((entry) => entry.disabled === "false" && entry.invalid === "false") ||
+    servers.find((entry) => entry.invalid === "false");
+  if (!server || !server.profile) {return "hotspot";}
+  const profiles = await routerConnectionManager.print(
+    connectionId,
+    "/ip/hotspot/profile",
+    "name,html-directory",
+  );
+  const profile = profiles.find((entry) => entry.name === server.profile);
+  return profile?.["html-directory"] || "hotspot";
 }
 
 // Helper: host portal HTML on our server and return URL
@@ -168,6 +190,32 @@ router.post("/captive-portals/push", async (req, res) => {
       portalUrl: null,
       details: null,
     };
+
+    // ── Tier 0: write directly over the saved RouterOS API connection ──
+    // Works with plain API (8728), no HTTPS/REST required, and installs into
+    // the html-directory of the hotspot profile that is actually running.
+    try {
+      const directory = await resolveHotspotHtmlDirectory(connection_id);
+      const target = `${directory.replace(/\/$/, "")}/login.html`;
+      const files = await routerConnectionManager.print(connection_id, "/file", "name");
+      if (files.some((entry) => entry.name === target)) {
+        await routerConnectionManager.executeCommand(connection_id, "/file/set", {
+          numbers: target,
+          contents: html,
+        });
+        const walledGarden = await provisionWalledGarden(connection_id, portalUrl);
+        return res.json({
+          method: "api",
+          success: true,
+          target,
+          walledGarden,
+          message: `Portal installed to ${target} on the router.`,
+        });
+      }
+      results.details = { apiError: `${target} does not exist on the router` };
+    } catch (directErr) {
+      results.details = { apiError: directErr.message };
+    }
 
     // ── Tier 1: REST API (RouterOS v7) ──
     try {

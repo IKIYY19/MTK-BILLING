@@ -22,6 +22,20 @@ const HOTSPOT_TEMPLATES = [
   { id: "monochrome", name: "Monochrome", icon: Diamond,   desc: "Clean grayscale", accent: "#e5e5e5", colors: { bg: "#0a0a0b", bg2: "#17171a", bg3: "#202024", accent: "#e5e5e5", card: "rgba(20,20,22,0.86)", text: "#f5f5f5", border: "rgba(255,255,255,0.16)", inputBg: "rgba(255,255,255,0.05)", glow: "0 0 30px rgba(255,255,255,0.08)", cardBlur: "24px" } },
 ];
 
+function isAllowedPortalUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    if (url.username || url.password) {return false;}
+    if (url.protocol === "https:") {return true;}
+    if (url.protocol !== "http:") {return false;}
+    const host = url.hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" ||
+      /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host);
+  } catch {
+    return false;
+  }
+}
+
 function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeText, phoneNumber, font, termsEnabled, termsText }) {
   const company = String(companyName || "Giraffe Hotspot").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -191,7 +205,7 @@ export default function CaptivePortalBuilder() {
 
   const handlePush = async () => {
     if (!selectedConn) { toast.error("Select a router first"); return; }
-    if (!portalUrl || !/^https:\/\//i.test(portalUrl.trim())) { toast.error("Enter the public HTTPS URL for the hosted hotspot page"); return; }
+    if (!isAllowedPortalUrl(portalUrl)) { toast.error("Enter a valid HTTPS URL, or a local http:// address for this network"); return; }
     setPushing(true);
     try {
       const { data } = await axios.post(`${API}/resellers/captive-portals/push`, { connection_id: selectedConn, html: getHtml(), portal_url: portalUrl, profile: "default", portal_name: companyName || "hotspot-portal" });
@@ -202,7 +216,7 @@ export default function CaptivePortalBuilder() {
 
   const handleCopy = () => {
     if (!selectedConn) { toast.error("Select a router to generate its portal handoff"); return; }
-    if (!portalUrl || !/^https:\/\//i.test(portalUrl.trim())) { toast.error("Enter the public HTTPS URL for the hosted hotspot page"); return; }
+    if (!isAllowedPortalUrl(portalUrl)) { toast.error("Enter a valid HTTPS URL, or a local http:// address for this network"); return; }
     navigator.clipboard.writeText(getHtml());
     setCopied(true); setTimeout(() => setCopied(false), 2000);
     toast.success("HTML copied to clipboard");
@@ -210,7 +224,7 @@ export default function CaptivePortalBuilder() {
 
   const handleDownload = () => {
     if (!selectedConn) { toast.error("Select a router to generate its portal handoff"); return; }
-    if (!portalUrl || !/^https:\/\//i.test(portalUrl.trim())) { toast.error("Enter the public HTTPS URL for the hosted hotspot page"); return; }
+    if (!isAllowedPortalUrl(portalUrl)) { toast.error("Enter a valid HTTPS URL, or a local http:// address for this network"); return; }
     const blob = new Blob([getHtml()], { type: "text/html" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
     a.download = `${(companyName || "hotspot-portal").replace(/\s+/g, "-").toLowerCase()}.html`;
