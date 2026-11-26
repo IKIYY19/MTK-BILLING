@@ -94,7 +94,11 @@ async function adminSessionAction(req, res, action) {
 router.post('/hotspot-sessions/:id/suspend', async (req, res) => {
   try {
     return await adminSessionAction(req, res, async (id, tenantId) => {
-      const updated = await captiveHotspot.suspendHotspotSession(id, tenantId);
+      const updated = await captiveHotspot.suspendHotspotSession(
+        id,
+        tenantId,
+        req.body?.reason || "",
+      );
       return { status: updated.status, error: updated.error_message || null };
     });
   } catch (error) {
@@ -114,6 +118,40 @@ router.post('/hotspot-sessions/:id/renew', async (req, res) => {
     });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+router.post('/hotspot-sessions/bulk', async (req, res) => {
+  try {
+    if (!req.tenantId) {
+      return res.status(400).json({ error: 'Select a tenant before managing hotspot sessions.' });
+    }
+    const result = await captiveHotspot.bulkSessionAction(
+      req.body?.ids,
+      req.tenantId,
+      String(req.body?.action || ''),
+      req.body?.reason || '',
+    );
+    res.set('Cache-Control', 'no-store');
+    return res.json(result);
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+router.get('/hotspot-sessions/expiring', async (req, res) => {
+  try {
+    if (!req.tenantId) {
+      return res.status(400).json({ error: 'Select a tenant before reading hotspot sessions.' });
+    }
+    const sessions = await captiveHotspot.findExpiringSessions(
+      req.tenantId,
+      Number(req.query.minutes) || 60,
+    );
+    res.set('Cache-Control', 'no-store');
+    return res.json({ sessions });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
   }
 });
 

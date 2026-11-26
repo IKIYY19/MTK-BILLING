@@ -6,6 +6,8 @@ const logger = require("../utils/logger");
 
 const TOKEN_BYTES = 32;
 const MAX_ORIGINAL_URL_LENGTH = 2048;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function database() {
   if (!global.dbAvailable || !global.db) {
@@ -575,7 +577,8 @@ async function listSessions({ tenantId, status = "all", search = "", limit = 25,
     `SELECT s.id, s.status, s.mac_address, s.client_ip, RIGHT(s.phone, 4) AS phone_last4,
             s.amount, s.mpesa_receipt, s.error_code, s.error_message,
             s.created_at, s.paid_at, s.authorized_at, s.expires_at,
-            s.suspended_at, s.renewal_count, s.hotspot_username, s.router_id,
+            s.suspended_at, s.suspend_reason, s.renewal_count,
+            s.hotspot_username, s.router_id,
             p.name AS plan_name, r.name AS router_name
      FROM captive_hotspot_sessions s
      JOIN service_plans p ON p.id = s.plan_id AND p.tenant_id = s.tenant_id
@@ -592,6 +595,8 @@ async function listSessions({ tenantId, status = "all", search = "", limit = 25,
        COUNT(*) FILTER (WHERE status = 'authorized' AND expires_at > CURRENT_TIMESTAMP)::integer AS active_count,
        COUNT(*) FILTER (WHERE status IN ('authorization_failed', 'expiration_cleanup_failed', 'payment_review'))::integer AS attention_count,
        COUNT(*) FILTER (WHERE status = 'suspended')::integer AS suspended_count,
+       COUNT(*) FILTER (WHERE status = 'authorized' AND expires_at > CURRENT_TIMESTAMP
+         AND expires_at <= CURRENT_TIMESTAMP + INTERVAL '1 hour')::integer AS expiring_soon_count,
        COALESCE(SUM(amount) FILTER (WHERE paid_at IS NOT NULL), 0)::numeric AS paid_total
      FROM captive_hotspot_sessions
      WHERE tenant_id = $1`,
@@ -606,6 +611,7 @@ async function listSessions({ tenantId, status = "all", search = "", limit = 25,
       active_count: 0,
       attention_count: 0,
       suspended_count: 0,
+      expiring_soon_count: 0,
       paid_total: 0,
     },
   };
@@ -665,7 +671,7 @@ async function kickHotspotClient(session) {
   return false;
 }
 
-async function suspendHotspotSession(sessionId, tenantId) {
+async function suspendHotspotSession(sessionId, tenantId, reason = "") {
   const session = await findSessionForAdminRetry(sessionId, tenantId);
   if (!session) {
     throw Object.assign(new Error("The hotspot session was not found."), { statusCode: 404 });
@@ -685,13 +691,15 @@ async function suspendHotspotSession(sessionId, tenantId) {
   const result = await database().query(
     `UPDATE captive_hotspot_sessions
      SET status = 'suspended', suspended_at = CURRENT_TIMESTAMP,
+         suspend_reason = $3,
          error_code = NULL, error_message = NULL, updated_at = CURRENT_TIMESTAMP
      WHERE id = $1 AND tenant_id = $2 RETURNING *`,
-    [sessionId, tenantId],
+    [sessionId, tenantId, String(reason || "").trim().slice(0, 200) || null],
   );
   await recordEvent(session.tenant_id, sessionId, "admin.suspended", {
     routerId: session.router_id,
     mac: session.mac_address,
+    reason: String(reason || "").trim().slice(0, 200),
     errors,
   });
   return result.rows[0];
@@ -755,7 +763,7 @@ async function renewHotspotSession(sessionId, tenantId) {
   const expiry = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
   const result = await database().query(
     `UPDATE captive_hotspot_sessions
-     SET status = 'authorized', suspended_at = NULL, expires_at = $3,
+     SET status = 'authorized', suspended_at = NULL, suspend_reason = NULL, expires_at = $3,
          authorized_at = COALESCE(authorized_at, CURRENT_TIMESTAMP),
          renewal_count = COALESCE(renewal_count, 0) + 1,
          hotspot_username = $4, hotspot_password_encrypted = $5,
@@ -792,9 +800,60 @@ async function deleteHotspotSession(sessionId, tenantId) {
   return { success: true, errors };
 }
 
+async function bulkSessionAction(ids, tenantId, action, reason = "") {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw Object.assign(new Error("Select at least one session."), { statusCode: 400 });
+  }
+  const unique = [...new Set(ids.filter((id) => UUID_PATTERN.test(String(id))))].slice(0, 100);
+  if (unique.length === 0) {
+    throw Object.assign(new Error("No valid sessions were selected."), { statusCode: 400 });
+  }
+  const results = [];
+  for (const id of unique) {
+    try {
+      let result;
+      if (action === "suspend") {result = await suspendHotspotSession(id, tenantId, reason);}
+      else if (action === "renew") {result = await renewHotspotSession(id, tenantId);}
+      else if (action === "delete") {result = await deleteHotspotSession(id, tenantId);}
+      else {
+        throw Object.assign(new Error("Unknown bulk action."), { statusCode: 400 });
+      }
+      results.push({ id, success: true, status: result.status || "deleted" });
+    } catch (error) {
+      results.push({ id, success: false, error: error.message });
+    }
+  }
+  return {
+    total: results.length,
+    succeeded: results.filter((entry) => entry.success).length,
+    failed: results.filter((entry) => !entry.success).length,
+    results,
+  };
+}
+
+async function findExpiringSessions(tenantId, withinMinutes = 60) {
+  const result = await database().query(
+    `SELECT s.id, s.mac_address, s.phone, s.amount, s.expires_at,
+            p.name AS plan_name, r.name AS router_name
+     FROM captive_hotspot_sessions s
+     JOIN service_plans p ON p.id = s.plan_id AND p.tenant_id = s.tenant_id
+     JOIN mikrotik_connections r ON r.id = s.router_id AND r.tenant_id = s.tenant_id
+     WHERE s.tenant_id = $1 AND s.status = 'authorized'
+       AND s.expires_at > CURRENT_TIMESTAMP
+       AND s.expires_at <= CURRENT_TIMESTAMP + ($2::integer * INTERVAL '1 minute')
+       AND NOT EXISTS (
+         SELECT 1 FROM captive_hotspot_events e
+         WHERE e.session_id = s.id AND e.event_type = 'expiry.warning'
+       )
+     ORDER BY s.expires_at ASC`,
+    [tenantId, Math.min(Math.max(Number(withinMinutes) || 60, 1), 1440)],
+  );
+  return result.rows;
+}
+
 async function listEvents(tenantId, limit = 100, sessionId = null) {
   const result = await database().query(
-    `SELECT event_type, details, created_at
+    `SELECT session_id, event_type, details, created_at
      FROM captive_hotspot_events
      WHERE tenant_id = $1 AND ($2::uuid IS NULL OR session_id = $2)
      ORDER BY created_at DESC
@@ -946,6 +1005,24 @@ async function redeemVoucherCode({
     throw Object.assign(new Error("That voucher code was just used. Try another code."), {
       statusCode: 409,
     });
+  }
+
+  // Auto-renew: if this device already has a paid session that was suspended
+  // or has expired, extending it avoids duplicate users on the router.
+  const existing = await db.query(
+    `SELECT * FROM captive_hotspot_sessions
+     WHERE router_id = $1 AND mac_address = $2 AND tenant_id = $3
+       AND status IN ('authorized', 'suspended', 'expired', 'expiration_cleanup_failed')
+     ORDER BY created_at DESC LIMIT 1`,
+    [routerId, macAddress, plan.tenant_id],
+  );
+  if (existing.rows[0]) {
+    const renewed = await renewHotspotSession(existing.rows[0].id, plan.tenant_id);
+    await recordEvent(plan.tenant_id, renewed.id, "payment.renewed_via_voucher", {
+      receipt: voucher.code,
+      voucherId: voucher.id,
+    });
+    return renewed;
   }
 
   const session = await createPendingSession({
@@ -1128,6 +1205,8 @@ module.exports = {
   suspendHotspotSession,
   renewHotspotSession,
   deleteHotspotSession,
+  bulkSessionAction,
+  findExpiringSessions,
   listEvents,
   expireHotspotSessions,
   startExpiryWorker,

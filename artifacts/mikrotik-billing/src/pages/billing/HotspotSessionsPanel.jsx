@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleDollarSign,
   Clock3,
+  Download,
   LoaderCircle,
   RefreshCw,
   Search,
@@ -120,6 +121,9 @@ export default function HotspotSessionsPanel() {
   const [retryError, setRetryError] = useState("");
   const [actionBusy, setActionBusy] = useState("");
   const [actionError, setActionError] = useState("");
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState("");
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const eventRequestId = useRef(0);
@@ -230,6 +234,9 @@ export default function HotspotSessionsPanel() {
         ? `Suspend access for ${session.mac_address}? The client is disconnected immediately.`
         : `Renew ${session.plan_name || "this package"} for ${session.mac_address}? Access extends immediately.`;
     if (!window.confirm(message)) {return;}
+    const reason = action === "suspend"
+      ? window.prompt("Reason for suspension (optional):", "") || ""
+      : "";
     setActionBusy(`${action}:${session.id}`);
     setActionError("");
     try {
@@ -237,13 +244,68 @@ export default function HotspotSessionsPanel() {
         await axios.delete(`${API}/captive-portal/hotspot-sessions/${session.id}`);
         setExpandedId("");
       } else {
-        await axios.post(`${API}/captive-portal/hotspot-sessions/${session.id}/${action}`);
+        await axios.post(`${API}/captive-portal/hotspot-sessions/${session.id}/${action}`, { reason });
       }
       setRefreshKey((key) => key + 1);
     } catch (requestError) {
       setActionError(requestError.response?.data?.error || `${label} failed. Try again.`);
     } finally {
       setActionBusy("");
+    }
+  };
+
+  const runBulk = async (action) => {
+    if (selectedIds.length === 0) {return;}
+    const label = action === "delete" ? "delete" : action === "renew" ? "renew" : "suspend";
+    if (!window.confirm(`${label.charAt(0).toUpperCase() + label.slice(1)} ${selectedIds.length} selected session(s)? Changes apply immediately on the router.`)) {return;}
+    const reason = action === "suspend"
+      ? window.prompt("Reason for suspension (optional):", "") || ""
+      : "";
+    setBulkBusy(true);
+    setBulkError("");
+    try {
+      const { data } = await axios.post(`${API}/captive-portal/hotspot-sessions/bulk`, {
+        ids: selectedIds,
+        action,
+        reason,
+      });
+      if (data.failed > 0) {
+        setBulkError(`${data.failed} action(s) failed: ${data.results.filter((r) => !r.success).map((r) => r.error).slice(0, 3).join("; ")}`);
+      }
+      setSelectedIds([]);
+      setRefreshKey((key) => key + 1);
+    } catch (requestError) {
+      setBulkError(requestError.response?.data?.error || "Bulk action failed. Try again.");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const exportAudit = async () => {
+    try {
+      const { data } = await axios.get(`${API}/captive-portal/hotspot-events`, {
+        params: { limit: 500 },
+      });
+      const rows = [["time", "event", "session_id", "details"]];
+      (data.events || []).forEach((event) => {
+        rows.push([
+          event.created_at || "",
+          event.event_type || "",
+          event.session_id || "",
+          JSON.stringify(event.details || {}),
+        ]);
+      });
+      const csv = rows
+        .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+        .join("\n");
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `giraffe-hotspot-events-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (requestError) {
+      setBulkError(requestError.response?.data?.error || "Audit export failed.");
     }
   };
 
@@ -277,6 +339,14 @@ export default function HotspotSessionsPanel() {
           </button>
           <button
             type="button"
+            onClick={exportAudit}
+            className="inline-flex items-center gap-2 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-amber-400/60 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+          >
+            <Download className="h-4 w-4" />
+            Export audit
+          </button>
+          <button
+            type="button"
             onClick={() => setRefreshKey((key) => key + 1)}
             disabled={loading}
             className="inline-flex items-center gap-2 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-amber-400/60 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 disabled:cursor-wait disabled:opacity-60"
@@ -287,7 +357,7 @@ export default function HotspotSessionsPanel() {
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-x-4 border-y border-zinc-800 px-2 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-x-4 border-y border-zinc-800 px-2 sm:grid-cols-3 lg:grid-cols-6">
         <Metric icon={Activity} label="All sessions" value={stats?.total_sessions ?? "—"} />
         <Metric
           icon={Clock3}
@@ -300,6 +370,12 @@ export default function HotspotSessionsPanel() {
           label="Active access"
           value={stats?.active_count ?? "—"}
           tone="text-emerald-300"
+        />
+        <Metric
+          icon={Clock3}
+          label="Expiring in 1h"
+          value={stats?.expiring_soon_count ?? "—"}
+          tone="text-amber-200"
         />
         <Metric
           icon={AlertTriangle}
@@ -360,6 +436,25 @@ export default function HotspotSessionsPanel() {
         </div>
       )}
 
+      {bulkError && (
+        <div role="alert" className="flex items-start gap-2 border border-rose-400/30 bg-rose-400/5 p-3 text-sm text-rose-200">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{bulkError}</span>
+        </div>
+      )}
+
+      {selectedIds.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 border border-amber-400/30 bg-amber-400/5 px-4 py-3">
+          <span className="text-sm font-medium text-amber-100">{selectedIds.length} selected</span>
+          <div className="ml-auto flex flex-wrap gap-2">
+            <button type="button" onClick={() => runBulk("renew")} disabled={bulkBusy} className="border border-emerald-400/40 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:border-emerald-300 disabled:opacity-50">Renew</button>
+            <button type="button" onClick={() => runBulk("suspend")} disabled={bulkBusy} className="border border-orange-400/40 px-3 py-1.5 text-xs font-medium text-orange-200 hover:border-orange-300 disabled:opacity-50">Suspend</button>
+            <button type="button" onClick={() => runBulk("delete")} disabled={bulkBusy} className="border border-rose-400/40 px-3 py-1.5 text-xs font-medium text-rose-200 hover:border-rose-300 disabled:opacity-50">Delete</button>
+            <button type="button" onClick={() => setSelectedIds([])} className="px-3 py-1.5 text-xs text-zinc-300 underline underline-offset-4">Clear</button>
+          </div>
+        </div>
+      )}
+
       {error ? (
         <div role="alert" className="border border-rose-400/30 bg-rose-400/5 p-5">
           <div className="flex items-start gap-3 text-sm text-rose-200">
@@ -380,6 +475,20 @@ export default function HotspotSessionsPanel() {
             <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="border-b border-zinc-800 bg-zinc-900/70 text-xs uppercase tracking-wide text-zinc-500">
                 <tr>
+                  <th scope="col" className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all sessions on this page"
+                      checked={sessions.length > 0 && sessions.every((s) => selectedIds.includes(s.id))}
+                      onChange={(event) => {
+                        const ids = sessions.map((s) => s.id);
+                        setSelectedIds(event.target.checked
+                          ? [...new Set([...selectedIds, ...ids])]
+                          : selectedIds.filter((id) => !ids.includes(id)));
+                      }}
+                      className="h-4 w-4 accent-amber-400"
+                    />
+                  </th>
                   <th scope="col" className="px-4 py-3 font-medium">Guest / device</th>
                   <th scope="col" className="px-4 py-3 font-medium">Package</th>
                   <th scope="col" className="px-4 py-3 font-medium">Payment</th>
@@ -401,7 +510,7 @@ export default function HotspotSessionsPanel() {
                   ))
                 ) : sessions.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-16 text-center">
+                    <td colSpan={7} className="px-6 py-16 text-center">
                       {search || status !== "all" ? (
                         <>
                           <Search className="mx-auto h-5 w-5 text-zinc-500" aria-hidden="true" />
@@ -422,6 +531,17 @@ export default function HotspotSessionsPanel() {
                     return (
                       <Fragment key={session.id}>
                         <tr className="align-top transition-colors hover:bg-zinc-900/50">
+                          <td className="px-4 py-4">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select session ${session.mac_address}`}
+                              checked={selectedIds.includes(session.id)}
+                              onChange={(event) => setSelectedIds((current) => event.target.checked
+                                ? [...current, session.id]
+                                : current.filter((id) => id !== session.id))}
+                              className="mt-1 h-4 w-4 accent-amber-400"
+                            />
+                          </td>
                           <td className="px-4 py-4">
                             <p className="font-medium text-zinc-100">
                               {session.phone_last4 ? `•••• ${session.phone_last4}` : "Guest"}
@@ -444,6 +564,11 @@ export default function HotspotSessionsPanel() {
                           </td>
                           <td className="px-4 py-4">
                             <StatusBadge status={session.status} />
+                            {session.suspend_reason && (
+                              <p className="mt-2 max-w-56 text-xs leading-5 text-orange-200/80">
+                                Reason: {session.suspend_reason}
+                              </p>
+                            )}
                             {session.error_message && (
                               <p className="mt-2 max-w-56 text-xs leading-5 text-rose-200/80">
                                 {session.error_message}
@@ -522,7 +647,7 @@ export default function HotspotSessionsPanel() {
                         </tr>
                         {expandedId === session.id && (
                           <tr className="bg-zinc-900/40">
-                            <td colSpan={6} className="px-4 py-5">
+                            <td colSpan={7} className="px-4 py-5">
                               <div className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-200">
                                 <Activity className="h-4 w-4 text-amber-300" />
                                 Session activity

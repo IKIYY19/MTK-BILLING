@@ -665,6 +665,7 @@ const billingMigrations = [
   // Admin session controls (suspend / renew) need audit state.
   `ALTER TABLE captive_hotspot_sessions ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMP`,
   `ALTER TABLE captive_hotspot_sessions ADD COLUMN IF NOT EXISTS renewal_count INTEGER DEFAULT 0`,
+  `ALTER TABLE captive_hotspot_sessions ADD COLUMN IF NOT EXISTS suspend_reason VARCHAR(200)`,
 ];
 
 async function runBillingMigrations(db) {

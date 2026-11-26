@@ -884,6 +884,16 @@ const startServer = async () => {
         }
       }
 
+      // Start hotspot expiry warnings cron
+      try {
+        require("./cron/hotspotExpiryWarnings").startCron();
+        logger.info("Hotspot expiry warnings cron started");
+      } catch (e) {
+        logger.warn("Could not start hotspot expiry warnings cron", {
+          error: e.message,
+        });
+      }
+
       // Start payment reminders cron
       try {
         const {
