@@ -666,6 +666,10 @@ const billingMigrations = [
   `ALTER TABLE captive_hotspot_sessions ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMP`,
   `ALTER TABLE captive_hotspot_sessions ADD COLUMN IF NOT EXISTS renewal_count INTEGER DEFAULT 0`,
   `ALTER TABLE captive_hotspot_sessions ADD COLUMN IF NOT EXISTS suspend_reason VARCHAR(200)`,
+
+  // Plan validity with hour/minute precision.
+  `ALTER TABLE service_plans ADD COLUMN IF NOT EXISTS validity_hours INTEGER DEFAULT 0`,
+  `ALTER TABLE service_plans ADD COLUMN IF NOT EXISTS validity_minutes INTEGER DEFAULT 0`,
 ];
 
 async function runBillingMigrations(db) {

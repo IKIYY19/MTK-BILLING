@@ -336,7 +336,7 @@ export function HotspotVouchers() {
             <label className="block text-sm font-medium text-zinc-300 mb-1.5">Hotspot Package</label>
             <select value={form.plan_id} onChange={(e) => setForm({ ...form, plan_id: e.target.value })} className="modern-input" required>
               <option value="">Select a package</option>
-              {plans.map((p) => <option key={p.id} value={p.id}>{p.name} — KES {p.price} / {p.validity_days} days</option>)}
+              {plans.map((p) => <option key={p.id} value={p.id}>{p.name} — KES {p.price} / {p.validity_label || `${p.validity_days || 0}d ${p.validity_hours || 0}h ${p.validity_minutes || 0}m`}</option>)}
             </select>
           </div>
           <div>

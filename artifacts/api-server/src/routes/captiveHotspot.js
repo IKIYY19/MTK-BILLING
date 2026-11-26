@@ -112,6 +112,9 @@ router.get("/plans", async (req, res) => {
         price: Number(plan.price),
         quota_gb: plan.quota_gb === null ? null : Number(plan.quota_gb),
         validity_days: Number(plan.validity_days),
+        validity_hours: Number(plan.validity_hours || 0),
+        validity_minutes: Number(plan.validity_minutes || 0),
+        validity_label: require("../services/validity").label(plan),
       })),
       activeSession: activeSession
         ? { expiresAt: activeSession.expires_at }
@@ -175,7 +178,7 @@ router.post("/sessions", async (req, res) => {
       return res.status(400).json({ error: "Choose a valid hotspot package." });
     }
     const planResult = await global.db.query(
-      `SELECT id, tenant_id, name, price, validity_days
+      `SELECT id, tenant_id, name, price, validity_days, validity_hours, validity_minutes
        FROM service_plans
        WHERE id = $1 AND tenant_id = $2 AND is_active = true
          AND plan_type = 'hotspot' AND price > 0 AND price = TRUNC(price)`,

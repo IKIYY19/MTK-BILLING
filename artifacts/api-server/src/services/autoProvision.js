@@ -128,8 +128,9 @@ async function reactivateOnPayment(payment) {
     let reactivated = 0;
     for (const sub of suspended) {
       const plan = sub.plan || (sub.plan_id ? await billing.getPlanById(sub.plan_id) : null);
-      const periodDays = plan?.billing_period_days || plan?.period_days || 30;
-      const newExpiry = new Date(Date.now() + periodDays * 24 * 60 * 60 * 1000);
+      const validity = require("./validity");
+      const minutes = validity.totalMinutes(plan || { validity_days: 30 });
+      const newExpiry = new Date(Date.now() + (minutes || 30 * 1440) * 60 * 1000);
 
       await billing.updateSubscription(sub.id, {
         status: 'active',

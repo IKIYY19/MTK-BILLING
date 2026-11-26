@@ -452,10 +452,12 @@ export default function CaptiveHotspotPage() {
   const stage = paymentConfirmed
     ? payment.status === "payment_confirmed" ? 1 : 2
     : 0;
+  const planMinutes = (plan) =>
+    Number(plan.validity_days || 0) * 1440 +
+    Number(plan.validity_hours || 0) * 60 +
+    Number(plan.validity_minutes || 0);
   const bestValueId = plans.length
-    ? plans.reduce((best, plan) =>
-        Number(plan.validity_days || 0) > Number(best.validity_days || 0) ? plan : best,
-      ).id
+    ? plans.reduce((best, plan) => (planMinutes(plan) > planMinutes(best) ? plan : best)).id
     : "";
 
   // Once the payment is confirmed, connect this device automatically. The
@@ -674,7 +676,9 @@ export default function CaptiveHotspotPage() {
                         <span className="hp-plan-meta">
                           <span className="hp-tag"><Zap className="mr-1 inline h-3 w-3" />{plan.speed_up}/{plan.speed_down}</span>
                           {plan.quota_gb ? <span className="hp-tag">{plan.quota_gb} GB</span> : null}
-                          <span className="hp-tag">{plan.validity_days} day{plan.validity_days === 1 ? "" : "s"}</span>
+                          <span className="hp-tag">
+                            {plan.validity_label || `${plan.validity_days || 0}d${plan.validity_hours ? ` ${plan.validity_hours}h` : ""}${plan.validity_minutes ? ` ${plan.validity_minutes}m` : ""}`}
+                          </span>
                         </span>
                       </span>
                       <span className="hp-plan-price">

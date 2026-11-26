@@ -170,7 +170,8 @@ async function listPlans(routerId, tenantId) {
     });
   }
   const result = await database().query(
-    `SELECT id, name, description, speed_up, speed_down, price, quota_gb, validity_days
+    `SELECT id, name, description, speed_up, speed_down, price, quota_gb,
+            validity_days, validity_hours, validity_minutes
      FROM service_plans
      WHERE tenant_id = $1 AND is_active = true AND plan_type = 'hotspot'
        AND price > 0 AND price = TRUNC(price)
@@ -300,7 +301,7 @@ async function findByToken(token, { routerId, macAddress, tenantId } = {}) {
   }
   const result = await database().query(
     `SELECT s.*, p.name AS plan_name, p.speed_up, p.speed_down,
-            p.validity_days, p.quota_gb
+            p.validity_days, p.validity_hours, p.validity_minutes, p.quota_gb
      FROM captive_hotspot_sessions s
      JOIN service_plans p ON p.id = s.plan_id
      WHERE s.session_token_hash = $1 LIMIT 1`,
@@ -456,7 +457,8 @@ async function authorizePaidSession(session) {
     });
     const planResult = await database().query(
       `SELECT speed_up, speed_down, burst_limit, burst_threshold, burst_time,
-              hotspot_profile, validity_days, quota_gb, tenant_id
+              hotspot_profile, validity_days, validity_hours, validity_minutes,
+              quota_gb, tenant_id
        FROM service_plans WHERE id = $1 AND plan_type = 'hotspot' AND is_active = true`,
       [working.plan_id],
     );
@@ -464,10 +466,12 @@ async function authorizePaidSession(session) {
     if (!plan || plan.tenant_id !== working.tenant_id) {
       throw new Error("The paid hotspot package is no longer available.");
     }
-    const days = Number(plan.validity_days);
-    if (!Number.isInteger(days) || days < 1 || days > 365) {
+    const validity = require("./validity");
+    const minutes = validity.totalMinutes(plan);
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 365 * 1440) {
       throw new Error("The selected hotspot package has an invalid validity period.");
     }
+    const validityUptime = validity.toUptime(plan);
     const routerManager = require("./routerConnectionManager");
     const comment = `paid-hotspot:${working.id}`;
     const existingUsers = await routerManager.print(
@@ -490,7 +494,7 @@ async function authorizePaidSession(session) {
         name: username,
         password,
         "mac-address": working.mac_address,
-        "limit-uptime": `${days}d`,
+        "limit-uptime": validityUptime,
         profile: profileName,
         comment,
       };
@@ -503,7 +507,7 @@ async function authorizePaidSession(session) {
         params,
       );
     }
-    const expiry = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    const expiry = new Date(Date.now() + minutes * 60 * 1000);
     const result = await database().query(
       `UPDATE captive_hotspot_sessions
        SET status = 'authorized', expires_at = $2, authorized_at = COALESCE(authorized_at, CURRENT_TIMESTAMP),
@@ -725,10 +729,12 @@ async function renewHotspotSession(sessionId, tenantId) {
   if (!plan) {
     throw Object.assign(new Error("The package for this session is no longer available."), { statusCode: 404 });
   }
-  const days = Number(plan.validity_days);
-  if (!Number.isInteger(days) || days < 1 || days > 365) {
+  const validity = require("./validity");
+  const minutes = validity.totalMinutes(plan);
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 365 * 1440) {
     throw Object.assign(new Error("The package has an invalid validity period."), { statusCode: 400 });
   }
+  const validityUptime = validity.toUptime(plan);
 
   const username = session.hotspot_username || `wifi_${session.id.replace(/-/g, "").slice(0, 16)}`;
   const password = session.hotspot_password_encrypted
@@ -751,7 +757,7 @@ async function renewHotspotSession(sessionId, tenantId) {
     name: username,
     password,
     "mac-address": session.mac_address,
-    "limit-uptime": `${days}d`,
+    "limit-uptime": validityUptime,
     profile: profileName,
     comment: `paid-hotspot:${session.id}`,
   };
@@ -760,7 +766,7 @@ async function renewHotspotSession(sessionId, tenantId) {
   }
   await routerManager.executeCommand(session.router_id, "/ip/hotspot/user/add", params);
 
-  const expiry = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  const expiry = new Date(Date.now() + minutes * 60 * 1000);
   const result = await database().query(
     `UPDATE captive_hotspot_sessions
      SET status = 'authorized', suspended_at = NULL, suspend_reason = NULL, expires_at = $3,
@@ -773,7 +779,8 @@ async function renewHotspotSession(sessionId, tenantId) {
   );
   await recordEvent(tenantId, sessionId, "admin.renewed", {
     expiresAt: expiry.toISOString(),
-    days,
+    validityMinutes: minutes,
+    uptime: validityUptime,
     username,
   });
   return result.rows[0];

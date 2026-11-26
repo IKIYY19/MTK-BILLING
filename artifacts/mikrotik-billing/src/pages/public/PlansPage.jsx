@@ -136,7 +136,7 @@ export function PlansPage() {
                   KES {plan.price}
                 </span>
                 <span className="text-zinc-400 text-sm ml-1">
-                  / {plan.duration_days || 30} days
+                  / {plan.validity_label || `${plan.duration_days || 30}d`}
                 </span>
               </div>
 
@@ -168,7 +168,7 @@ export function PlansPage() {
                   <span className="text-zinc-300">
                     Billing:{" "}
                     <span className="text-white font-medium">
-                      {plan.duration_days || 30}-day cycle
+                      {plan.validity_label || `${plan.duration_days || 30}d`} cycle
                     </span>
                   </span>
                 </div>

@@ -642,7 +642,8 @@ router.post('/network/vouchers', async (req, res) => {
       const planId = v.plan_id || null;
       if (planId && !plans.has(planId)) {
         const found = await db.query(
-          `SELECT id, name, price, validity_days, speed_up, speed_down, quota_gb
+          `SELECT id, name, price, validity_days, validity_hours, validity_minutes,
+                  speed_up, speed_down, quota_gb
            FROM service_plans WHERE id = $1 AND plan_type = 'hotspot' AND is_active = true`,
           [planId],
         );
@@ -652,8 +653,13 @@ router.post('/network/vouchers', async (req, res) => {
       if (planId && !plan) {
         return res.status(400).json({ error: 'The selected hotspot plan is not available' });
       }
+      if (plan && require('../services/validity').totalMinutes(plan) < 1) {
+        return res.status(400).json({ error: 'The selected plan needs a validity of at least one minute' });
+      }
       const rate = plan ? `${plan.speed_up}/${plan.speed_down}` : (v.rate_limit || '');
-      const uptime = plan ? `${Number(plan.validity_days)}d` : (voucherUptime(v.valid_for) || '');
+      const uptime = plan
+        ? require('../services/validity').toUptime(plan)
+        : (voucherUptime(v.valid_for) || '');
       const dataLimit = plan && Number(plan.quota_gb) > 0
         ? `${plan.quota_gb}G`
         : (v.data_limit || '');

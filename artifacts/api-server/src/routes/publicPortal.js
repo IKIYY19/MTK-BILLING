@@ -27,7 +27,8 @@ router.get("/hotspot-plans", async (req, res) => {
       tenantId = found.rows[0].tenant_id || DEFAULT_TENANT_ID;
     }
     const result = await db.query(
-      `SELECT id, name, speed_up, speed_down, price, quota_gb, validity_days
+      `SELECT id, name, speed_up, speed_down, price, quota_gb,
+              validity_days, validity_hours, validity_minutes
        FROM service_plans
        WHERE tenant_id = $1 AND is_active = true AND plan_type = 'hotspot'
          AND price > 0 AND price = TRUNC(price)
@@ -41,6 +42,9 @@ router.get("/hotspot-plans", async (req, res) => {
         price: Number(plan.price),
         quota_gb: plan.quota_gb === null ? null : Number(plan.quota_gb),
         validity_days: Number(plan.validity_days),
+        validity_hours: Number(plan.validity_hours || 0),
+        validity_minutes: Number(plan.validity_minutes || 0),
+        validity_label: require("../services/validity").label(plan),
       })),
     });
   } catch (e) {
@@ -163,7 +167,10 @@ router.get("/plans", async (req, res) => {
         price: p.price,
         speed: p.speed,
         data_cap: p.data_cap,
-        duration_days: p.duration_days || 30,
+        duration_days: p.validity_days ?? p.duration_days ?? 30,
+        validity_hours: p.validity_hours || 0,
+        validity_minutes: p.validity_minutes || 0,
+        validity_label: require("../services/validity").label(p),
         connection_type: p.connection_type || "pppoe",
       }));
     res.json(plans);
