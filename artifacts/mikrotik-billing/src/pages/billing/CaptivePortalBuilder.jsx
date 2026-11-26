@@ -36,7 +36,7 @@ function isAllowedPortalUrl(value) {
   }
 }
 
-function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeText, phoneNumber, font, termsEnabled, termsText }) {
+function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeText, phoneNumber, font, termsEnabled, termsText, logoUrl = "" }) {
   const company = String(companyName || "Giraffe Hotspot").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[char]);
