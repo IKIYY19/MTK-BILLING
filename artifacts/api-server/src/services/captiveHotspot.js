@@ -826,6 +826,9 @@ async function renewHotspotSession(sessionId, tenantId) {
     params["limit-bytes-total"] = Math.floor(Number(plan.quota_gb) * 1024 ** 3);
   }
   await routerManager.executeCommand(session.router_id, "/ip/hotspot/user/add", params);
+  // Drop any stale active session so the client re-authenticates with the
+  // renewed user and picks up the new validity/speed immediately.
+  await kickHotspotClient(session);
 
   const expiry = new Date(Date.now() + minutes * 60 * 1000);
   const result = await database().query(
@@ -904,6 +907,17 @@ async function bulkSessionAction(ids, tenantId, action, reason = "") {
  * hotspot user on that plan, and kick their live session so the new rate takes
  * effect immediately. Called when a plan is edited from the admin UI.
  */
+async function isMacOnline(routerId, macAddress) {
+  const manager = require("./routerConnectionManager");
+  const active = await manager
+    .print(routerId, "/ip/hotspot/active", ".id,user,address,mac-address")
+    .catch(() => []);
+  const mac = String(macAddress || "").toLowerCase();
+  return active.some(
+    (entry) => String(entry["mac-address"] || "").toLowerCase() === mac,
+  );
+}
+
 async function syncActiveSessionsToPlan(planId) {
   const result = { total: 0, synced: 0, failed: 0, kicked: 0, errors: [] };
   const db = database();
@@ -1338,6 +1352,7 @@ module.exports = {
   deleteHotspotSession,
   bulkSessionAction,
   syncActiveSessionsToPlan,
+  isMacOnline,
   findExpiringSessions,
   listEvents,
   expireHotspotSessions,

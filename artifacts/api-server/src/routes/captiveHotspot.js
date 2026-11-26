@@ -262,6 +262,12 @@ router.get("/sessions/:token", async (req, res) => {
       session = await checkProviderStatus(session);
     }
     const response = await captiveHotspot.publicSession(session);
+    if (session.status === "authorized" && session.mac_address) {
+      response.online = await captiveHotspot.isMacOnline(
+        session.router_id,
+        session.mac_address,
+      );
+    }
     res.set("Cache-Control", "no-store");
     return res.json(response);
   } catch (error) {

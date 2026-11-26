@@ -413,6 +413,7 @@ export default function CaptiveHotspotPage() {
       });
       setPayment(data);
       setSessionToken("");
+      setPollCount(0);
       setShowVoucher(false);
       setVoucherCode("");
     } catch (requestError) {
@@ -485,6 +486,17 @@ export default function CaptiveHotspotPage() {
     }, 700);
     return () => window.clearTimeout(timer);
   }, [authorized]);
+
+  // After a suspend/renew cycle the account can be authorized in the database
+  // while the device has no live hotspot session. Re-submit the login so the
+  // client is connected again without asking the customer to do anything.
+  useEffect(() => {
+    if (!authorized || payment?.online !== false) {return undefined;}
+    const timer = window.setTimeout(() => {
+      try {connectFormRef.current?.submit();} catch { /* keep the button */ }
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [authorized, payment?.online]);
 
   if (loading) {
     return (
