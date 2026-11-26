@@ -187,6 +187,7 @@ export default function CaptiveHotspotPage() {
   const [timedOut, setTimedOut] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [paymentsEnabled, setPaymentsEnabled] = useState(true);
+  const [resolvedMac, setResolvedMac] = useState("");
 
   useEffect(() => {
     if (!portalFont || portalFont === "Inter") {return undefined;}
@@ -197,10 +198,13 @@ export default function CaptiveHotspotPage() {
     return () => link.remove();
   }, [portalFont]);
 
-  const preview = !context.routerId || !context.mac;
+  // RouterOS can leave $(mac) empty in the hotspot HTML. When that happens the
+  // API resolves the client from $(ip) and returns the authoritative MAC.
+  const activeMac = context.mac || resolvedMac;
+  const preview = !context.routerId || (!context.mac && !context.ip && !resolvedMac);
 
   useEffect(() => {
-    if (preview) {
+    if (!context.routerId || (!context.mac && !context.ip)) {
       let cancelled = false;
       axios
         .get(`${API}/public/hotspot-plans`, {
@@ -219,7 +223,7 @@ export default function CaptiveHotspotPage() {
     let cancelled = false;
     axios
       .get(`${API}/captive-hotspot/plans`, {
-        params: { router_id: context.routerId, mac: context.mac },
+        params: { router_id: context.routerId, mac: context.mac, ip: context.ip },
       })
       .then(({ data }) => {
         if (cancelled) return;
@@ -227,6 +231,7 @@ export default function CaptiveHotspotPage() {
         setRouterName(data.router?.name || "");
         setActiveSession(data.activeSession || null);
         setPaymentsEnabled(data.paymentsEnabled !== false);
+        if (data.mac) {setResolvedMac(data.mac);}
         setSelectedPlan(data.plans?.[0]?.id || "");
       })
       .catch((requestError) => {
@@ -243,7 +248,7 @@ export default function CaptiveHotspotPage() {
     return () => {
       cancelled = true;
     };
-  }, [context.routerId, context.mac, preview]);
+  }, [context.routerId, activeMac, preview]);
 
   const refreshPayment = async () => {
     if (!sessionToken) return;
@@ -251,7 +256,7 @@ export default function CaptiveHotspotPage() {
     try {
       const { data } = await axios.get(
         `${API}/captive-hotspot/sessions/${encodeURIComponent(sessionToken)}`,
-        { params: { router_id: context.routerId, mac: context.mac } },
+        { params: { router_id: context.routerId, mac: activeMac } },
       );
       setPayment(data);
       setTimedOut(false);
@@ -302,7 +307,7 @@ export default function CaptiveHotspotPage() {
       const { data } = await axios.post(`${API}/captive-hotspot/sessions`, {
         router_id: context.routerId,
         plan_id: plan.id,
-        mac: context.mac,
+        mac: activeMac,
         ip: context.ip,
         gateway_ip: context.gatewayIp,
         link_login_only: context.linkLoginOnly,
@@ -363,7 +368,7 @@ export default function CaptiveHotspotPage() {
     sessionToken &&
     ["pending", "initiating"].includes(payment?.status);
   const brand = routerName || context.brand || "Wi-Fi access";
-  const device = context.mac ? context.mac.toUpperCase().slice(-5) : "";
+  const device = activeMac ? activeMac.toUpperCase().slice(-5) : "";
   const stage = paymentConfirmed
     ? payment.status === "payment_confirmed" ? 1 : 2
     : 0;

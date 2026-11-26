@@ -1,6 +1,7 @@
 const express = require("express");
 const { paymentLimiter } = require("../middleware/rateLimiter");
 const captiveHotspot = require("../services/captiveHotspot");
+const routerConnectionManager = require("../services/routerConnectionManager");
 const paymentsRouter = require("./payments");
 
 const router = express.Router();
@@ -53,7 +54,37 @@ async function checkProviderStatus(session) {
 router.get("/plans", async (req, res) => {
   try {
     const routerId = requireRouterId(req.query.router_id);
-    const macAddress = captiveHotspot.normalizeMac(req.query.mac);
+    const clientIp = String(req.query.ip || "").trim();
+    let macAddress = captiveHotspot.normalizeMac(req.query.mac);
+    if (!macAddress && clientIp) {
+      // Some RouterOS versions leave $(mac) empty in the hotspot HTML. Resolve
+      // the client from its live hotspot host entry using the $(ip) value.
+      try {
+        const hosts = await routerConnectionManager.print(
+          routerId,
+          "/ip/hotspot/host",
+          ".id,mac-address,address",
+        );
+        const host = hosts.find((entry) => String(entry.address) === clientIp);
+        if (host) {
+          macAddress = captiveHotspot.normalizeMac(host["mac-address"] || host.mac);
+        }
+        if (!macAddress) {
+          // Hotspot host entries expire quickly; DHCP leases are longer lived.
+          const leases = await routerConnectionManager.print(
+            routerId,
+            "/ip/dhcp-server/lease",
+            ".id,address,mac-address,status",
+          );
+          const lease = leases.find((entry) => String(entry.address) === clientIp);
+          if (lease) {
+            macAddress = captiveHotspot.normalizeMac(lease["mac-address"] || lease.mac);
+          }
+        }
+      } catch (lookupError) {
+        // Fall through to the normal validation error below.
+      }
+    }
     if (!macAddress) {
       return res.status(400).json({ error: "The router did not provide a valid client MAC address." });
     }
@@ -65,6 +96,7 @@ router.get("/plans", async (req, res) => {
     res.set("Cache-Control", "no-store");
     return res.json({
       router: { name: routerRecord.name },
+      mac: macAddress,
       paymentsEnabled,
       plans: plans.map((plan) => ({
         ...plan,
