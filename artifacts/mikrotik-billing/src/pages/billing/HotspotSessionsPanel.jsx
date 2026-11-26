@@ -67,6 +67,12 @@ function humanize(value) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function clientPhone(session) {
+  const phone = String(session.phone || "");
+  if (/^\d{9,15}$/.test(phone)) {return `+${phone}`;}
+  return session.code_type === "Voucher" ? "Voucher guest" : "Guest";
+}
+
 function timeLeft(expiresAt, now) {
   if (!expiresAt) {return "—";}
   const diff = new Date(expiresAt).getTime() - now;
@@ -357,7 +363,7 @@ export default function HotspotSessionsPanel() {
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-x-4 border-y border-zinc-800 px-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-x-4 border-y border-zinc-800 px-2 sm:grid-cols-3 lg:grid-cols-7">
         <Metric icon={Activity} label="All sessions" value={stats?.total_sessions ?? "—"} />
         <Metric
           icon={Clock3}
@@ -369,6 +375,12 @@ export default function HotspotSessionsPanel() {
           icon={Wifi}
           label="Active access"
           value={stats?.active_count ?? "—"}
+          tone="text-emerald-300"
+        />
+        <Metric
+          icon={Wifi}
+          label="Online now"
+          value={stats?.online_count ?? "—"}
           tone="text-emerald-300"
         />
         <Metric
@@ -402,7 +414,7 @@ export default function HotspotSessionsPanel() {
             type="search"
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Search MAC, IP, package, router or receipt"
+            placeholder="Search phone, MAC, IP, code, package or router"
             className="h-10 w-full border border-zinc-700 bg-zinc-900 pl-9 pr-3 text-sm text-white placeholder:text-zinc-500 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
           />
         </label>
@@ -472,7 +484,7 @@ export default function HotspotSessionsPanel() {
       ) : (
         <div className="overflow-hidden border border-zinc-800 bg-zinc-950/40">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left text-sm">
+            <table className="w-full min-w-[1200px] text-left text-sm">
               <thead className="border-b border-zinc-800 bg-zinc-900/70 text-xs uppercase tracking-wide text-zinc-500">
                 <tr>
                   <th scope="col" className="px-4 py-3">
@@ -489,11 +501,11 @@ export default function HotspotSessionsPanel() {
                       className="h-4 w-4 accent-amber-400"
                     />
                   </th>
-                  <th scope="col" className="px-4 py-3 font-medium">Guest / device</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Client / device</th>
                   <th scope="col" className="px-4 py-3 font-medium">Package</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Payment</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Status</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Access expiry</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Payment / code</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Access state</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Start → expiry</th>
                   <th scope="col" className="px-4 py-3 font-medium"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
@@ -544,26 +556,65 @@ export default function HotspotSessionsPanel() {
                           </td>
                           <td className="px-4 py-4">
                             <p className="font-medium text-zinc-100">
-                              {session.phone_last4 ? `•••• ${session.phone_last4}` : "Guest"}
+                              {clientPhone(session)}
                             </p>
                             <p className="mt-1 font-mono text-xs text-zinc-400">{session.mac_address}</p>
                             {session.client_ip && (
-                              <p className="mt-1 text-xs text-zinc-500">{session.client_ip}</p>
+                              <p className="mt-1 text-xs text-zinc-500">IP {session.client_ip}</p>
                             )}
-                            <p className="mt-1 text-xs text-zinc-600">Router: {session.router_name}</p>
+                            {session.hotspot_username && (
+                              <p className="mt-1 font-mono text-[10px] text-zinc-600">{session.hotspot_username}</p>
+                            )}
+                            <p className="mt-1 text-xs text-zinc-600">{session.router_name || "Router —"}</p>
                           </td>
                           <td className="px-4 py-4">
                             <p className="font-medium text-zinc-200">{session.plan_name}</p>
-                            <p className="mt-1 text-xs text-zinc-500">{formatDate(session.created_at)}</p>
+                            {(session.speed_up || session.speed_down) && (
+                              <p className="mt-1 text-xs text-zinc-500">{session.speed_up}/{session.speed_down}</p>
+                            )}
+                            <p className="mt-1 text-xs text-amber-300/80">
+                              {session.validity_label || `${session.validity_days || 0}d ${session.validity_hours || 0}h ${session.validity_minutes || 0}m`}
+                            </p>
+                            <p className="mt-1 text-[10px] text-zinc-600">Created {formatDate(session.created_at)}</p>
                           </td>
                           <td className="px-4 py-4">
                             <p className="font-semibold text-zinc-100">{formatMoney(session.amount)}</p>
                             {session.mpesa_receipt && (
-                              <p className="mt-1 font-mono text-xs text-zinc-500">{session.mpesa_receipt}</p>
+                              <p className="mt-1 font-mono text-xs text-yellow-300">{session.mpesa_receipt}</p>
+                            )}
+                            {session.mpesa_receipt && (
+                              <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[10px] ${
+                                session.code_type === "Voucher"
+                                  ? "border-yellow-400/30 bg-yellow-400/10 text-yellow-200"
+                                  : "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+                              }`}>
+                                {session.code_type || "M-Pesa"}
+                              </span>
+                            )}
+                            {session.paid_at && (
+                              <p className="mt-1 text-[10px] text-zinc-600">Paid {formatDate(session.paid_at)}</p>
                             )}
                           </td>
                           <td className="px-4 py-4">
-                            <StatusBadge status={session.status} />
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium ${
+                                session.online
+                                  ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+                                  : "border-zinc-700 bg-zinc-800 text-zinc-400"
+                              }`}>
+                                <span className={`h-1.5 w-1.5 rounded-full ${session.online ? "animate-pulse bg-emerald-400" : "bg-zinc-500"}`} />
+                                {session.online ? "Online" : "Offline"}
+                              </span>
+                              <StatusBadge status={session.status} />
+                            </div>
+                            {session.online && session.active_uptime && (
+                              <p className="mt-2 text-xs text-zinc-400">Up {session.active_uptime}</p>
+                            )}
+                            {(session.bytes_in || session.bytes_out) && (
+                              <p className="mt-1 font-mono text-[10px] text-zinc-600">
+                                ↓{session.bytes_in} ↑{session.bytes_out}
+                              </p>
+                            )}
                             {session.suspend_reason && (
                               <p className="mt-2 max-w-56 text-xs leading-5 text-orange-200/80">
                                 Reason: {session.suspend_reason}
@@ -576,18 +627,18 @@ export default function HotspotSessionsPanel() {
                             )}
                           </td>
                           <td className="px-4 py-4">
-                            <p className="text-zinc-200">{formatDate(session.expires_at)}</p>
+                            <p className="text-xs text-zinc-400">
+                              {session.authorized_at ? formatDate(session.authorized_at) : "Not started"}
+                            </p>
+                            <p className="mt-1 text-zinc-200">→ {formatDate(session.expires_at)}</p>
                             <p className={`mt-1 text-xs font-medium ${
-                              session.status === "authorized" ? "text-emerald-300" : "text-zinc-500"
+                              session.online ? "text-emerald-300" : "text-zinc-500"
                             }`}>
                               {timeLeft(session.expires_at, now)}
                               {Number(session.renewal_count) > 0 && ` · renewed ${session.renewal_count}×`}
                             </p>
                             {session.suspended_at && (
                               <p className="mt-1 text-xs text-orange-200">Suspended {formatDate(session.suspended_at)}</p>
-                            )}
-                            {session.paid_at && (
-                              <p className="mt-1 text-xs text-zinc-500">Paid {formatDate(session.paid_at)}</p>
                             )}
                           </td>
                           <td className="px-4 py-4">

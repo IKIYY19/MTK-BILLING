@@ -543,6 +543,48 @@ async function authorizePaidSession(session) {
   }
 }
 
+/**
+ * DB status is the payment/authorization state. Live presence comes from the
+ * router's /ip/hotspot/active table for the matching MAC or generated user.
+ */
+async function enrichSessionsWithRouterState(sessions) {
+  if (!sessions.length) {return sessions;}
+  const manager = require("./routerConnectionManager");
+  const byRouter = new Map();
+  for (const session of sessions) {
+    if (!byRouter.has(session.router_id)) {byRouter.set(session.router_id, []);}
+    byRouter.get(session.router_id).push(session);
+  }
+  for (const [routerId, group] of byRouter.entries()) {
+    let active = [];
+    try {
+      active = await manager.print(
+        routerId,
+        "/ip/hotspot/active",
+        ".id,user,address,mac-address,uptime,bytes-in,bytes-out",
+      );
+    } catch (error) {
+      logger.debug("Hotspot active lookup failed", { routerId, error: error.message });
+    }
+    for (const session of group) {
+      session.validity_label = require("./validity").label(session);
+      const mac = String(session.mac_address || "").toLowerCase();
+      const match = active.find((entry) => {
+        const entryMac = String(entry["mac-address"] || "").toLowerCase();
+        return (mac && entryMac === mac) ||
+          (session.hotspot_username && entry.user === session.hotspot_username);
+      });
+      session.online = Boolean(match);
+      session.active_uptime = match?.uptime || null;
+      session.active_address = match?.address || null;
+      session.bytes_in = match?.["bytes-in"] || null;
+      session.bytes_out = match?.["bytes-out"] || null;
+      session.code_type = session.code_source === "voucher" ? "Voucher" : "M-Pesa";
+    }
+  }
+  return sessions;
+}
+
 async function listSessions({ tenantId, status = "all", search = "", limit = 25, offset = 0 }) {
   const params = [tenantId];
   const conditions = ["s.tenant_id = $1"];
@@ -578,12 +620,16 @@ async function listSessions({ tenantId, status = "all", search = "", limit = 25,
     Math.min(Math.max(Number(offset) || 0, 0), 1000000),
   ];
   const rowsResult = await database().query(
-    `SELECT s.id, s.status, s.mac_address, s.client_ip, RIGHT(s.phone, 4) AS phone_last4,
-            s.amount, s.mpesa_receipt, s.error_code, s.error_message,
-            s.created_at, s.paid_at, s.authorized_at, s.expires_at,
+    `SELECT s.id, s.status, s.mac_address, s.client_ip, s.phone,
+            RIGHT(s.phone, 4) AS phone_last4,
+            s.amount, s.mpesa_receipt, s.provider_response->>'source' AS code_source,
+            s.checkout_request_id, s.error_code, s.error_message,
+            s.created_at, s.paid_at, s.authorized_at, s.expires_at, s.last_checked_at,
             s.suspended_at, s.suspend_reason, s.renewal_count,
             s.hotspot_username, s.router_id,
-            p.name AS plan_name, r.name AS router_name
+            p.name AS plan_name, p.speed_up, p.speed_down, p.validity_days,
+            p.validity_hours, p.validity_minutes,
+            r.name AS router_name
      FROM captive_hotspot_sessions s
      JOIN service_plans p ON p.id = s.plan_id AND p.tenant_id = s.tenant_id
      JOIN mikrotik_connections r ON r.id = s.router_id AND r.tenant_id = s.tenant_id
@@ -606,18 +652,33 @@ async function listSessions({ tenantId, status = "all", search = "", limit = 25,
      WHERE tenant_id = $1`,
     [tenantId],
   );
+  const sessions = await enrichSessionsWithRouterState(rowsResult.rows);
+  const stats = statsResult.rows[0] || {
+    total_sessions: 0,
+    pending_count: 0,
+    active_count: 0,
+    attention_count: 0,
+    suspended_count: 0,
+    expiring_soon_count: 0,
+    paid_total: 0,
+  };
+  try {
+    const liveRows = await database().query(
+      `SELECT id, router_id, mac_address, hotspot_username
+       FROM captive_hotspot_sessions
+       WHERE tenant_id = $1 AND status = 'authorized' AND expires_at > CURRENT_TIMESTAMP
+       LIMIT 500`,
+      [tenantId],
+    );
+    const live = await enrichSessionsWithRouterState(liveRows.rows);
+    stats.online_count = live.filter((entry) => entry.online).length;
+  } catch (error) {
+    stats.online_count = 0;
+  }
   return {
-    sessions: rowsResult.rows,
+    sessions,
     total: Number(countResult.rows[0]?.total || 0),
-    stats: statsResult.rows[0] || {
-      total_sessions: 0,
-      pending_count: 0,
-      active_count: 0,
-      attention_count: 0,
-      suspended_count: 0,
-      expiring_soon_count: 0,
-      paid_total: 0,
-    },
+    stats,
   };
 }
 
