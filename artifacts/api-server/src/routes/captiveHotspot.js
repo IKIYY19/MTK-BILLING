@@ -133,9 +133,20 @@ router.post("/sessions", async (req, res) => {
     if (clientIp && clientIp.length > 45) {
       return res.status(400).json({ error: "The client IP address is invalid." });
     }
+    let gatewayIp = req.body.gateway_ip;
+    let linkLoginOnly = req.body.link_login_only;
+    if (!gatewayIp || !linkLoginOnly) {
+      try {
+        const resolved = await captiveHotspot.resolveHotspotGateway(routerId);
+        gatewayIp = gatewayIp || resolved.gateway;
+        linkLoginOnly = linkLoginOnly || resolved.loginUrl;
+      } catch (resolveError) {
+        // Fall through to validation below for a clear client error.
+      }
+    }
     const { gateway, loginUrl } = captiveHotspot.validateRedirect(
-      req.body.gateway_ip,
-      req.body.link_login_only,
+      gatewayIp,
+      linkLoginOnly,
     );
     const originalUrl = captiveHotspot.safeOriginalUrl(req.body.original_url);
     const submittedPhone = String(req.body.phone || "").replace(/\D/g, "");

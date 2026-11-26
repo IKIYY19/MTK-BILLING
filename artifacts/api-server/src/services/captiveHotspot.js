@@ -120,6 +120,46 @@ async function getRouter(routerId, tenantId) {
   return router;
 }
 
+/**
+ * RouterOS does not always substitute $(link-login-only) into the hotspot HTML.
+ * Fall back to the router's own hotspot address and build the login URL here.
+ */
+async function resolveHotspotGateway(routerId) {
+  const manager = require("./routerConnectionManager");
+  const servers = await manager.print(
+    routerId,
+    "/ip/hotspot",
+    "name,interface,profile,disabled,invalid,ip-of-dns-name",
+  );
+  const server =
+    servers.find((entry) => entry.disabled === "false" && entry.invalid === "false") ||
+    servers.find((entry) => entry.invalid === "false");
+  let gateway = server ? parsePrivateIpv4(server["ip-of-dns-name"]) : null;
+
+  if (server && server.profile) {
+    const profiles = await manager.print(routerId, "/ip/hotspot/profile", "name,hotspot-address");
+    const profile = profiles.find((entry) => entry.name === server.profile);
+    if (profile) {
+      gateway = parsePrivateIpv4(profile["hotspot-address"]) || gateway;
+    }
+  }
+  if (!gateway) {
+    const profiles = await manager.print(routerId, "/ip/hotspot/profile", "name,hotspot-address");
+    const usable = profiles.find(
+      (entry) => parsePrivateIpv4(entry["hotspot-address"]) &&
+        String(entry["hotspot-address"]) !== "0.0.0.0",
+    );
+    gateway = usable ? parsePrivateIpv4(usable["hotspot-address"]) : null;
+  }
+  if (!gateway) {
+    throw Object.assign(
+      new Error("The hotspot gateway could not be determined from the router."),
+      { statusCode: 400 },
+    );
+  }
+  return { gateway, loginUrl: `http://${gateway}/login` };
+}
+
 async function listPlans(routerId, tenantId) {
   const router = await getRouter(routerId, tenantId);
   if (!router || !router.tenant_id) {
@@ -714,7 +754,14 @@ async function redeemVoucherCode({
     });
   }
 
-  const { gateway, loginUrl } = validateRedirect(gatewayIp, linkLoginOnly);
+  let gateway = parsePrivateIpv4(gatewayIp);
+  let loginUrl = String(linkLoginOnly || "").trim();
+  if (!gateway || !loginUrl) {
+    const resolved = await resolveHotspotGateway(routerId);
+    gateway = gateway || resolved.gateway;
+    loginUrl = loginUrl || resolved.loginUrl;
+  }
+  const redirect = validateRedirect(gateway, loginUrl);
   const original = safeOriginalUrl(originalUrl);
 
   const claimed = await db.query(
@@ -734,9 +781,9 @@ async function redeemVoucherCode({
     plan,
     macAddress,
     clientIp,
-    gateway,
+    gateway: redirect.gateway,
     originalUrl: original,
-    loginUrl,
+    loginUrl: redirect.loginUrl,
     phone: "voucher",
   });
   await db.query(
@@ -885,6 +932,7 @@ module.exports = {
   normalizeMac,
   parsePrivateIpv4,
   validateRedirect,
+  resolveHotspotGateway,
   safeOriginalUrl,
   getRouter,
   listPlans,
