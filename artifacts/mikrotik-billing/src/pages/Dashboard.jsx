@@ -27,6 +27,7 @@ import {
 import { useToast } from "../hooks/useToast";
 import { useStore } from "../store";
 import { getUser } from "../lib/auth";
+import { pickGreeting } from "../lib/greetings";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -323,13 +324,8 @@ function ActivityFeed({ customers = [], payments = [], navigate, currencySymbol 
 // ─── Welcome Note ─────────────────────────────────────────────────────────────
 function WelcomeNote({ userName }) {
   const navigate = useNavigate();
-  const greetings = [
-    "Welcome back",
-    "Good to see you",
-    "Welcome",
-    "Hello there",
-  ];
-  const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+  // Picked once per mount, so every login gets a fresh time-aware greeting.
+  const [greeting] = useState(() => pickGreeting());
   const tips = [
     "Add a new customer to get started with billing.",
     "Check overdue invoices to keep collections on track.",
@@ -345,7 +341,8 @@ function WelcomeNote({ userName }) {
           <UserPlus aria-hidden="true" />
         </div>
         <div className="dashboard-welcome-text">
-          <span className="dashboard-welcome-greeting">{greeting}, {userName}</span>
+          <span className="dashboard-welcome-greeting">{greeting.text}, {userName}</span>
+          <span className="dashboard-welcome-language">{greeting.language} · {greeting.segmentLabel}</span>
           <h2 className="dashboard-welcome-title">Welcome to MikroTik Billing</h2>
           <p className="dashboard-welcome-tip">{tip}</p>
         </div>
