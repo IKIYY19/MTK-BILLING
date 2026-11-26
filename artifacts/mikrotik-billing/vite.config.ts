@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import legacy from "@vitejs/plugin-legacy";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import tailwindcss from "tailwindcss";
@@ -20,6 +21,12 @@ export default defineConfig({
   base: basePath,
   plugins: [
     react(),
+    // Legacy bundles + polyfills so old captive-portal browsers (Android 7/8)
+    // can render the portal. Modern browsers keep using the ES module build.
+    legacy({
+      targets: ["defaults", "not IE 11"],
+      modernPolyfills: true,
+    }),
     runtimeErrorOverlay(),
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
@@ -51,6 +58,9 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // Older captive-portal browsers (e.g. Android 7 tablets) cannot parse
+    // optional chaining / nullish coalescing in the default ES2020 output.
+    target: "es2015",
   },
   server: {
     port,
