@@ -53,7 +53,10 @@ function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeTe
     if (phoneNumber) {hostedPortal.searchParams.set("support", phoneNumber);}
     if (font) {hostedPortal.searchParams.set("font", font);}
     if (String(termsEnabled) === "true" && termsText) {hostedPortal.searchParams.set("terms", termsText);}
+    // Bust captive-browser caches on every push so the new theme is fetched.
+    hostedPortal.searchParams.set("v", String(Date.now()));
   }
+  const accent = HOTSPOT_TEMPLATES.find((tpl) => tpl.id === theme)?.accent || "#facc15";
   const hostname = (hostedPortal?.hostname || "").toLowerCase();
   const privateHost =
     hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" ||
@@ -82,15 +85,15 @@ function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeTe
   <title>${company} Wi-Fi</title>
   <style>
     *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#09090b;color:#f4f4f5;font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
-    main{width:min(100%,420px);padding:28px;border:1px solid #3f3f46;background:#18181b}
-    h1{margin:0 0 8px;font-size:24px;line-height:1.2}p{margin:0;color:#d4d4d8}
+    main{width:min(100%,420px);padding:28px;border:1px solid ${accent}55;background:#18181b}
+    h1{margin:0 0 8px;font-size:24px;line-height:1.2;color:${accent}}p{margin:0;color:#d4d4d8}
   </style>
 </head>
 <body>
   <main role="status" aria-live="polite">
     <h1>${company}</h1>
     <p>Opening the secure Wi-Fi access page&hellip;</p>
-    <a href="${escapeAttribute(directPortal.toString())}" style="display:block;margin:14px 0;padding:13px;border-radius:10px;background:#6366f1;color:#fff;font-weight:600;text-decoration:none">Open packages now</a>
+    <a href="${escapeAttribute(directPortal.toString())}" style="display:block;margin:14px 0;padding:13px;border-radius:10px;background:${accent};color:#0b0f0e;font-weight:700;text-decoration:none">Open packages now</a>
     <form id="portal-handoff" action="${escapeAttribute(hostedPortal.toString())}" method="get">
       <input type="hidden" name="router_id" value="${escapeAttribute(routerId)}">
       <input type="hidden" name="brand" value="${escapeAttribute(companyName || "Giraffe Hotspot")}">
