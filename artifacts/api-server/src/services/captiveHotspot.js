@@ -592,6 +592,69 @@ async function listEvents(tenantId, limit = 100, sessionId = null) {
   return result.rows;
 }
 
+/**
+ * Redeem an M-Pesa confirmation code (receipt) that the client received by SMS.
+ * The Daraja callback normally confirms payments automatically; this path lets a
+ * customer finish manually when the callback or auto-detection did not complete.
+ */
+async function redeemMpesaCode({ routerId, macAddress, code, phone = "" }) {
+  const receipt = String(code || "").replace(/[\s-]/g, "").toUpperCase();
+  if (!/^[A-Z0-9]{6,30}$/.test(receipt)) {
+    throw Object.assign(new Error("Enter a valid M-Pesa confirmation code."), {
+      statusCode: 400,
+    });
+  }
+
+  // A client-supplied code is only a claim. It is accepted only when it matches
+  // a receipt that this server already recorded for this exact device/router.
+  // The optional phone number is an additional check, never an alternative path.
+  const params = [routerId, macAddress, receipt];
+  let phoneClause = "";
+  const normalizedPhone = String(phone || "").replace(/\D/g, "");
+  if (normalizedPhone.length >= 9) {
+    params.push(`%${normalizedPhone.slice(-9)}`);
+    phoneClause = ` AND (phone LIKE $${params.length} OR phone IS NULL)`;
+  }
+
+  const result = await database().query(
+    `SELECT * FROM captive_hotspot_sessions
+     WHERE router_id = $1 AND mac_address = $2
+       AND upper(replace(coalesce(mpesa_receipt, ''), ' ', '')) = $3
+       AND status IN ('pending', 'initiating', 'payment_confirmed', 'authorization_failed')
+       ${phoneClause}
+     ORDER BY created_at DESC LIMIT 1`,
+    params,
+  );
+  const session = result.rows[0];
+  if (!session) {
+    throw Object.assign(
+      new Error("That code was not found for this device. Check the code and try again."),
+      { statusCode: 404 },
+    );
+  }
+
+  if (["pending", "initiating"].includes(session.status)) {
+    const confirmed = await database().query(
+      `UPDATE captive_hotspot_sessions
+       SET status = 'payment_confirmed', paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP),
+           error_code = NULL, error_message = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND status IN ('pending', 'initiating') RETURNING *`,
+      [session.id],
+    );
+    if (confirmed.rows[0]) {
+      await recordEvent(confirmed.rows[0].tenant_id, confirmed.rows[0].id, "payment.confirmed", {
+        amount: Number(confirmed.rows[0].amount),
+        receipt,
+        source: "client_code",
+      });
+    }
+  }
+
+  return authorizePaidSession(
+    await findByCheckoutRequestId(session.checkout_request_id) || session,
+  );
+}
+
 async function publicSession(session) {
   if (!session) {
     return null;
@@ -731,6 +794,7 @@ module.exports = {
   markPaymentConfirmed,
   handleProviderVerification,
   authorizePaidSession,
+  redeemMpesaCode,
   publicSession,
   listSessions,
   findSessionForAdminRetry,

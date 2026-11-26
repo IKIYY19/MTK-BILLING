@@ -278,4 +278,24 @@ router.post("/sessions/:token/retry", async (req, res) => {
   }
 });
 
+router.post("/redeem-code", async (req, res) => {
+  try {
+    const routerId = requireRouterId(req.body.router_id);
+    const macAddress = captiveHotspot.normalizeMac(req.body.mac);
+    if (!macAddress) {
+      return res.status(400).json({ error: "The client MAC address is invalid." });
+    }
+    const session = await captiveHotspot.redeemMpesaCode({
+      routerId,
+      macAddress,
+      code: req.body.code,
+      phone: req.body.phone || "",
+    });
+    res.set("Cache-Control", "no-store");
+    return res.json(await captiveHotspot.publicSession(session));
+  } catch (error) {
+    return publicError(res, error);
+  }
+});
+
 module.exports = router;

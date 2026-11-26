@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
   AlertTriangle,
@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 import "../../hotspot-portal.css";
+import "../../hotspot-portal-extras.css";
 
 const API = import.meta.env.VITE_API_URL || "/api";
 
@@ -96,11 +97,14 @@ function formatExpiry(value) {
 
 function PortalMark() {
   return (
-    <div className="hp-mark" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-        <path d="M4.5 9.5a10 10 0 0 1 15 0" />
-        <path d="M7.5 12.8a6 6 0 0 1 9 0" />
-        <circle cx="12" cy="17" r="1.6" fill="currentColor" stroke="none" />
+    <div className="hp-mark hp-mark-giraffe" aria-hidden="true">
+      <svg viewBox="0 0 40 40" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M13 33V18c0-5 3-8 7-8s7 3 7 8v15" />
+        <path d="M20 10V6" />
+        <path d="M20 6c3 0 5 1 6 3" />
+        <circle cx="18" cy="8" r="1" fill="currentColor" stroke="none" />
+        <path d="M15 21h10M15 27h10" />
+        <path d="M11 33h18" />
       </svg>
     </div>
   );
@@ -119,14 +123,14 @@ function PortalShell({ brand, device, theme, support, font, children }) {
             <PortalMark />
             <div className="min-w-0">
               <div className="hp-brand-name">{brand}</div>
-              <div className="hp-brand-sub">Hotspot network</div>
+              <div className="hp-brand-sub">Fast · Simple · Secure</div>
             </div>
           </div>
           <div className="hp-chip"><span className="hp-dot" /><Signal className="h-3.5 w-3.5" /> Wi-Fi ready</div>
         </header>
         {children}
         <footer className="hp-foot">
-          <span>Powered by {brand}{support ? ` · Need help? ${support}` : ""}</span>
+          <span>{brand}{support ? ` · Need help? ${support}` : ""}</span>
           <span>{device ? `Device ${device}` : "Secure hotspot access"}</span>
         </footer>
       </div>
@@ -198,6 +202,10 @@ export default function CaptiveHotspotPage() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [paymentsEnabled, setPaymentsEnabled] = useState(true);
   const [resolvedMac, setResolvedMac] = useState("");
+  const [code, setCode] = useState("");
+  const [redeeming, setRedeeming] = useState(false);
+  const [showCode, setShowCode] = useState(false);
+  const connectFormRef = useRef(null);
 
   useEffect(() => {
     if (!portalFont || portalFont === "Inter") {return undefined;}
@@ -339,6 +347,31 @@ export default function CaptiveHotspotPage() {
     }
   };
 
+  const redeemCode = async (event) => {
+    event.preventDefault();
+    setRedeeming(true);
+    setError("");
+    try {
+      const { data } = await axios.post(`${API}/captive-hotspot/redeem-code`, {
+        router_id: context.routerId,
+        mac: activeMac,
+        code,
+        phone,
+      });
+      setPayment(data);
+      setSessionToken("");
+      setShowCode(false);
+      setCode("");
+    } catch (requestError) {
+      setError(
+        requestError.response?.data?.error ||
+          "We could not verify that code. Check it and try again.",
+      );
+    } finally {
+      setRedeeming(false);
+    }
+  };
+
   const retryAuthorization = async () => {
     setChecking(true);
     setError("");
@@ -377,7 +410,7 @@ export default function CaptiveHotspotPage() {
   const waitingForPayment =
     sessionToken &&
     ["pending", "initiating"].includes(payment?.status);
-  const brand = routerName || context.brand || "Wi-Fi access";
+  const brand = context.brand || routerName || "Giraffe Hotspot";
   const device = activeMac ? activeMac.toUpperCase().slice(-5) : "";
   const stage = paymentConfirmed
     ? payment.status === "payment_confirmed" ? 1 : 2
@@ -387,6 +420,16 @@ export default function CaptiveHotspotPage() {
         Number(plan.validity_days || 0) > Number(best.validity_days || 0) ? plan : best,
       ).id
     : "";
+
+  // Once the payment is confirmed, connect this device automatically. The
+  // visible button remains as a fallback in case the browser blocks the submit.
+  useEffect(() => {
+    if (!authorized || !connectFormRef.current) {return undefined;}
+    const timer = window.setTimeout(() => {
+      try {connectFormRef.current.submit();} catch { /* keep the button */ }
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [authorized]);
 
   if (loading) {
     return (
@@ -407,7 +450,7 @@ export default function CaptiveHotspotPage() {
           title="You're connected"
         >
           <p>{payment.planName} · access until {formatExpiry(payment.expiresAt)}</p>
-          <form action={payment.linkLoginOnly} method="post">
+          <form ref={connectFormRef} action={payment.linkLoginOnly} method="post">
             <button type="submit" className="hp-btn">
               Connect to Wi-Fi <ArrowRight className="h-4 w-4" />
             </button>
@@ -460,15 +503,15 @@ export default function CaptiveHotspotPage() {
     <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont}>
       <div className="hp-layout">
         <section className="hp-hero">
-          <div className="hp-eyebrow"><Sparkles className="h-3.5 w-3.5" /> Fast · Simple · Secure</div>
+          <div className="hp-eyebrow"><Sparkles className="h-3.5 w-3.5" /> {brand} · Fast · Simple · Secure</div>
           <h1 className="hp-title">Get online in <span className="hp-gradient-text">seconds.</span></h1>
           <p className="hp-sub">
-            {context.welcome || "Pick a package that fits your day, approve the prompt on your phone, and you're browsing. No sign-up, no hassle."}
+            {context.welcome || `Welcome to ${brand}. Choose a package, pay with M-Pesa, and we'll connect your device automatically.`}
           </p>
           <div className="hp-steps">
-            <div className="hp-step"><span className="hp-step-num">01</span> Choose an internet package below</div>
-            <div className="hp-step"><span className="hp-step-num">02</span> Approve the M-Pesa prompt on your phone</div>
-            <div className="hp-step"><span className="hp-step-num">03</span> Tap connect and start browsing</div>
+            <div className="hp-step"><span className="hp-step-num">01</span> Choose an internet package</div>
+            <div className="hp-step"><span className="hp-step-num">02</span> Pay with M-Pesa on your phone</div>
+            <div className="hp-step"><span className="hp-step-num">03</span> You're connected automatically</div>
           </div>
           <div className="hp-trust"><ShieldCheck className="h-4 w-4 text-emerald-400" /> Secure payment · your device is identified by its Wi-Fi address</div>
         </section>
@@ -518,6 +561,39 @@ export default function CaptiveHotspotPage() {
                   Check payment status
                 </button>
               ) : null}
+              {(waitingForPayment || payment.status === "authorization_failed" || payment.status === "failed") && (
+                <div className="hp-code-box">
+                  <button
+                    type="button"
+                    className="hp-link"
+                    onClick={() => setShowCode((current) => !current)}
+                  >
+                    {showCode ? "Hide code entry" : "Paid already? Enter your M-Pesa confirmation code"}
+                  </button>
+                  {showCode && (
+                    <form onSubmit={redeemCode}>
+                      <div className="hp-input-wrap">
+                        <Smartphone className="h-4 w-4" />
+                        <input
+                          className="hp-input"
+                          type="text"
+                          value={code}
+                          onChange={(event) => setCode(event.target.value)}
+                          placeholder="e.g. QW12XYZ34"
+                          autoCapitalize="characters"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="hp-btn hp-btn-secondary"
+                        disabled={redeeming || !code.trim()}
+                      >
+                        {redeeming ? <LoaderCircle className="h-4 w-4 animate-spin" /> : "Authorize with code"}
+                      </button>
+                    </form>
+                  )}
+                </div>
+              )}
               {(payment.status === "failed" || payment.status === "payment_review" || error) && (
                 <div className="hp-notice">
                   <AlertTriangle className="mb-1 h-4 w-4" />
@@ -589,6 +665,39 @@ export default function CaptiveHotspotPage() {
                 />
               </div>
               <p className="hp-card-note" style={{ marginTop: 8 }}>We'll send the payment prompt to this number.</p>
+
+              <button
+                type="button"
+                className="hp-link"
+                onClick={() => setShowCode((current) => !current)}
+              >
+                {showCode ? "Back to packages" : "Already paid? Enter M-Pesa confirmation code"}
+              </button>
+              {showCode && (
+                <div className="hp-code-box">
+                  <label className="hp-field" htmlFor="mpesa-code">M-Pesa confirmation code</label>
+                  <div className="hp-input-wrap">
+                    <Smartphone className="h-4 w-4" />
+                    <input
+                      id="mpesa-code"
+                      className="hp-input"
+                      type="text"
+                      value={code}
+                      onChange={(event) => setCode(event.target.value)}
+                      placeholder="e.g. QW12XYZ34"
+                      autoCapitalize="characters"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="hp-btn hp-btn-secondary"
+                    onClick={redeemCode}
+                    disabled={redeeming || !code.trim()}
+                  >
+                    {redeeming ? <LoaderCircle className="h-4 w-4 animate-spin" /> : "Authorize with code"}
+                  </button>
+                </div>
+              )}
 
               {portalTerms && (
                 <label className="flex items-start gap-2 mt-4 text-xs text-zinc-400 cursor-pointer">

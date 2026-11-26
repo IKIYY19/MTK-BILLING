@@ -23,7 +23,7 @@ const HOTSPOT_TEMPLATES = [
 ];
 
 function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeText, phoneNumber, font, termsEnabled, termsText }) {
-  const company = String(companyName || "Wi-Fi access").replace(/[&<>"']/g, (char) => ({
+  const company = String(companyName || "Giraffe Hotspot").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[char]);
   let hostedPortal;
@@ -54,7 +54,8 @@ function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeTe
   })[char]);
   const directPortal = new URL(hostedPortal.toString());
   directPortal.searchParams.set("router_id", routerId);
-  directPortal.searchParams.set("brand", companyName || "Wi-Fi access");
+  directPortal.searchParams.set("brand", companyName || "Giraffe Hotspot");
+  directPortal.searchParams.set("welcome", welcomeText || `Welcome to ${companyName || "Giraffe Hotspot"}`);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -76,7 +77,8 @@ function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeTe
     <a href="${escapeAttribute(directPortal.toString())}" style="display:block;margin:14px 0;padding:13px;border-radius:10px;background:#6366f1;color:#fff;font-weight:600;text-decoration:none">Open packages now</a>
     <form id="portal-handoff" action="${escapeAttribute(hostedPortal.toString())}" method="get">
       <input type="hidden" name="router_id" value="${escapeAttribute(routerId)}">
-      <input type="hidden" name="brand" value="${escapeAttribute(companyName || "Wi-Fi access")}">
+      <input type="hidden" name="brand" value="${escapeAttribute(companyName || "Giraffe Hotspot")}">
+      <input type="hidden" name="welcome" value="${escapeAttribute(welcomeText || `Welcome to ${companyName || "Giraffe Hotspot"}`)}">
       <input type="hidden" name="mac" value="$(mac)">
       <input type="hidden" name="ip" value="$(ip)">
       <input type="hidden" name="link_login_only" value="$(link-login-only)">
@@ -87,7 +89,7 @@ function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeTe
   <script>
     (function () {
       var params = new URLSearchParams(window.location.search);
-      var fields = ["router_id", "brand", "mac", "ip", "link_login_only", "original_url"];
+      var fields = ["router_id", "brand", "welcome", "mac", "ip", "link_login_only", "original_url"];
       fields.forEach(function (key) {
         var value = params.get(key) || params.get(key.replace(/_/g, "-"));
         var input = document.querySelector('input[name="' + key + '"]');

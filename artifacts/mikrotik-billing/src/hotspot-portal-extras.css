@@ -1,0 +1,27 @@
+/* Giraffe Hotspot additions */
+
+.hp-mark-giraffe {
+  color: #0b0f0e;
+  background: linear-gradient(140deg, #fde047, #facc15 45%, #f59e0b);
+  box-shadow: 0 8px 30px rgba(250, 204, 21, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.hp-code-box {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px dashed rgba(250, 204, 21, 0.35);
+  border-radius: 14px;
+  background: rgba(250, 204, 21, 0.06);
+}
+
+.hp-code-box .hp-input-wrap { margin-top: 8px; }
+
+.hp-btn-secondary {
+  margin-top: 12px;
+  background: #facc15;
+  color: #0b0f0e;
+}
+
+.hp-btn-secondary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.hp-code-box .hp-link { margin-top: 0; color: #facc15; }
