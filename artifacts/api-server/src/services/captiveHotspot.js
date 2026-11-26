@@ -61,7 +61,6 @@ function validateRedirect(gatewayIp, linkLoginOnly) {
   if (
     loginUrl.protocol !== "http:" ||
     loginUrl.hostname !== gateway ||
-    loginUrl.port && loginUrl.port !== "80" ||
     loginUrl.pathname !== "/login" ||
     loginUrl.username ||
     loginUrl.password
@@ -655,6 +654,113 @@ async function redeemMpesaCode({ routerId, macAddress, code, phone = "" }) {
   );
 }
 
+/**
+ * Redeem a code-only voucher. The code is claimed atomically for this device,
+ * then the same authorization path as a paid package provisions the RouterOS
+ * hotspot user with the voucher plan's speed and validity.
+ */
+async function redeemVoucherCode({
+  routerId,
+  macAddress,
+  code,
+  clientIp = "",
+  gatewayIp,
+  linkLoginOnly,
+  originalUrl = "",
+}) {
+  const normalized = String(code || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "");
+  if (!/^[A-Z0-9-]{4,64}$/.test(normalized)) {
+    throw Object.assign(new Error("Enter a valid voucher code."), {
+      statusCode: 400,
+    });
+  }
+
+  const db = database();
+  const found = await db.query(
+    `SELECT * FROM hotspot_vouchers
+     WHERE upper(replace(coalesce(code, ''), ' ', '')) = $1
+       AND coalesce(status, 'unused') = 'unused'
+       AND (connection_id = $2 OR connection_id IS NULL)
+     ORDER BY created_at DESC LIMIT 1`,
+    [normalized, routerId],
+  );
+  const voucher = found.rows[0];
+  if (!voucher) {
+    throw Object.assign(
+      new Error("That voucher code is invalid, already used, or not for this network."),
+      { statusCode: 404 },
+    );
+  }
+  if (!voucher.plan_id) {
+    throw Object.assign(new Error("This voucher is not linked to a package."), {
+      statusCode: 400,
+    });
+  }
+
+  const planResult = await db.query(
+    `SELECT s.* FROM service_plans s
+     JOIN mikrotik_connections c ON c.id = $2
+     WHERE s.id = $1 AND s.plan_type = 'hotspot' AND s.is_active = true
+       AND s.tenant_id = c.tenant_id`,
+    [voucher.plan_id, routerId],
+  );
+  const plan = planResult.rows[0];
+  if (!plan) {
+    throw Object.assign(new Error("The package for this voucher is no longer available."), {
+      statusCode: 404,
+    });
+  }
+
+  const { gateway, loginUrl } = validateRedirect(gatewayIp, linkLoginOnly);
+  const original = safeOriginalUrl(originalUrl);
+
+  const claimed = await db.query(
+    `UPDATE hotspot_vouchers
+     SET status = 'redeemed', redeemed_at = CURRENT_TIMESTAMP, redeemed_mac = $1
+     WHERE id = $2 AND coalesce(status, 'unused') = 'unused' RETURNING *`,
+    [macAddress, voucher.id],
+  );
+  if (!claimed.rows[0]) {
+    throw Object.assign(new Error("That voucher code was just used. Try another code."), {
+      statusCode: 409,
+    });
+  }
+
+  const session = await createPendingSession({
+    router: { id: routerId, tenant_id: plan.tenant_id },
+    plan,
+    macAddress,
+    clientIp,
+    gateway,
+    originalUrl: original,
+    loginUrl,
+    phone: "voucher",
+  });
+  await db.query(
+    `UPDATE captive_hotspot_sessions
+     SET status = 'payment_confirmed', mpesa_receipt = $1, paid_at = CURRENT_TIMESTAMP,
+         provider_response = $2::jsonb, error_code = NULL, error_message = NULL,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = $3`,
+    [
+      voucher.code,
+      JSON.stringify({ source: "voucher", voucherId: voucher.id }),
+      session.id,
+    ],
+  );
+  await recordEvent(plan.tenant_id, session.id, "payment.confirmed", {
+    amount: Number(plan.price || 0),
+    receipt: voucher.code,
+    source: "voucher",
+  });
+
+  const current = await findByToken(session.token, { routerId, macAddress });
+  return authorizePaidSession(current);
+}
+
 async function publicSession(session) {
   if (!session) {
     return null;
@@ -795,6 +901,7 @@ module.exports = {
   handleProviderVerification,
   authorizePaidSession,
   redeemMpesaCode,
+  redeemVoucherCode,
   publicSession,
   listSessions,
   findSessionForAdminRetry,

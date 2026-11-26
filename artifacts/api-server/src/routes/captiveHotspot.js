@@ -298,4 +298,31 @@ router.post("/redeem-code", async (req, res) => {
   }
 });
 
+router.post("/redeem-voucher", async (req, res) => {
+  try {
+    const routerId = requireRouterId(req.body.router_id);
+    const macAddress = captiveHotspot.normalizeMac(req.body.mac);
+    if (!macAddress) {
+      return res.status(400).json({ error: "The client MAC address is invalid." });
+    }
+    const clientIp =
+      normalizeClientIp(req.body.ip) ||
+      normalizeClientIp(req.headers["x-forwarded-for"]) ||
+      normalizeClientIp(req.ip);
+    const session = await captiveHotspot.redeemVoucherCode({
+      routerId,
+      macAddress,
+      code: req.body.code,
+      clientIp,
+      gatewayIp: req.body.gateway_ip,
+      linkLoginOnly: req.body.link_login_only,
+      originalUrl: req.body.original_url || "",
+    });
+    res.set("Cache-Control", "no-store");
+    return res.json(await captiveHotspot.publicSession(session));
+  } catch (error) {
+    return publicError(res, error);
+  }
+});
+
 module.exports = router;

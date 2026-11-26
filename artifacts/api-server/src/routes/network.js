@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 
 const routerConnectionManager = require('../services/routerConnectionManager');
@@ -586,73 +587,117 @@ function voucherBytes(value) {
   return Math.floor(Number(match[1]) * multiplier);
 }
 
-// Create Hotspot vouchers (batch)
+// Create Hotspot vouchers (batch).
+// Code-only vouchers: the customer enters a single code on the Giraffe Hotspot
+// portal. No RouterOS user is created here — it is created at redemption, with
+// the plan's real speed/validity, bound to the redeeming device.
 router.post('/network/vouchers', async (req, res) => {
   try {
-    const { vouchers, connection_id } = req.body;
-    if (!Array.isArray(vouchers) || vouchers.length === 0) {
-      return res.status(400).json({ error: 'At least one voucher is required' });
-    }
-    if (vouchers.length > 200) {
-      return res.status(400).json({ error: 'A batch may contain at most 200 vouchers' });
-    }
-
     const db = global.db || require('../db/memory');
     const { v4: uuidv4 } = require('uuid');
-    const inserted = [];
+    const { vouchers, connection_id } = req.body;
+    let entries = [];
 
-    for (const v of vouchers) {
-      const id = uuidv4();
-      const result = await db.query(
-        `INSERT INTO hotspot_vouchers (id, username, password, profile, valid_for, rate_limit, data_limit, price, company_name, connection_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
-        [id, v.username, v.password, v.profile, v.valid_for, v.rate_limit, v.data_limit, v.price, v.company_name, v.connection_id || connection_id || null, new Date().toISOString()]
-      );
-      inserted.push({ id: result.rows[0]?.id || id, voucher: v });
-    }
-
-    // Never report a voucher as created when the router rejected it.
-    const routerFailures = [];
-    if (connection_id) {
-      const device = await getMikrotikConnection(connection_id);
-      for (const entry of inserted) {
-        const v = entry.voucher;
-        const args = { name: v.username, password: v.password };
-        if (v.rate_limit) {
-          args.profile = await hotspotProvisioning.ensureRateLimitProfile(
-            connection_id,
-            v.rate_limit,
-            v.profile || 'default',
-          );
-        } else if (v.profile) {
-          args.profile = v.profile;
+    if (Array.isArray(vouchers) && vouchers.length) {
+      entries = vouchers.map((v) => ({ ...v }));
+    } else {
+      const quantity = Number(req.body.quantity || 0);
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > 200) {
+        return res.status(400).json({ error: 'Generate between 1 and 200 vouchers' });
+      }
+      const prefix = String(req.body.prefix || 'GH').replace(/[^A-Za-z0-9]/g, '').slice(0, 8) || 'GH';
+      const codeLength = Math.min(Math.max(Number(req.body.code_length || 8), 4), 16);
+      const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+      const seen = new Set();
+      while (entries.length < quantity) {
+        const bytes = crypto.randomBytes(codeLength);
+        let suffix = '';
+        for (let i = 0; i < codeLength; i += 1) {
+          suffix += alphabet[bytes[i] % alphabet.length];
         }
-        const uptime = voucherUptime(v.valid_for);
-        if (uptime) {args['limit-uptime'] = uptime;}
-        const bytes = voucherBytes(v.data_limit);
-        if (bytes) {args['limit-bytes-total'] = String(bytes);}
-        if (v.comment) {args.comment = v.comment;}
-        try {
-          await executeCommand(device, '/ip/hotspot/user/add', args);
-        } catch (e) {
-          routerFailures.push({ username: v.username, error: e.message });
-          await db.query('DELETE FROM hotspot_vouchers WHERE id = $1', [entry.id]).catch(() => {});
-        }
+        const code = `${prefix}-${suffix}`;
+        if (seen.has(code)) {continue;}
+        seen.add(code);
+        entries.push({
+          code,
+          plan_id: req.body.plan_id,
+          company_name: req.body.company_name || 'Giraffe Hotspot',
+          connection_id: connection_id || null,
+        });
       }
     }
 
-    const created = inserted.length - routerFailures.length;
-    for (const entry of inserted) {
-      if (routerFailures.some((failure) => failure.username === entry.voucher.username)) {continue;}
-      require('../services/networkAlertService').recordVoucher('created', entry.voucher.username, `${created} vouchers in batch`).catch(() => {});
+    if (entries.length === 0) {
+      return res.status(400).json({ error: 'At least one voucher is required' });
+    }
+    if (entries.length > 200) {
+      return res.status(400).json({ error: 'A batch may contain at most 200 vouchers' });
+    }
+
+    const plans = new Map();
+    const created = [];
+    for (const v of entries) {
+      const code = String(v.code || v.username || '').trim().toUpperCase();
+      if (!code) {continue;}
+      const planId = v.plan_id || null;
+      if (planId && !plans.has(planId)) {
+        const found = await db.query(
+          `SELECT id, name, price, validity_days, speed_up, speed_down, quota_gb
+           FROM service_plans WHERE id = $1 AND plan_type = 'hotspot' AND is_active = true`,
+          [planId],
+        );
+        plans.set(planId, found.rows[0] || null);
+      }
+      const plan = planId ? plans.get(planId) : null;
+      if (planId && !plan) {
+        return res.status(400).json({ error: 'The selected hotspot plan is not available' });
+      }
+      const rate = plan ? `${plan.speed_up}/${plan.speed_down}` : (v.rate_limit || '');
+      const uptime = plan ? `${Number(plan.validity_days)}d` : (voucherUptime(v.valid_for) || '');
+      const dataLimit = plan && Number(plan.quota_gb) > 0
+        ? `${plan.quota_gb}G`
+        : (v.data_limit || '');
+      const id = uuidv4();
+      const result = await db.query(
+        `INSERT INTO hotspot_vouchers
+           (id, code, username, password, profile, valid_for, rate_limit, data_limit,
+            price, company_name, connection_id, plan_id, status, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'unused',$13)
+         RETURNING id, code`,
+        [
+          id, code, code, code,
+          plan?.name || v.profile || 'default',
+          uptime, rate, dataLimit,
+          plan ? Number(plan.price) : Number(v.price || 0),
+          v.company_name || 'Giraffe Hotspot',
+          v.connection_id || connection_id || null,
+          planId,
+          new Date().toISOString(),
+        ],
+      );
+      created.push({
+        id: result.rows[0]?.id || id,
+        code,
+        plan_id: planId,
+        plan_name: plan?.name || v.profile || 'default',
+        company_name: v.company_name || 'Giraffe Hotspot',
+        price: plan ? Number(plan.price) : Number(v.price || 0),
+        valid_for: uptime,
+        rate_limit: rate,
+        connection_id: v.connection_id || connection_id || null,
+      });
+    }
+
+    for (const voucher of created) {
+      require('../services/networkAlertService')
+        .recordVoucher('created', voucher.code, `${created.length} vouchers in batch`)
+        .catch(() => {});
     }
     res.json({
-      success: created > 0,
-      count: created,
-      routerFailures,
-      message: routerFailures.length
-        ? `${created} voucher(s) created on the router; ${routerFailures.length} failed and were not saved.`
-        : `${created} voucher(s) created successfully.`,
+      success: created.length > 0,
+      count: created.length,
+      codes: created,
+      message: `${created.length} voucher code(s) generated. Customers enter only the code on the hotspot portal.`,
     });
   } catch (e) {
     console.error('Failed to create vouchers:', e);

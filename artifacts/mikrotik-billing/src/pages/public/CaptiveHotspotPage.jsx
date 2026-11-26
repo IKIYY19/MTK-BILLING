@@ -12,6 +12,7 @@ import {
   Signal,
   Smartphone,
   Sparkles,
+  Ticket,
   Wifi,
   Zap,
 } from "lucide-react";
@@ -76,6 +77,7 @@ function getPortalContext() {
         params.get("dst") ||
         "",
     ),
+    voucherCode: cleanParam(params.get("code") || params.get("voucher") || ""),
   };
 }
 
@@ -205,6 +207,9 @@ export default function CaptiveHotspotPage() {
   const [code, setCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
   const [showCode, setShowCode] = useState(false);
+  const [voucherCode, setVoucherCode] = useState(() => context.voucherCode || "");
+  const [redeemingVoucher, setRedeemingVoucher] = useState(false);
+  const [showVoucher, setShowVoucher] = useState(() => Boolean(context.voucherCode));
   const connectFormRef = useRef(null);
 
   useEffect(() => {
@@ -369,6 +374,38 @@ export default function CaptiveHotspotPage() {
       );
     } finally {
       setRedeeming(false);
+    }
+  };
+
+  const redeemVoucher = async (event) => {
+    event.preventDefault();
+    if (preview) {
+      setError("Connect to the Wi-Fi network to redeem a voucher.");
+      return;
+    }
+    setRedeemingVoucher(true);
+    setError("");
+    try {
+      const { data } = await axios.post(`${API}/captive-hotspot/redeem-voucher`, {
+        router_id: context.routerId,
+        mac: activeMac,
+        ip: context.ip,
+        code: voucherCode,
+        gateway_ip: context.gatewayIp,
+        link_login_only: context.linkLoginOnly,
+        original_url: context.originalUrl,
+      });
+      setPayment(data);
+      setSessionToken("");
+      setShowVoucher(false);
+      setVoucherCode("");
+    } catch (requestError) {
+      setError(
+        requestError.response?.data?.error ||
+          "We could not redeem that voucher code. Check it and try again.",
+      );
+    } finally {
+      setRedeemingVoucher(false);
     }
   };
 
@@ -695,6 +732,39 @@ export default function CaptiveHotspotPage() {
                     disabled={redeeming || !code.trim()}
                   >
                     {redeeming ? <LoaderCircle className="h-4 w-4 animate-spin" /> : "Authorize with code"}
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="hp-link"
+                onClick={() => setShowVoucher((current) => !current)}
+              >
+                {showVoucher ? "Hide voucher entry" : "Have a voucher? Enter your code"}
+              </button>
+              {showVoucher && (
+                <div className="hp-code-box">
+                  <label className="hp-field" htmlFor="voucher-code">Voucher code</label>
+                  <div className="hp-input-wrap">
+                    <Ticket className="h-4 w-4" />
+                    <input
+                      id="voucher-code"
+                      className="hp-input"
+                      type="text"
+                      value={voucherCode}
+                      onChange={(event) => setVoucherCode(event.target.value)}
+                      placeholder="e.g. GH-ABCD2345"
+                      autoCapitalize="characters"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="hp-btn hp-btn-secondary"
+                    onClick={redeemVoucher}
+                    disabled={redeemingVoucher || !voucherCode.trim()}
+                  >
+                    {redeemingVoucher ? <LoaderCircle className="h-4 w-4 animate-spin" /> : "Redeem voucher"}
                   </button>
                 </div>
               )}

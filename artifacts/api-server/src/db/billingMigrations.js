@@ -652,6 +652,15 @@ const billingMigrations = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_captive_events_session_created
    ON captive_hotspot_events(session_id, created_at DESC)`,
+
+  // Code-only vouchers: a single code redeems a hotspot plan for the device.
+  `ALTER TABLE hotspot_vouchers ADD COLUMN IF NOT EXISTS code VARCHAR(64)`,
+  `ALTER TABLE hotspot_vouchers ADD COLUMN IF NOT EXISTS plan_id UUID REFERENCES service_plans(id) ON DELETE SET NULL`,
+  `ALTER TABLE hotspot_vouchers ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'unused'`,
+  `ALTER TABLE hotspot_vouchers ADD COLUMN IF NOT EXISTS redeemed_at TIMESTAMP`,
+  `ALTER TABLE hotspot_vouchers ADD COLUMN IF NOT EXISTS redeemed_mac VARCHAR(17)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_hotspot_vouchers_code
+   ON hotspot_vouchers(upper(code)) WHERE code IS NOT NULL`,
 ];
 
 async function runBillingMigrations(db) {
