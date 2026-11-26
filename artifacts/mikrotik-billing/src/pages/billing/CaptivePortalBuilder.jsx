@@ -172,7 +172,12 @@ export default function CaptivePortalBuilder() {
   const [policySettings, setPolicySettings] = useState({});
 
   useEffect(() => {
-    axios.get(`${API}/mikrotik`).then(r => setConnections(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+    axios.get(`${API}/mikrotik`).then(r => {
+      const list = Array.isArray(r.data) ? r.data : [];
+      setConnections(list);
+      // Auto-select the first router so Push/Copy/Download are usable immediately.
+      setSelectedConn((current) => current || list[0]?.id || "");
+    }).catch(() => {});
     axios.get(`${API}/resellers/captive-portals`).then(r => setSavedPortals(Array.isArray(r.data) ? r.data : [])).catch(() => {});
     axios.get(`${API}/settings`).then(r => setPolicySettings(r.data || {})).catch(() => {});
   }, []);
@@ -309,6 +314,7 @@ export default function CaptivePortalBuilder() {
             <button
               onClick={handlePush}
               disabled={pushing || !selectedConn}
+              title={!selectedConn ? "Select a router first" : "Push this theme to the selected router"}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-amber-600 hover:bg-amber-500 disabled:bg-zinc-700 disabled:text-white transition-all shadow-lg shadow-amber-600/20"
             >
               {pushing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
