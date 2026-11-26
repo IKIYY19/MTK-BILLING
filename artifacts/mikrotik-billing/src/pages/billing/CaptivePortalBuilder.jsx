@@ -48,6 +48,7 @@ function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeTe
   }
   if (hostedPortal) {
     if (theme) {hostedPortal.searchParams.set("theme", theme);}
+    if (logoUrl) {hostedPortal.searchParams.set("logo_url", logoUrl);}
     if (welcomeText) {hostedPortal.searchParams.set("welcome", welcomeText);}
     if (phoneNumber) {hostedPortal.searchParams.set("support", phoneNumber);}
     if (font) {hostedPortal.searchParams.set("font", font);}
@@ -70,6 +71,7 @@ function generatePortalHTML({ companyName, routerId, portalUrl, theme, welcomeTe
   directPortal.searchParams.set("router_id", routerId);
   directPortal.searchParams.set("brand", companyName || "Giraffe Hotspot");
   directPortal.searchParams.set("welcome", welcomeText || `Welcome to ${companyName || "Giraffe Hotspot"}`);
+  if (logoUrl) {directPortal.searchParams.set("logo_url", logoUrl);}
   return `<!doctype html>
 <html lang="en">
 <head>

@@ -1,5 +1,13 @@
 /* Giraffe Hotspot additions */
 
+.hp-logo-img {
+  width: 120px;
+  height: auto;
+  max-height: 48px;
+  object-fit: contain;
+  flex: none;
+}
+
 .hp-mark-giraffe {
   color: #0b0f0e;
   background: linear-gradient(140deg, #fde047, #facc15 45%, #f59e0b);

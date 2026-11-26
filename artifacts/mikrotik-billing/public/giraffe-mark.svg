@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Giraffe Hotspot mark">
+  <rect width="64" height="64" rx="14" fill="#facc15"/>
+  <g fill="#0b0f0e">
+    <!-- ossicones -->
+    <rect x="26" y="6" width="4" height="12" rx="2"/>
+    <rect x="37" y="6" width="4" height="12" rx="2"/>
+    <circle cx="28" cy="6" r="3"/>
+    <circle cx="39" cy="6" r="3"/>
+    <!-- ears -->
+    <path d="M22 18 L14 14 Q11 13 12 17 L20 24 Z"/>
+    <path d="M45 18 L53 14 Q56 13 55 17 L47 24 Z"/>
+    <!-- head + neck -->
+    <path d="M24 22 Q32 16 43 20 Q49 22 49 28 L47 34 Q44 38 40 38 L40 58 L29 58 L30 38 Q24 36 23 30 Z"/>
+    <!-- snout -->
+    <path d="M44 28 Q52 27 53 31 Q54 35 47 35 L44 34 Z"/>
+  </g>
+  <g fill="#facc15">
+    <circle cx="31" cy="25" r="2.4"/>
+    <circle cx="38" cy="30" r="2"/>
+    <circle cx="33" cy="45" r="2.4"/>
+    <circle cx="37" cy="52" r="2"/>
+  </g>
+  <circle cx="46" cy="30" r="1.5" fill="#facc15"/>
+</svg>

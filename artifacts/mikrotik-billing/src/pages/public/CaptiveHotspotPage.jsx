@@ -93,6 +93,7 @@ function getPortalContext() {
         "",
     ),
     voucherCode: cleanParam(params.get("code") || params.get("voucher") || ""),
+    logoUrl: cleanParam(params.get("logo_url") || ""),
   };
 }
 
@@ -128,7 +129,7 @@ function PortalMark() {
   );
 }
 
-function PortalShell({ brand, device, theme, support, font, children }) {
+function PortalShell({ brand, device, theme, support, font, logoUrl, children }) {
   return (
     <main className="hp-shell" data-theme={theme} style={{ fontFamily: `'${font || "Inter"}', Inter, system-ui, sans-serif` }}>
       <div className="hp-orb hp-orb-a" />
@@ -138,7 +139,11 @@ function PortalShell({ brand, device, theme, support, font, children }) {
       <div className="hp-wrap">
         <header className="hp-top">
           <div className="hp-brand">
-            <PortalMark />
+            {logoUrl ? (
+              <img className="hp-logo-img" src={logoUrl} alt={brand} />
+            ) : (
+              <PortalMark />
+            )}
             <div className="min-w-0">
               <div className="hp-brand-name">{brand}</div>
               <div className="hp-brand-sub">Fast · Simple · Secure</div>
@@ -511,7 +516,7 @@ export default function CaptiveHotspotPage() {
 
   if (loading) {
     return (
-      <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont}>
+      <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont} logoUrl={context.logoUrl || "/giraffe-logo.svg"}>
         <div className="hp-center">
           <div className="hp-splash"><LoaderCircle className="h-5 w-5 animate-spin text-cyan-300" /> Finding your internet packages…</div>
         </div>
@@ -521,7 +526,7 @@ export default function CaptiveHotspotPage() {
 
   if (authorized) {
     return (
-      <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont}>
+      <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont} logoUrl={context.logoUrl || "/giraffe-logo.svg"}>
         <StatusCard
           icon={<Wifi className="h-7 w-7" />}
           eyebrow="All set"
@@ -546,7 +551,7 @@ export default function CaptiveHotspotPage() {
 
   if (activeSession) {
     return (
-      <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont}>
+      <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont} logoUrl={context.logoUrl || "/giraffe-logo.svg"}>
         <StatusCard
           icon={<CheckCircle2 className="h-7 w-7" />}
           eyebrow="Already active"
@@ -575,7 +580,7 @@ export default function CaptiveHotspotPage() {
 
   if (error && plans.length === 0 && !payment) {
     return (
-      <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont}>
+      <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont} logoUrl={context.logoUrl || "/giraffe-logo.svg"}>
         <StatusCard
           icon={<AlertTriangle className="h-7 w-7" />}
           tone="info"
@@ -592,7 +597,7 @@ export default function CaptiveHotspotPage() {
   }
 
   return (
-    <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont}>
+    <PortalShell brand={brand} device={device} theme={portalTheme} support={context.support} font={portalFont} logoUrl={context.logoUrl || "/giraffe-logo.svg"}>
       <div className="hp-layout">
         <section className="hp-hero">
           <div className="hp-eyebrow"><Sparkles className="h-3.5 w-3.5" /> {brand} · Fast · Simple · Secure</div>
