@@ -479,6 +479,7 @@ const startServer = async () => {
         const fs = require("fs");
         const path = require("path");
         const file = path.join(__dirname, "logs", "client-errors.log");
+        fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.appendFileSync(
           file,
           `${new Date().toISOString()} ${JSON.stringify(req.body || {})}\n`,
