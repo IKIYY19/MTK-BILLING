@@ -157,7 +157,12 @@ export default function CaptivePortalBuilder() {
   };
 
   const [selectedTemplate, setSelectedTemplate] = useState(() => localStorage.getItem("portal_theme") || "aurora");
-  const [companyName,   setCompanyName]   = useState(() => localStorage.getItem("portal_company")  || "");
+  const [companyName,   setCompanyName]   = useState(() => {
+    const saved = localStorage.getItem("portal_company") || "Giraffe Hotspot";
+    const corrected = saved.replace(/HOTSTOP/gi, "HOTSPOT");
+    if (corrected !== saved) {localStorage.setItem("portal_company", corrected);}
+    return corrected;
+  });
   const [welcomeText,   setWelcomeText]   = useState(() => localStorage.getItem("portal_welcome")  || "");
   const [logoUrl,       setLogoUrl]       = useState(() => localStorage.getItem("portal_logo")     || "");
   const [primaryColor,  setPrimaryColor]  = useState(() => localStorage.getItem("portal_color")    || "");
