@@ -27,6 +27,21 @@ function cleanParam(value) {
   const text = String(value || "").trim();
   return text.startsWith("$(") ? "" : text;
 }
+
+function storageGet(kind, key) {
+  try { return window[kind] ? window[kind].getItem(key) : null; }
+  catch { return null; }
+}
+
+function storageSet(kind, key, value) {
+  try { if (window[kind]) {window[kind].setItem(key, value);} }
+  catch { /* storage disabled by browser */ }
+}
+
+function storageRemove(kind, key) {
+  try { if (window[kind]) {window[kind].removeItem(key);} }
+  catch { /* storage disabled by browser */ }
+}
 const SESSION_KEY = "captive_hotspot_session";
 const POLL_INTERVAL_MS = 5000;
 const MAX_AUTOMATIC_POLLS = 30;
@@ -66,7 +81,7 @@ function getPortalContext() {
     gatewayIp,
     linkLoginOnly,
     brand: params.get("brand") || "",
-    theme: params.get("theme") || localStorage.getItem("portal_theme") || "aurora",
+    theme: params.get("theme") || storageGet("localStorage", "portal_theme") || "aurora",
     welcome: params.get("welcome") || "",
     support: params.get("support") || "",
     font: params.get("font") || "Inter",
@@ -192,7 +207,7 @@ export default function CaptiveHotspotPage() {
   const [selectedPlan, setSelectedPlan] = useState("");
   const [phone, setPhone] = useState("");
   const [sessionToken, setSessionToken] = useState(
-    () => sessionStorage.getItem(SESSION_KEY) || "",
+    () => storageGet("sessionStorage", SESSION_KEY) || "",
   );
   const [payment, setPayment] = useState(null);
   const [pollCount, setPollCount] = useState(0);
@@ -284,7 +299,7 @@ export default function CaptiveHotspotPage() {
       setPayment(data);
       setTimedOut(false);
       if (["failed", "payment_review"].includes(data.status)) {
-        sessionStorage.removeItem(SESSION_KEY);
+        storageRemove("sessionStorage", SESSION_KEY);
         setSessionToken("");
       }
     } catch (requestError) {
@@ -337,7 +352,7 @@ export default function CaptiveHotspotPage() {
         original_url: context.originalUrl,
         phone,
       });
-      sessionStorage.setItem(SESSION_KEY, data.sessionToken);
+      storageSet("sessionStorage", SESSION_KEY, data.sessionToken);
       setSessionToken(data.sessionToken);
       setPayment({ status: "pending", planName: plan.name, amount: plan.price });
       setPollCount(0);
@@ -429,7 +444,7 @@ export default function CaptiveHotspotPage() {
   };
 
   const resetPayment = () => {
-    sessionStorage.removeItem(SESSION_KEY);
+    storageRemove("sessionStorage", SESSION_KEY);
     setSessionToken("");
     setPayment(null);
     setPollCount(0);

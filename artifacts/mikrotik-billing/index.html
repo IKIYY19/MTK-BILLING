@@ -25,6 +25,46 @@
         -->
         <div id="root"></div>
         <script>
+          // Some captive-portal browsers expose localStorage/sessionStorage as
+          // null and throw on access. Provide an in-memory fallback so the app
+          // (and i18next) can boot without storage.
+          (function () {
+            function memoryStore() {
+              var data = {};
+              return {
+                getItem: function (key) {
+                  return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null;
+                },
+                setItem: function (key, value) { data[key] = String(value); },
+                removeItem: function (key) { delete data[key]; },
+                clear: function () { data = {}; },
+                key: function (index) { return Object.keys(data)[index] || null; },
+                get length() { return Object.keys(data).length; }
+              };
+            }
+            function usable(store) {
+              try {
+                store.getItem('__storage_test__');
+                store.removeItem('__storage_test__');
+                return true;
+              } catch (e) { return false; }
+            }
+            ['localStorage', 'sessionStorage'].forEach(function (name) {
+              var store;
+              try { store = window[name]; } catch (e) { store = null; }
+              if (!store || !usable(store)) {
+                try {
+                  Object.defineProperty(window, name, {
+                    value: memoryStore(), configurable: true, writable: false
+                  });
+                } catch (e) {
+                  window[name] = memoryStore();
+                }
+              }
+            });
+          })();
+        </script>
+        <script>
           window.addEventListener('error', function (event) {
             navigator.sendBeacon('/api/client-error', JSON.stringify({
               message: event.message,
