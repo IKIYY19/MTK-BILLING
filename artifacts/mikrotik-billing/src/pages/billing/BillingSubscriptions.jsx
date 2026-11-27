@@ -14,6 +14,9 @@ import {
   RefreshCw,
   Wifi,
   Shield,
+  Pause,
+  Play,
+  CalendarClock,
 } from "lucide-react";
 import { useToast } from "../../hooks/useToast";
 import { Button } from "../../components/ui/button";
@@ -30,6 +33,10 @@ const API = import.meta.env.VITE_API_URL || "/api";
 const todayLocal = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+};
+const defaultPauseDate = () => {
+  const date = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
 const emptyForm = {
   customer_id: "",
@@ -56,6 +63,9 @@ export function BillingSubscriptions() {
   const [copied, setCopied] = useState(false);
   const [editingSub, setEditingSub] = useState(null);
   const [form, setForm] = useState(emptyForm);
+  const [pauseTarget, setPauseTarget] = useState(null);
+  const [pauseUntil, setPauseUntil] = useState(defaultPauseDate());
+  const [pauseReason, setPauseReason] = useState("Customer travel");
 
   useEffect(() => {
     fetchSubs();
@@ -162,6 +172,44 @@ export function BillingSubscriptions() {
     handleSyncFeedback(data);
   };
 
+  const openPause = (sub) => {
+    setPauseTarget(sub);
+    setPauseUntil(sub.pause_until ? sub.pause_until.slice(0, 10) : defaultPauseDate());
+    setPauseReason(sub.pause_reason || "Customer travel");
+  };
+
+  const submitPause = async (event) => {
+    event.preventDefault();
+    if (!pauseTarget) {return;}
+    try {
+      const { data } = await axios.post(
+        `${API}/billing/subscriptions/${pauseTarget.id}/pause`,
+        {
+          pause_until: new Date(`${pauseUntil}T23:59:59`).toISOString(),
+          reason: pauseReason,
+        },
+      );
+      setPauseTarget(null);
+      fetchSubs();
+      handleSyncFeedback(data, "Subscription paused until the selected date");
+    } catch (error) {
+      toast.error(error.response?.data?.error || "Failed to pause subscription");
+    }
+  };
+
+  const resumeSubscription = async (sub) => {
+    try {
+      const { data } = await axios.post(
+        `${API}/billing/subscriptions/${sub.id}/resume`,
+        { reason: "Resumed from admin" },
+      );
+      fetchSubs();
+      handleSyncFeedback(data, "Subscription resumed and validity extended");
+    } catch (error) {
+      toast.error(error.response?.data?.error || "Failed to resume subscription");
+    }
+  };
+
   const syncSubscription = async (sub) => {
     try {
       const { data } = await axios.post(
@@ -216,15 +264,48 @@ export function BillingSubscriptions() {
                 <td>{sub.router?.name || "—"}</td>
                 <td><span className={`billing-sync-pill ${sub.last_sync_status === "synced" ? "is-synced" : "is-pending"}`}>{sub.last_sync_status || "not synced"}</span></td>
                 <td><span className={`billing-sync-pill ${sub.last_radius_sync_status === "synced" ? "is-synced" : "is-pending"}`}>{sub.last_radius_sync_status || "disabled"}</span></td>
-                <td><span className={`billing-status-pill ${sub.status === "active" ? "is-paid" : "is-pending"}`}>{sub.status || "unknown"}</span></td>
-                <td>{sub.start_date ? new Date(sub.start_date).toLocaleDateString() : "—"}</td>
+                <td>
+                  <span className={`billing-status-pill ${sub.status === "active" ? "is-paid" : "is-pending"}`}>
+                    {sub.status || "unknown"}
+                  </span>
+                  {sub.status === "paused" && sub.pause_until && (
+                    <small className="billing-secondary-cell block mt-1">
+                      until {new Date(sub.pause_until).toLocaleDateString()}
+                    </small>
+                  )}
+                  {sub.status === "paused" && sub.pause_reason && (
+                    <small className="billing-secondary-cell block">
+                      {sub.pause_reason}
+                    </small>
+                  )}
+                </td>
+                <td>
+                  {sub.start_date ? new Date(sub.start_date).toLocaleDateString() : "—"}
+                  {sub.end_date && (
+                    <small className="billing-secondary-cell block">
+                      ends {new Date(sub.end_date).toLocaleDateString()}
+                    </small>
+                  )}
+                </td>
                 <td><div className="billing-row-actions">
                   <Button variant="outline" size="sm" onClick={() => handleEdit(sub)} title="Edit subscription" aria-label={`Edit ${sub.customer?.name || "subscription"}`}><Pencil className="w-3.5 h-3.5" /></Button>
                   <Button variant="outline" size="sm" onClick={() => syncSubscription(sub)} title="Synchronize subscription" aria-label={`Synchronize ${sub.customer?.name || "subscription"}`}><RefreshCw className="w-3.5 h-3.5" /></Button>
                   <Button variant="outline" size="sm" onClick={() => handleDelete(sub)} title="Delete subscription" aria-label={`Delete ${sub.customer?.name || "subscription"}`}><Trash2 className="w-3.5 h-3.5" /></Button>
-                  <Button variant="outline" size="sm" onClick={() => toggleStatus(sub)} title={sub.status === "active" ? "Suspend" : "Activate"} aria-label={`${sub.status === "active" ? "Suspend" : "Activate"} ${sub.customer?.name || "subscription"}`}>
-                    {sub.status === "active" ? <PowerOff className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5" />}
-                  </Button>
+                  {sub.status === "active" && (
+                    <Button variant="outline" size="sm" onClick={() => openPause(sub)} title="Pause until a return date" aria-label={`Pause ${sub.customer?.name || "subscription"}`}>
+                      <Pause className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
+                  {sub.status === "paused" && (
+                    <Button variant="outline" size="sm" onClick={() => resumeSubscription(sub)} title="Resume now" aria-label={`Resume ${sub.customer?.name || "subscription"}`}>
+                      <Play className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
+                  {sub.status !== "paused" && (
+                    <Button variant="outline" size="sm" onClick={() => toggleStatus(sub)} title={sub.status === "active" ? "Suspend" : "Activate"} aria-label={`${sub.status === "active" ? "Suspend" : "Activate"} ${sub.customer?.name || "subscription"}`}>
+                      {sub.status === "active" ? <PowerOff className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5" />}
+                    </Button>
+                  )}
                 </div></td>
               </tr>
             ))}</tbody>
@@ -477,6 +558,64 @@ export function BillingSubscriptions() {
               <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap">
                 {showScript}
               </pre>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Vacation Pause Modal */}
+      {pauseTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <Card className="card-glow w-full max-w-md">
+            <CardHeader className="border-b border-zinc-800">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <CalendarClock className="w-5 h-5 text-violet-400" />
+                  Pause subscription
+                </CardTitle>
+                <Button variant="ghost" size="sm" onClick={() => setPauseTarget(null)}>
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={submitPause} className="space-y-4 pt-6">
+                <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-3 text-sm text-violet-200">
+                  {pauseTarget.customer?.name || "This customer"} · {pauseTarget.pppoe_username || "no PPPoE user"}
+                  <p className="text-xs text-violet-300/80 mt-1">
+                    Internet access is disabled immediately. When the pause ends, access is restored and the subscription end date is extended by the paused days.
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="pause-until">Resume on *</Label>
+                  <Input
+                    id="pause-until"
+                    type="date"
+                    min={todayLocal()}
+                    value={pauseUntil}
+                    onChange={(e) => setPauseUntil(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="pause-reason">Reason</Label>
+                  <Input
+                    id="pause-reason"
+                    value={pauseReason}
+                    onChange={(e) => setPauseReason(e.target.value)}
+                    placeholder="Customer travel"
+                    maxLength={200}
+                  />
+                </div>
+                <div className="flex gap-3 pt-4 border-t border-zinc-800">
+                  <Button type="button" variant="outline" className="flex-1" onClick={() => setPauseTarget(null)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="btn-gradient-primary flex-1">
+                    Pause service
+                  </Button>
+                </div>
+              </form>
             </CardContent>
           </Card>
         </div>

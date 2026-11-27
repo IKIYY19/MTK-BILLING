@@ -29,6 +29,7 @@ const MpesaService = require("../services/mpesa");
 const alertSystem = require("../services/alertSystem");
 const mikrotikProvisioning = require("../services/mikrotikProvisioning");
 const radiusSync = require("../services/radiusSync");
+const subscriptionPause = require("../services/subscriptionPause");
 const slack = require("../services/slackNotifier");
 const onlineStatus = require("../services/onlineStatus");
 
@@ -903,8 +904,45 @@ router.put("/subscriptions/:id", async (req, res) => {
   }
 });
 
+router.post("/subscriptions/:id/pause", async (req, res) => {
+  try {
+    const result = await subscriptionPause.pause(
+      req.params.id,
+      req.body.pause_until,
+      req.body.reason,
+      req.user?.id || null,
+    );
+    res.json(result);
+  } catch (e) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+router.post("/subscriptions/:id/resume", async (req, res) => {
+  try {
+    const result = await subscriptionPause.resume(
+      req.params.id,
+      req.body.reason || "manual",
+      req.user?.id || null,
+    );
+    res.json(result);
+  } catch (e) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
 router.post("/subscriptions/:id/toggle", async (req, res) => {
   try {
+    const current = await billing.getSubscriptionById(req.params.id);
+    if (current?.status === "paused") {
+      return res.json(
+        await subscriptionPause.resume(
+          req.params.id,
+          "manual",
+          req.user?.id || null,
+        ),
+      );
+    }
     const sub = await billing.toggleSubscriptionStatus(req.params.id);
     if (!sub) {return res.status(404).json({ error: "Subscription not found" });}
 

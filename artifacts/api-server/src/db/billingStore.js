@@ -166,6 +166,9 @@ module.exports = {
       last_synced_at: data.last_synced_at || null,
       last_sync_status: data.last_sync_status || null,
       last_sync_error: data.last_sync_error || null,
+      paused_at: null,
+      pause_until: null,
+      pause_reason: null,
       created_at: new Date().toISOString(),
     };
     billingStore.subscriptions.push(sub);
@@ -187,6 +190,9 @@ module.exports = {
     if (idx === -1) {return null;}
     const sub = billingStore.subscriptions[idx];
     sub.status = sub.status === "active" ? "suspended" : "active";
+    sub.paused_at = null;
+    sub.pause_until = null;
+    sub.pause_reason = null;
     sub.updated_at = new Date().toISOString();
     return sub;
   },

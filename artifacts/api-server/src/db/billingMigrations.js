@@ -46,6 +46,27 @@ const billingMigrations = [
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`,
 
+  // Vacation pause support: the paid end date is extended by the paused period on resume.
+  `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS paused_at TIMESTAMP`,
+  `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS pause_until TIMESTAMP`,
+  `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS pause_reason VARCHAR(200)`,
+  `CREATE INDEX IF NOT EXISTS idx_subscriptions_pause_until ON subscriptions(pause_until) WHERE status = 'paused'`,
+
+  // Customer lifecycle and router metric tables that must exist on a fresh install.
+  `ALTER TABLE customers ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP`,
+  `CREATE TABLE IF NOT EXISTS device_metrics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    router_id UUID REFERENCES mikrotik_connections(id) ON DELETE CASCADE,
+    status VARCHAR(20) DEFAULT 'unknown',
+    cpu_usage NUMERIC DEFAULT 0,
+    memory_usage NUMERIC DEFAULT 0,
+    active_pppoe INTEGER DEFAULT 0,
+    bandwidth_in NUMERIC DEFAULT 0,
+    bandwidth_out NUMERIC DEFAULT 0,
+    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_device_metrics_router_recorded ON device_metrics(router_id, recorded_at DESC)`,
+
   // Invoices
   `CREATE TABLE IF NOT EXISTS invoices (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

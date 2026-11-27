@@ -348,7 +348,8 @@ const subscriptions = {
        pppoe_profile = COALESCE($11, pppoe_profile), last_synced_at = COALESCE($12, last_synced_at),
        last_sync_status = COALESCE($13, last_sync_status), last_sync_error = $14,
        last_radius_sync_status = COALESCE($15, last_radius_sync_status), last_radius_sync_error = $16,
-       updated_at = CURRENT_TIMESTAMP WHERE id = $17 RETURNING *`,
+       paused_at = $17, pause_until = $18, pause_reason = $19,
+       updated_at = CURRENT_TIMESTAMP WHERE id = $20 RETURNING *`,
       [
         data.status,
         data.pppoe_username,
@@ -370,6 +371,9 @@ const subscriptions = {
         data.last_radius_sync_error !== undefined
           ? data.last_radius_sync_error
           : existing.last_radius_sync_error,
+        data.paused_at !== undefined ? data.paused_at : existing.paused_at || null,
+        data.pause_until !== undefined ? data.pause_until : existing.pause_until || null,
+        data.pause_reason !== undefined ? data.pause_reason : existing.pause_reason || null,
         id,
       ],
     );
@@ -390,7 +394,8 @@ const subscriptions = {
     if (!existing) {return null;}
     const newStatus = existing.status === "active" ? "suspended" : "active";
     const result = await db.query(
-      `UPDATE subscriptions SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *`,
+      `UPDATE subscriptions SET status = $1, paused_at = NULL, pause_until = NULL,
+       pause_reason = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *`,
       [newStatus, id],
     );
     if (userId)

@@ -473,7 +473,12 @@ router.post("/bulk/suspend", async (req, res) => {
     for (const cid of customer_ids) {
       try {
         await db.query("UPDATE customers SET status = $1 WHERE id = $2", [newStatus, cid]);
-        await db.query("UPDATE subscriptions SET status = $1 WHERE customer_id = $2", [newStatus, cid]);
+        // Paused subscriptions are on vacation hold; bulk actions must not
+        // silently resume them or clear their pause metadata.
+        await db.query(
+          "UPDATE subscriptions SET status = $1 WHERE customer_id = $2 AND status <> 'paused'",
+          [newStatus, cid],
+        );
         results.push({ customer_id: cid, status: newStatus });
       } catch (e) { results.push({ customer_id: cid, error: e.message }); }
     }

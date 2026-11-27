@@ -885,6 +885,16 @@ const startServer = async () => {
         }
       }
 
+      // Start subscription pause auto-resume cron
+      try {
+        require("./cron/subscriptionPauseResume").startCron();
+        logger.info("Subscription pause auto-resume cron started");
+      } catch (e) {
+        logger.warn("Could not start subscription pause auto-resume cron", {
+          error: e.message,
+        });
+      }
+
       // Start hotspot expiry warnings cron
       try {
         require("./cron/hotspotExpiryWarnings").startCron();

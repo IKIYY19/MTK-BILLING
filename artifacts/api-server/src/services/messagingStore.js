@@ -37,6 +37,20 @@ const DEFAULT_TEMPLATES = [
     is_active: true,
   },
   {
+    id: 'service_paused',
+    name: 'Service Paused',
+    event: 'service_paused',
+    body: 'Hi {customer_name}, your {plan_name} internet service has been PAUSED until {pause_until} ({pause_reason}). Your remaining validity is preserved. Support: {support_phone} - {company_name}',
+    is_active: true,
+  },
+  {
+    id: 'service_resumed',
+    name: 'Service Resumed',
+    event: 'service_resumed',
+    body: 'Welcome back {customer_name}! Your {plan_name} internet service is ACTIVE again. Your end date was extended by {paused_days} day(s). Support: {support_phone} - {company_name}',
+    is_active: true,
+  },
+  {
     id: 'welcome',
     name: 'Welcome New Customer',
     event: 'welcome',

@@ -175,6 +175,11 @@ function buildMessageVariables(data = {}) {
     speed: data.plan ? `${data.plan.speed_down}/${data.plan.speed_up}` : "",
     pppoe_user: data.pppoe_username || data.sub?.pppoe_username || "",
     pppoe_pass: data.pppoe_password || data.sub?.pppoe_password || "",
+    pause_until: data.pause_until
+      ? new Date(data.pause_until).toLocaleString()
+      : "",
+    pause_reason: data.pause_reason || data.sub?.pause_reason || "",
+    paused_days: data.paused_days || 0,
   };
 }
 
@@ -193,6 +198,8 @@ class NotificationService {
         payment_received: "payment_received",
         service_suspended: "service_suspended",
         service_restored: "service_restored",
+        service_paused: "service_paused",
+        service_resumed: "service_resumed",
         outage_detected: "outage_detected",
         outage_resolved: "outage_resolved",
         welcome: "welcome",
@@ -293,6 +300,8 @@ class NotificationService {
         payment_received: "payment_received",
         service_suspended: "service_suspended",
         service_restored: "service_restored",
+        service_paused: "service_paused",
+        service_resumed: "service_resumed",
         outage_detected: "outage_detected",
         outage_resolved: "outage_resolved",
         welcome: "welcome",
