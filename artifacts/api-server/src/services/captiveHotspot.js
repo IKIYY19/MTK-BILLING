@@ -476,6 +476,7 @@ async function authorizePaidSession(session) {
     await ensureUnauthenticatedJump(working.router_id);
     await ensureExpiredClientRules(working.router_id);
     await unblockHotspotClient(working);
+    await removeHotspotCookie(working);
     const comment = `paid-hotspot:${working.id}`;
     const existingUsers = await routerManager.print(
       working.router_id,
@@ -825,8 +826,54 @@ async function removeHotspotHost(session) {
   return removed;
 }
 
+/**
+ * RouterOS cookie login can silently re-authorise an expired client using a
+ * cookie issued days earlier. Remove the cookie before kicking the client so
+ * the next request lands on the paid portal instead of logging straight back
+ * in with the old voucher.
+ */
+async function removeHotspotCookie(session) {
+  const manager = require("./routerConnectionManager");
+  const cookies = await manager
+    .print(session.router_id, "/ip/hotspot/cookie", ".id,user,mac-address")
+    .catch(() => []);
+  const mac = normalizeMac(session.mac_address);
+  const users = new Set(
+    [session.hotspot_username].filter(Boolean),
+  );
+  if (session.id) {
+    users.add(`wifi_${String(session.id).replace(/-/g, "").slice(0, 16)}`);
+  }
+  const matches = cookies.filter((cookie) => {
+    const cookieMac = normalizeMac(cookie["mac-address"]);
+    return (mac && cookieMac === mac) || users.has(cookie.user);
+  });
+  let removed = 0;
+  for (const cookie of matches) {
+    try {
+      await manager.executeCommand(session.router_id, "/ip/hotspot/cookie/remove", {
+        numbers: cookie[".id"] || cookie.id,
+      });
+      removed++;
+    } catch {
+      // The cookie may already have expired; nothing left to clear.
+    }
+  }
+  return removed;
+}
+
 const EXPIRED_HOTSPOT_LIST = "billing-expired-hotspot";
 const PORTAL_HOST_LIST = "billing-portal-hosts";
+const CAPTIVE_PROBE_COMMENT = "billing-captive-probe";
+const CAPTIVE_PROBE_HOSTS = [
+  "captive.apple.com",
+  "connectivitycheck.gstatic.com",
+  "clients3.google.com",
+  "networkcheck.android.com",
+  "detectportal.firefox.com",
+  "www.msftconnecttest.com",
+  "nmcheck.gnome.org",
+];
 const IS_IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 
 async function removeAddressListEntries(routerId, list, predicate) {
@@ -879,6 +926,7 @@ async function unblockHotspotClient(session) {
 
 async function forceClientOffline(session) {
   const steps = [
+    ["Cookie cleanup", () => removeHotspotCookie(session)],
     ["Router user removal", () => removeRouterHotspotUser(session)],
     ["Client disconnect", () => kickHotspotClient(session)],
     ["Expired client block", () => blockExpiredClient(session)],
@@ -922,6 +970,38 @@ async function ensureUnauthenticatedJump(routerId) {
     added++;
   }
   return added;
+}
+
+/**
+ * A cookie-login profile silently re-authorises expired vouchers without the
+ * customer ever seeing the payment portal. Paid hotspot access must always go
+ * through the portal, so remove cookie login from the active hotspot profile.
+ */
+async function disableHotspotCookieLogin(routerId) {
+  const manager = require("./routerConnectionManager");
+  const servers = await manager
+    .print(routerId, "/ip/hotspot", "name,profile,disabled,invalid")
+    .catch(() => []);
+  const server =
+    servers.find((entry) => entry.disabled === "false" && entry.invalid === "false") ||
+    servers.find((entry) => entry.invalid === "false");
+  if (!server?.profile) {return false;}
+  const profiles = await manager
+    .print(routerId, "/ip/hotspot/profile", ".id,name,login-by")
+    .catch(() => []);
+  const profile = profiles.find((entry) => entry.name === server.profile);
+  if (!profile) {return false;}
+  const methods = String(profile["login-by"] || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!methods.includes("cookie")) {return false;}
+  const remaining = methods.filter((method) => method !== "cookie");
+  await manager.executeCommand(routerId, "/ip/hotspot/profile/set", {
+    numbers: profile[".id"] || profile.name,
+    "login-by": remaining.length ? remaining.join(",") : "http-pap",
+  });
+  return true;
 }
 
 /**
@@ -979,6 +1059,8 @@ const EXPIRED_RULE_SPECS = [
 async function resolvePortalAddresses(routerId) {
   const manager = require("./routerConnectionManager");
   const addresses = new Set();
+  const resolved = await resolveHotspotGateway(routerId).catch(() => null);
+  if (resolved?.gateway) {addresses.add(resolved.gateway);}
   const rules = await manager
     .print(routerId, "/ip/firewall/filter", ".id,chain,action,src-address,dst-address,comment")
     .catch(() => []);
@@ -1007,9 +1089,63 @@ async function resolvePortalAddresses(routerId) {
   return [...addresses];
 }
 
+/**
+ * Captive-portal detection endpoints must resolve to the hotspot so expired
+ * clients get an immediate sign-in prompt instead of a "connected, no
+ * internet" state. Only probe-specific hostnames are redirected; normal web
+ * browsing is left alone once the client is authorised.
+ */
+async function ensureCaptivePortalProbes(routerId) {
+  const manager = require("./routerConnectionManager");
+  const resolved = await resolveHotspotGateway(routerId).catch(() => null);
+  const gateway = resolved?.gateway;
+  if (!gateway) {return false;}
+  const entries = await manager
+    .print(routerId, "/ip/dns/static", ".id,name,address,comment,type,ttl")
+    .catch(() => []);
+  const desired = new Set(CAPTIVE_PROBE_HOSTS);
+  const prefix = `${CAPTIVE_PROBE_COMMENT}:`;
+  let changed = false;
+  for (const entry of entries) {
+    const comment = String(entry.comment || "");
+    if (!comment.startsWith(prefix)) {continue;}
+    const host = comment.slice(prefix.length);
+    if (!desired.has(host) || entry.name !== host || entry.address !== gateway ||
+        String(entry.type || "").toUpperCase() !== "A" || entry.ttl !== "1m") {
+      await manager.executeCommand(routerId, "/ip/dns/static/remove", {
+        numbers: entry[".id"] || entry.id,
+      }).catch(() => {});
+      changed = true;
+    }
+  }
+  const after = await manager
+    .print(routerId, "/ip/dns/static", ".id,name,address,comment,type,ttl")
+    .catch(() => []);
+  const present = new Set(after.map((entry) => entry.name).filter(Boolean));
+  for (const host of desired) {
+    if (present.has(host)) {continue;}
+    await manager.executeCommand(routerId, "/ip/dns/static/add", {
+      name: host,
+      address: gateway,
+      type: "A",
+      ttl: "1m",
+      comment: `${prefix}${host}`,
+    }).catch(() => {});
+    changed = true;
+  }
+  return changed;
+}
+
 async function ensureExpiredClientRules(routerId) {
   const manager = require("./routerConnectionManager");
   const addresses = await resolvePortalAddresses(routerId);
+  try { await ensureCaptivePortalProbes(routerId); }
+  catch (error) {
+    logger.warn("Could not install captive portal detection DNS entries", {
+      routerId,
+      error: error.message,
+    });
+  }
   await removeAddressListEntries(
     routerId,
     PORTAL_HOST_LIST,
@@ -1024,12 +1160,22 @@ async function ensureExpiredClientRules(routerId) {
   }
 
   const ownedComments = new Set(EXPIRED_RULE_SPECS.map((spec) => spec.comment));
+  const jumpComments = new Set(UNAUTH_JUMP_COMMENTS.map((spec) => spec.comment));
   const expected = EXPIRED_RULE_SPECS.map((spec) => spec.comment);
   let rules = await manager
     .print(routerId, "/ip/firewall/filter", ".id,chain,action,comment")
     .catch(() => []);
   const current = rules.filter((rule) => ownedComments.has(rule.comment)).map((rule) => rule.comment);
-  const ordered = current.length === expected.length &&
+  const jumpIndexes = rules
+    .map((rule, index) => jumpComments.has(rule.comment) ? index : -1)
+    .filter((index) => index >= 0);
+  const expiredIndexes = rules
+    .map((rule, index) => ownedComments.has(rule.comment) ? index : -1)
+    .filter((index) => index >= 0);
+  const jumpsFirst = jumpIndexes.length === jumpComments.size &&
+    expiredIndexes.length === expected.length &&
+    Math.max(...jumpIndexes) < Math.min(...expiredIndexes);
+  const ordered = jumpsFirst && current.length === expected.length &&
     expected.every((comment, index) => current[index] === comment);
   if (ordered) {return false;}
 
@@ -1042,9 +1188,12 @@ async function ensureExpiredClientRules(routerId) {
   rules = await manager
     .print(routerId, "/ip/firewall/filter", ".id,chain,action,comment")
     .catch(() => []);
-  const anchor = rules[0]?.[".id"] || rules[0]?.id;
-  // Each new rule goes immediately before the same anchor, so adding in this
-  // order leaves portal allows ahead of the expired-client blocks.
+  // Keep the hotspot jumps first so HTTP/DNS can still be redirected to the
+  // portal, then place the expired-client rules before the generic accepts.
+  const anchorRule = rules.find(
+    (rule) => !ownedComments.has(rule.comment) && !jumpComments.has(rule.comment),
+  );
+  const anchor = anchorRule?.[".id"] || anchorRule?.id || rules[0]?.[".id"] || rules[0]?.id;
   for (const spec of EXPIRED_RULE_SPECS) {
     const params = { ...spec.params };
     if (anchor) {params["place-before"] = anchor;}
@@ -1064,6 +1213,13 @@ async function ensureHotspotEnforcement() {
     try { await ensureUnauthenticatedJump(row.id); }
     catch (error) {
       logger.warn("Could not install hotspot unauthenticated firewall jump", {
+        routerId: row.id,
+        error: error.message,
+      });
+    }
+    try { await disableHotspotCookieLogin(row.id); }
+    catch (error) {
+      logger.warn("Could not disable hotspot cookie login", {
         routerId: row.id,
         error: error.message,
       });
@@ -1152,6 +1308,7 @@ async function renewHotspotSession(sessionId, tenantId) {
   await ensureUnauthenticatedJump(session.router_id);
   await ensureExpiredClientRules(session.router_id);
   await unblockHotspotClient(session);
+  await removeHotspotCookie(session);
   await removeRouterHotspotUser(session);
   const rateLimit = require("./rateLimit").buildHotspotRateLimit(plan);
   if (!rateLimit) {
@@ -1708,12 +1865,15 @@ module.exports = {
   startExpiryWorker,
   clearClientConnections,
   removeHotspotHost,
+  removeHotspotCookie,
   blockExpiredClient,
   unblockHotspotClient,
   forceClientOffline,
   ensureUnauthenticatedJump,
+  disableHotspotCookieLogin,
   ensureExpiredClientRules,
   resolvePortalAddresses,
+  ensureCaptivePortalProbes,
   sanitizeHotspotWalledGarden,
   ensureHotspotEnforcement,
   money,
