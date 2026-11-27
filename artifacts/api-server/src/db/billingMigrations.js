@@ -50,6 +50,7 @@ const billingMigrations = [
   `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS paused_at TIMESTAMP`,
   `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS pause_until TIMESTAMP`,
   `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS pause_reason VARCHAR(200)`,
+  `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS welcome_sent_at TIMESTAMP`,
   `CREATE INDEX IF NOT EXISTS idx_subscriptions_pause_until ON subscriptions(pause_until) WHERE status = 'paused'`,
 
   // Customer lifecycle and router metric tables that must exist on a fresh install.
@@ -160,6 +161,25 @@ const billingMigrations = [
   `ALTER TABLE notification_templates DROP CONSTRAINT IF EXISTS notification_templates_event_type_key`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_templates_event_channel
    ON notification_templates(event_type, channel)`,
+  `INSERT INTO notification_templates (event_type, channel, subject, body, is_active)
+   VALUES ('account_created', 'sms', 'Account Created',
+     'Hi {customer_name}: {company_name} account {account_number} ready. Plan {plan_name}. Paybill {paybill}/Acc {account_number}. {start_date}-{end_date}. {credentials_line}Help {support_phone}',
+     true)
+   ON CONFLICT (event_type, channel) DO UPDATE
+   SET subject = EXCLUDED.subject, body = EXCLUDED.body, is_active = true`,
+  `INSERT INTO notification_templates (event_type, channel, subject, body, is_active)
+   VALUES ('welcome', 'sms', 'Welcome New Customer',
+     'Hi {customer_name}: {company_name} {account_number} active. Plan {plan_name}. {credentials_line}Paybill {paybill}/Acc {account_number}. {start_date}-{end_date}. Help {support_phone}',
+     true)
+   ON CONFLICT (event_type, channel) DO UPDATE
+   SET subject = EXCLUDED.subject, body = EXCLUDED.body, is_active = true
+   WHERE notification_templates.body = 'Welcome to {company_name}! Your internet is active. Plan: {plan_name}, Speed: {speed}. PPPoE: {pppoe_user}/{pppoe_pass}. Support: {support_phone} - {company_name}'`,
+  `INSERT INTO settings (key, value) VALUES
+     ('company_name', 'Giraffe Hotspot'),
+     ('contact_phone', '0746447739'),
+     ('support_phone', '0746447739'),
+     ('mpesa_paybill', '1474058')
+   ON CONFLICT (key) DO NOTHING`,
 
   // QoS Profiles
   `CREATE TABLE IF NOT EXISTS qos_profiles (

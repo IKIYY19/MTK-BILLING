@@ -213,6 +213,8 @@ export function SettingsPage() {
     company_logo: "",
     contact_email: "",
     contact_phone: "",
+    support_phone: "",
+    mpesa_paybill: "",
     address: "",
     city: "",
     country: "",
@@ -752,6 +754,42 @@ export function SettingsPage() {
                     }
                     placeholder="+254 700 000 000"
                   />
+                </div>
+                <div>
+                  <Label htmlFor="support-phone">Support Phone (SMS/WhatsApp)</Label>
+                  <Input
+                    id="support-phone"
+                    type="tel"
+                    value={settings.support_phone}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        support_phone: e.target.value,
+                      })
+                    }
+                    placeholder="0746447739"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Included in welcome and service messages
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="mpesa-paybill">M-Pesa Paybill</Label>
+                  <Input
+                    id="mpesa-paybill"
+                    type="text"
+                    value={settings.mpesa_paybill}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        mpesa_paybill: e.target.value,
+                      })
+                    }
+                    placeholder="1474058"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Used as the payment account in customer messages
+                  </p>
                 </div>
                 <div className="md:col-span-2">
                   <Label htmlFor="address">Address</Label>

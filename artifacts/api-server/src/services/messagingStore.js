@@ -51,10 +51,17 @@ const DEFAULT_TEMPLATES = [
     is_active: true,
   },
   {
+    id: 'account_created',
+    name: 'Account Created',
+    event: 'account_created',
+    body: 'Hi {customer_name}: {company_name} account {account_number} ready. Plan {plan_name}. Paybill {paybill}/Acc {account_number}. {start_date}-{end_date}. {credentials_line}Help {support_phone}',
+    is_active: true,
+  },
+  {
     id: 'welcome',
     name: 'Welcome New Customer',
     event: 'welcome',
-    body: 'Welcome to {company_name}! Your internet is active. Plan: {plan_name}, Speed: {speed}. PPPoE: {pppoe_user}/{pppoe_pass}. Support: {support_phone} - {company_name}',
+    body: 'Hi {customer_name}: {company_name} {account_number} active. Plan {plan_name}. {credentials_line}Paybill {paybill}/Acc {account_number}. {start_date}-{end_date}. Help {support_phone}',
     is_active: true,
   },
 ];

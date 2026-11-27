@@ -34,4 +34,12 @@ function label(plan) {
   return pieces.join(" ") || "—";
 }
 
-module.exports = { parts, totalMinutes, toUptime, label };
+function endDate(plan, startDate = new Date()) {
+  const minutes = totalMinutes(plan);
+  if (!minutes) {return null;}
+  const start = new Date(startDate);
+  if (Number.isNaN(start.getTime())) {return null;}
+  return new Date(start.getTime() + minutes * 60000).toISOString();
+}
+
+module.exports = { parts, totalMinutes, toUptime, label, endDate };

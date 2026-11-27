@@ -111,12 +111,32 @@ async function getTwilioService() {
   return new TwilioService();
 }
 
-function getCompanyInfo() {
-  return {
+async function getCompanyInfo() {
+  const defaults = {
     company_name: process.env.COMPANY_NAME || "",
     paybill: process.env.MPESA_PAYBILL || "",
     support_phone: process.env.SUPPORT_PHONE || "",
   };
+
+  try {
+    const result = await getDb().query(
+      `SELECT key, value FROM settings
+       WHERE key IN ('company_name', 'contact_phone', 'support_phone', 'mpesa_paybill')`,
+    );
+    const saved = {};
+    for (const row of result.rows || []) {
+      if (!row.value) {continue;}
+      if (row.key === "company_name") {saved.company_name = row.value;}
+      if (row.key === "contact_phone" && !saved.support_phone) {
+        saved.support_phone = row.value;
+      }
+      if (row.key === "support_phone") {saved.support_phone = row.value;}
+      if (row.key === "mpesa_paybill") {saved.paybill = row.value;}
+    }
+    return { ...defaults, ...saved };
+  } catch {
+    return defaults;
+  }
 }
 
 // Render dynamic variables within a message template
@@ -125,10 +145,20 @@ async function renderTemplate(templateId, variables, channel = "sms") {
   if (!template || !template.is_active) {return null;}
 
   let message = template.body;
-  const company = getCompanyInfo();
+  const company = await getCompanyInfo();
+  const merged = { ...company };
 
-  for (const [key, value] of Object.entries({ ...variables, ...company })) {
-    message = message.replace(new RegExp(`\\{${key}\\}`, "g"), value || "");
+  // Explicit per-message settings win over saved company settings, but an
+  // empty message variable must not erase a saved value such as the paybill.
+  for (const [key, value] of Object.entries(variables)) {
+    if (value === undefined || value === null) {continue;}
+    if (value === "" && merged[key]) {continue;}
+    merged[key] = value;
+  }
+
+  for (const [key, value] of Object.entries(merged)) {
+    if (value === undefined || value === null) {continue;}
+    message = message.replace(new RegExp(`\\{${key}\\}`, "g"), value);
   }
 
   return AfricaTalkingService.truncate(message);
@@ -180,6 +210,20 @@ function buildMessageVariables(data = {}) {
       : "",
     pause_reason: data.pause_reason || data.sub?.pause_reason || "",
     paused_days: data.paused_days || 0,
+    account_number:
+      data.account_number || data.customer?.account_number || data.sub?.account_number || "",
+    start_date: data.start_date || data.sub?.start_date || "",
+    end_date: data.end_date || data.sub?.end_date || "",
+    credentials_line:
+      (data.pppoe_username || data.sub?.pppoe_username) &&
+      (data.pppoe_password || data.sub?.pppoe_password)
+        ? `PPPoE ${data.pppoe_username || data.sub?.pppoe_username}:${
+            data.pppoe_password || data.sub?.pppoe_password
+          }. `
+        : "",
+    ...(data.mpesa_paybill || data.paybill
+      ? { mpesa_paybill: data.mpesa_paybill || data.paybill }
+      : {}),
   };
 }
 
@@ -200,9 +244,10 @@ class NotificationService {
         service_restored: "service_restored",
         service_paused: "service_paused",
         service_resumed: "service_resumed",
+        account_created: "account_created",
+        welcome: "welcome",
         outage_detected: "outage_detected",
         outage_resolved: "outage_resolved",
-        welcome: "welcome",
         password_reset: "password_reset",
         hotspot_payment_received: "hotspot_payment_received",
         hotspot_voucher_redeemed: "hotspot_voucher_redeemed",
@@ -302,9 +347,10 @@ class NotificationService {
         service_restored: "service_restored",
         service_paused: "service_paused",
         service_resumed: "service_resumed",
+        account_created: "account_created",
+        welcome: "welcome",
         outage_detected: "outage_detected",
         outage_resolved: "outage_resolved",
-        welcome: "welcome",
         hotspot_payment_received: "hotspot_payment_received",
         hotspot_voucher_redeemed: "hotspot_voucher_redeemed",
         hotspot_access_expiring: "hotspot_access_expiring",

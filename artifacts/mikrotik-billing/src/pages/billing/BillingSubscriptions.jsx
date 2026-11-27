@@ -17,6 +17,7 @@ import {
   Pause,
   Play,
   CalendarClock,
+  Send,
 } from "lucide-react";
 import { useToast } from "../../hooks/useToast";
 import { Button } from "../../components/ui/button";
@@ -210,6 +211,21 @@ export function BillingSubscriptions() {
     }
   };
 
+  const resendWelcome = async (sub) => {
+    try {
+      const { data } = await axios.post(
+        `${API}/billing/subscriptions/${sub.id}/send-welcome`,
+      );
+      if (data.success) {
+        toast.success("Welcome message sent");
+      } else {
+        toast.error(data.message || "Welcome message could not be sent");
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.error || "Failed to send welcome message");
+    }
+  };
+
   const syncSubscription = async (sub) => {
     try {
       const { data } = await axios.post(
@@ -290,6 +306,7 @@ export function BillingSubscriptions() {
                 <td><div className="billing-row-actions">
                   <Button variant="outline" size="sm" onClick={() => handleEdit(sub)} title="Edit subscription" aria-label={`Edit ${sub.customer?.name || "subscription"}`}><Pencil className="w-3.5 h-3.5" /></Button>
                   <Button variant="outline" size="sm" onClick={() => syncSubscription(sub)} title="Synchronize subscription" aria-label={`Synchronize ${sub.customer?.name || "subscription"}`}><RefreshCw className="w-3.5 h-3.5" /></Button>
+                  <Button variant="outline" size="sm" onClick={() => resendWelcome(sub)} title="Send welcome message" aria-label={`Send welcome message to ${sub.customer?.name || "customer"}`}><Send className="w-3.5 h-3.5" /></Button>
                   <Button variant="outline" size="sm" onClick={() => handleDelete(sub)} title="Delete subscription" aria-label={`Delete ${sub.customer?.name || "subscription"}`}><Trash2 className="w-3.5 h-3.5" /></Button>
                   {sub.status === "active" && (
                     <Button variant="outline" size="sm" onClick={() => openPause(sub)} title="Pause until a return date" aria-label={`Pause ${sub.customer?.name || "subscription"}`}>

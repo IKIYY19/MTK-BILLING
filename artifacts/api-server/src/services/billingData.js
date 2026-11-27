@@ -1,4 +1,5 @@
 const fallbackBilling = require("../db/billingStore");
+const validity = require("./validity");
 
 const MAX_LIST_LIMIT = 10000;
 
@@ -414,9 +415,29 @@ function fireWebhook(event, data) {
 
 async function createSubscription(data) {
   const backend = getBackend();
+  const plan = data.plan || (data.plan_id ? await getPlanById(data.plan_id) : null);
+  const startDate = data.start_date || new Date().toISOString();
+  const payload = {
+    ...data,
+    start_date: startDate,
+    end_date: data.end_date || validity.endDate(plan || {}, startDate) || null,
+  };
+
   const subscription = usesRepositoryBackend()
-    ? await getSubscriptionById((await backend.subscriptions.create(data)).id)
-    : normalizeSubscription(await backend.createSubscription(data));
+    ? await getSubscriptionById((await backend.subscriptions.create(payload)).id)
+    : normalizeSubscription(await backend.createSubscription(payload));
+
+  if (subscription) {
+    // Account-created SMS is automatic for every onboarding path. Delivery is
+    // fire-and-forget so a slow SMS provider never blocks account creation.
+    setImmediate(() => {
+      require("./accountWelcome")
+        .sendForSubscription(subscription.id)
+        .catch((error) =>
+          console.error("Account welcome message failed:", error.message),
+        );
+    });
+  }
 
   if (subscription && String(subscription.status || "").toLowerCase() === "active") {
     fireWebhook("customer.activated", {

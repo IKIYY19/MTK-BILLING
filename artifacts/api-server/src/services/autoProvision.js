@@ -1,6 +1,5 @@
 const billing = require("./billingData");
 const radiusSync = require("./radiusSync");
-const notificationService = require("./notificationService");
 const mikrotikProvisioning = require("./mikrotikProvisioning");
 const logger = require("../utils/logger");
 const crypto = require("crypto");
@@ -71,19 +70,15 @@ async function autoProvisionOnPayment(payment) {
       }
 
       const planName = plan?.name || "Active";
-      const speed = require("./rateLimit").buildRateLimit(plan) || "N/A";
-      const phone = customer.phone || "";
 
-      if (phone) {
+      if (customer.phone) {
         try {
-          await notificationService.triggerSMS("welcome", {
-            customer,
-            plan_name: planName,
-            speed,
-            pppoe_user: username,
-            pppoe_pass: password,
-            company_name: process.env.COMPANY_NAME || "Your ISP",
-            support_phone: phone,
+          // Send the credential-bearing welcome follow-up. The original
+          // account-created SMS may have gone out before PPPoE credentials
+          // were generated, so this one is explicitly forced.
+          await require("./accountWelcome").sendForSubscription(sub.id, {
+            event: "welcome",
+            force: true,
           });
         } catch (e) {
           logger.error("[AutoProvision] Welcome SMS failed:", { error: e.message });

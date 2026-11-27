@@ -931,6 +931,22 @@ router.post("/subscriptions/:id/resume", async (req, res) => {
   }
 });
 
+router.post("/subscriptions/:id/send-welcome", async (req, res) => {
+  try {
+    const event = req.body?.event === "welcome" ? "welcome" : "account_created";
+    const result = await require("../services/accountWelcome").sendForSubscription(
+      req.params.id,
+      { event, force: true },
+    );
+    if (result.skipped && result.message === "Subscription not found") {
+      return res.status(404).json({ error: "Subscription not found" });
+    }
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post("/subscriptions/:id/toggle", async (req, res) => {
   try {
     const current = await billing.getSubscriptionById(req.params.id);
