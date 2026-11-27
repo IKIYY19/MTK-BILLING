@@ -184,6 +184,17 @@ router.post("/captive-portals/push", async (req, res) => {
 
     const conn = connResult.rows[0];
     const password = decryptPassword(conn.password_encrypted);
+
+    // Update the default portal theme in settings so cached/old URLs
+    // also render the pushed theme instead of a stale default.
+    if (req.body.theme) {
+      try {
+        await db.query(
+          "INSERT INTO settings (key, value) VALUES ('portal_theme', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+          [req.body.theme],
+        );
+      } catch (e) { /* non-fatal */ }
+    }
     const results = {
       method: null,
       success: false,

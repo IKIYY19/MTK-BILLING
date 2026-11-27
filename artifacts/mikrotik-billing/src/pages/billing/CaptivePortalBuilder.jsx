@@ -223,7 +223,7 @@ export default function CaptivePortalBuilder() {
     if (!isAllowedPortalUrl(portalUrl)) { toast.error("Enter a valid HTTPS URL, or a local http:// address for this network"); return; }
     setPushing(true);
     try {
-      const { data } = await axios.post(`${API}/resellers/captive-portals/push`, { connection_id: selectedConn, html: getHtml(), portal_url: portalUrl, profile: "default", portal_name: companyName || "hotspot-portal" });
+      const { data } = await axios.post(`${API}/resellers/captive-portals/push`, { connection_id: selectedConn, html: getHtml(), portal_url: portalUrl, profile: "default", portal_name: companyName || "hotspot-portal", theme: selectedTemplate });
       toast.success("Portal pushed", data.walledGarden?.length ? `Walled garden allows ${data.walledGarden.join(", ")}` : data.message);
     } catch (e) { toast.error("Push failed", e.response?.data?.error || e.message); }
     finally { setPushing(false); }

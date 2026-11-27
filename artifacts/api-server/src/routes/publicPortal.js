@@ -81,7 +81,7 @@ router.get("/policy", async (req, res) => {
       pppoe_trial_days: 0,
       expiry_reminder_hours: "72,24,4",
       portal_font: "Inter",
-      portal_theme: "lagoon",
+      portal_theme: "aurora",
       portal_terms_enabled: false,
       portal_terms_text: "",
     });
