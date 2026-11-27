@@ -44,6 +44,22 @@ async function run() {
             `hotspot-expiry-${session.id}`,
           )
           .catch(() => {});
+        // Send SMS notification (non-blocking)
+        try {
+          const notificationService = require("../services/notificationService");
+          const phone = session.phone || "";
+          if (phone && phone !== "voucher" && /^254/.test(phone)) {
+            notificationService
+              .triggerSMS("hotspot_access_expiring", {
+                customer: { phone },
+                planName: session.plan_name || "Hotspot",
+                minutesLeft,
+              })
+              .catch(() => {});
+          }
+        } catch (smsErr) {
+          // Non-fatal
+        }
         warned += 1;
       }
     }

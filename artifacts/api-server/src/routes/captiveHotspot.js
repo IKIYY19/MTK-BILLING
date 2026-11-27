@@ -345,4 +345,85 @@ router.post("/redeem-voucher", async (req, res) => {
   }
 });
 
+// GET /api/captive-hotspot/analytics - Hotspot analytics summary
+router.get("/analytics", async (req, res) => {
+  try {
+    const db = global.db;
+    const tenantId = req.tenantId || null;
+    const tenantFilter = tenantId ? "AND tenant_id = $1" : "";
+    const params = tenantId ? [tenantId] : [];
+
+    const [totalSessions, revenueResult, planPopularity, dailyRevenue, activeNow] =
+      await Promise.all([
+        db.query(
+          `SELECT COUNT(*)::int AS total,
+                  COUNT(*) FILTER (WHERE status = 'authorized')::int AS authorized,
+                  COUNT(*) FILTER (WHERE status = 'expired')::int AS expired,
+                  COUNT(*) FILTER (WHERE status = 'suspended')::int AS suspended,
+                  COUNT(*) FILTER (WHERE status = 'pending')::int AS pending
+           FROM captive_hotspot_sessions WHERE 1=1 ${tenantFilter}`,
+          params,
+        ),
+        db.query(
+          `SELECT COALESCE(SUM(amount), 0)::numeric AS total_revenue,
+                  COUNT(*)::int AS paid_count
+           FROM captive_hotspot_sessions
+           WHERE status IN ('authorized', 'expired', 'suspended') ${tenantFilter}`,
+          params,
+        ),
+        db.query(
+          `SELECT p.name AS plan_name, COUNT(*)::int AS count,
+                  COALESCE(SUM(s.amount), 0)::numeric AS revenue
+           FROM captive_hotspot_sessions s
+           JOIN service_plans p ON p.id = s.plan_id
+           WHERE s.status IN ('authorized', 'expired', 'suspended') ${tenantFilter.replace("tenant_id", "s.tenant_id")}
+           GROUP BY p.name ORDER BY count DESC LIMIT 10`,
+          params,
+        ),
+        db.query(
+          `SELECT DATE(paid_at) AS day, COUNT(*)::int AS sessions,
+                  COALESCE(SUM(amount), 0)::numeric AS revenue
+           FROM captive_hotspot_sessions
+           WHERE paid_at >= CURRENT_DATE - INTERVAL '30 days' ${tenantFilter}
+           GROUP BY DATE(paid_at) ORDER BY day ASC`,
+          params,
+        ),
+        db.query(
+          `SELECT COUNT(*)::int AS active_now
+           FROM captive_hotspot_sessions
+           WHERE status = 'authorized' AND expires_at > CURRENT_TIMESTAMP ${tenantFilter}`,
+          params,
+        ),
+      ]);
+
+    res.set("Cache-Control", "no-store");
+    return res.json({
+      overview: {
+        totalSessions: totalSessions.rows[0]?.total || 0,
+        authorized: totalSessions.rows[0]?.authorized || 0,
+        expired: totalSessions.rows[0]?.expired || 0,
+        suspended: totalSessions.rows[0]?.suspended || 0,
+        pending: totalSessions.rows[0]?.pending || 0,
+        activeNow: activeNow.rows[0]?.active_now || 0,
+      },
+      revenue: {
+        totalRevenue: Number(revenueResult.rows[0]?.total_revenue || 0),
+        paidCount: revenueResult.rows[0]?.paid_count || 0,
+      },
+      planPopularity: planPopularity.rows.map((r) => ({
+        planName: r.plan_name,
+        count: r.count,
+        revenue: Number(r.revenue),
+      })),
+      dailyRevenue: dailyRevenue.rows.map((r) => ({
+        day: r.day,
+        sessions: r.sessions,
+        revenue: Number(r.revenue),
+      })),
+    });
+  } catch (error) {
+    return publicError(res, error);
+  }
+});
+
 module.exports = router;

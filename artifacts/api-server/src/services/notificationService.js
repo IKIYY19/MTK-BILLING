@@ -197,6 +197,10 @@ class NotificationService {
         outage_resolved: "outage_resolved",
         welcome: "welcome",
         password_reset: "password_reset",
+        hotspot_payment_received: "hotspot_payment_received",
+        hotspot_voucher_redeemed: "hotspot_voucher_redeemed",
+        hotspot_access_expiring: "hotspot_access_expiring",
+        hotspot_access_expired: "hotspot_access_expired",
       }[event];
 
       if (!templateId) {return { success: false, message: "Unknown event" };}
@@ -292,6 +296,10 @@ class NotificationService {
         outage_detected: "outage_detected",
         outage_resolved: "outage_resolved",
         welcome: "welcome",
+        hotspot_payment_received: "hotspot_payment_received",
+        hotspot_voucher_redeemed: "hotspot_voucher_redeemed",
+        hotspot_access_expiring: "hotspot_access_expiring",
+        hotspot_access_expired: "hotspot_access_expired",
       }[event];
 
       if (templateId) {

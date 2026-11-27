@@ -895,6 +895,16 @@ const startServer = async () => {
         });
       }
 
+      // Start hotspot FUP enforcement cron
+      try {
+        require("./cron/hotspotFupEnforcement").startCron();
+        logger.info("Hotspot FUP enforcement cron started");
+      } catch (e) {
+        logger.warn("Could not start hotspot FUP enforcement cron", {
+          error: e.message,
+        });
+      }
+
       // Start payment reminders cron
       try {
         const {

@@ -519,6 +519,28 @@ async function authorizePaidSession(session) {
       expiresAt: expiry.toISOString(),
       username,
     });
+    // Send SMS notification (non-blocking)
+    try {
+      const notificationService = require("./notificationService");
+      const planResult2 = await database().query(
+        `SELECT name, price FROM service_plans WHERE id = $1`,
+        [working.plan_id],
+      );
+      const planName = planResult2.rows[0]?.name || "Hotspot";
+      const phone = working.phone || "";
+      if (phone) {
+        notificationService
+          .triggerSMS("hotspot_payment_received", {
+            customer: { phone },
+            planName,
+            expiresAt: expiry.toISOString(),
+            username,
+          })
+          .catch(() => {});
+      }
+    } catch (smsErr) {
+      // Non-fatal
+    }
     return result.rows[0];
   } catch (error) {
     logger.error("Paid hotspot router authorization failed", {
@@ -1269,6 +1291,21 @@ async function expireHotspotSessions() {
       await recordEvent(session.tenant_id, session.id, "router.access_expired", {
         routerId: session.router_id,
       });
+      // Send SMS notification (non-blocking)
+      try {
+        const notificationService = require("./notificationService");
+        const phone = session.phone || "";
+        if (phone && phone !== "voucher" && /^254/.test(phone)) {
+          notificationService
+            .triggerSMS("hotspot_access_expired", {
+              customer: { phone },
+              planName: session.plan_name || "Hotspot",
+            })
+            .catch(() => {});
+        }
+      } catch (smsErr) {
+        // Non-fatal
+      }
     } catch (error) {
       logger.error("Expired hotspot access could not be removed from router", {
         sessionId: session.id,

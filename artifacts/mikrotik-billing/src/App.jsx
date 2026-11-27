@@ -91,6 +91,7 @@ const LoadBalancingPage = lazy(() => import("./pages/LoadBalancingPage").then(m 
 const Alerts = lazy(() => import("./pages/network/Alerts").then(m => ({ default: m.Alerts })));
 const Monitoring = lazy(() => import("./pages/network/Monitoring").then(m => ({ default: m.Monitoring })));
 const HotspotSessionsPanel = lazy(() => import("./pages/billing/HotspotSessionsPanel"));
+const HotspotAnalytics = lazy(() => import("./pages/billing/HotspotAnalytics"));
 
 const SignupPage = lazy(() => import("./pages/public/SignupPage").then(m => ({ default: m.SignupPage })));
 const PlansPage = lazy(() => import("./pages/public/PlansPage").then(m => ({ default: m.PlansPage })));
@@ -321,6 +322,7 @@ function App() {
                           element={<HotspotVouchers />}
                         />
                         <Route path="/hotspot-sessions" element={<HotspotSessionsPanel />} />
+                        <Route path="/hotspot-analytics" element={<HotspotAnalytics />} />
                         <Route
                           path="/network-services"
                           element={<NetworkServices />}
