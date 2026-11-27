@@ -770,32 +770,53 @@ async function kickHotspotClient(session) {
 async function clearClientConnections(session) {
   if (!session.client_ip && !session.mac_address) {return 0;}
   const manager = require("./routerConnectionManager");
-  const connections = await manager
-    .print(session.router_id, "/ip/firewall/connection")
-    .catch(() => []);
-  const ids = connections
-    .filter((entry) => {
-      const addresses = [
-        entry["src-address"],
-        entry["dst-address"],
-        entry["reply-src-address"],
-        entry["reply-dst-address"],
-      ].filter(Boolean);
-      return addresses.includes(session.client_ip);
-    })
-    .map((entry) => entry[".id"] || entry.id)
-    .filter(Boolean);
+  const clientIp = session.client_ip;
+  const connectionMatches = (entry) => {
+    const addresses = [
+      entry["src-address"],
+      entry["dst-address"],
+      entry["reply-src-address"],
+      entry["reply-dst-address"],
+    ].filter(Boolean);
+    return addresses.includes(clientIp);
+  };
+
   let removed = 0;
-  // Connection IDs are short-lived; remove them one by one so an entry that
-  // expires between print and remove does not abort the whole cleanup.
-  for (const id of ids) {
+  // Repeat because removing one connection can expose or refresh others, and
+  // RouterOS assigns new .id values as short-lived flows expire. A few rounds
+  // is enough to catch the captive-probe flows that survive the first sweep.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const connections = await manager
+      .print(session.router_id, "/ip/firewall/connection",
+        ".id,src-address,dst-address,reply-src-address,reply-dst-address")
+      .catch(() => []);
+    const ids = connections
+      .filter(connectionMatches)
+      .map((entry) => entry[".id"] || entry.id)
+      .filter(Boolean);
+    if (!ids.length) {break;}
+
+    // Remove as one batch when possible. Per-ID cleanup is the fallback for
+    // RouterOS versions that reject removal of an already-expired entry in a
+    // batch.
     try {
       await manager.executeCommand(session.router_id, "/ip/firewall/connection/remove", {
-        numbers: id,
+        numbers: ids.join(","),
       });
-      removed++;
+      removed += ids.length;
+      continue;
     } catch {
-      // The connection already closed; nothing left to clear.
+      // Fall through to individual removal.
+    }
+    for (const id of ids) {
+      try {
+        await manager.executeCommand(session.router_id, "/ip/firewall/connection/remove", {
+          numbers: id,
+        });
+        removed++;
+      } catch {
+        // The connection already closed; nothing left to clear.
+      }
     }
   }
   return removed;
@@ -1365,6 +1386,85 @@ async function ensureExpiredClientRules(routerId) {
   return true;
 }
 
+/**
+ * Advertise the local RFC 8910 Captive Portal API through DHCP option 114.
+ * Newer Android/iOS builds trust this explicit signal more than the legacy
+ * generate_204 probe, which can be swallowed by HTTPS interception.
+ */
+const CAPPORT_OPTION_NAME = "GIRAFFE-CAPPORT";
+const CAPPORT_OPTION_SET = "GIRAFFE-BILLING-CAPPORT";
+
+function capportApiUrl() {
+  const configured = String(process.env.CAPPORT_URL || "").trim();
+  return configured || "http://192.168.100.8:5000/capport";
+}
+
+async function ensureCaptivePortalApi(routerId) {
+  const manager = require("./routerConnectionManager");
+  const servers = await manager
+    .print(routerId, "/ip/dhcp-server", ".id,name,interface,dhcp-option-set,disabled,invalid")
+    .catch(() => []);
+  const server = servers.find((entry) =>
+    entry.interface === "billing-bridge" && entry.disabled === "false" && entry.invalid === "false",
+  ) || servers.find((entry) => /billing/i.test(String(entry.name || "")));
+  if (!server) {return false;}
+
+  const url = capportApiUrl();
+  const quotedValue = `'${url}'`;
+  const options = await manager
+    .print(routerId, "/ip/dhcp-server/option", ".id,name,code,value")
+    .catch(() => []);
+  const existingOption = options.find((entry) => entry.name === CAPPORT_OPTION_NAME);
+  if (!existingOption) {
+    await manager.executeCommand(routerId, "/ip/dhcp-server/option/add", {
+      name: CAPPORT_OPTION_NAME,
+      code: "114",
+      value: quotedValue,
+    });
+  } else if (
+    String(existingOption.code) !== "114" ||
+    !String(existingOption.value || "").includes(url)
+  ) {
+    await manager.executeCommand(routerId, "/ip/dhcp-server/option/set", {
+      numbers: existingOption[".id"] || existingOption.name,
+      code: "114",
+      value: quotedValue,
+    });
+  }
+
+  const sets = await manager
+    .print(routerId, "/ip/dhcp-server/option/sets")
+    .catch(() => []);
+  const inherited = sets.find((entry) => entry.name === server["dhcp-option-set"])?.options || "";
+  const names = String(inherited)
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (!names.includes(CAPPORT_OPTION_NAME)) {names.push(CAPPORT_OPTION_NAME);}
+  const optionsValue = names.join(",");
+
+  const existingSet = sets.find((entry) => entry.name === CAPPORT_OPTION_SET);
+  if (!existingSet) {
+    await manager.executeCommand(routerId, "/ip/dhcp-server/option/sets/add", {
+      name: CAPPORT_OPTION_SET,
+      options: optionsValue,
+    });
+  } else if (String(existingSet.options || "") !== optionsValue) {
+    await manager.executeCommand(routerId, "/ip/dhcp-server/option/sets/set", {
+      numbers: existingSet[".id"] || existingSet.name,
+      options: optionsValue,
+    });
+  }
+
+  if (server["dhcp-option-set"] !== CAPPORT_OPTION_SET) {
+    await manager.executeCommand(routerId, "/ip/dhcp-server/set", {
+      numbers: server[".id"] || server.name,
+      "dhcp-option-set": CAPPORT_OPTION_SET,
+    });
+  }
+  return true;
+}
+
 async function ensureHotspotEnforcement() {
   const rows = await database().query(
     "SELECT id FROM mikrotik_connections WHERE is_online = true",
@@ -1394,6 +1494,13 @@ async function ensureHotspotEnforcement() {
     try { await sanitizeHotspotWalledGarden(row.id); }
     catch (error) {
       logger.warn("Could not clean hotspot walled garden", {
+        routerId: row.id,
+        error: error.message,
+      });
+    }
+    try { await ensureCaptivePortalApi(row.id); }
+    catch (error) {
+      logger.warn("Could not advertise the captive portal API", {
         routerId: row.id,
         error: error.message,
       });
@@ -2038,6 +2145,7 @@ module.exports = {
   ensureExpiredClientRedirects,
   ensurePortalUnauthAccess,
   sanitizeHotspotWalledGarden,
+  ensureCaptivePortalApi,
   ensureHotspotEnforcement,
   money,
 };

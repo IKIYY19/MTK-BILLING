@@ -473,6 +473,9 @@ const startServer = async () => {
     );
     app.use("/api/public", require("./routes/publicPortal"));
     app.use("/api/captive-hotspot", require("./routes/captiveHotspot"));
+    // RFC 8910 Captive Portal API advertised through DHCP option 114. Keep it
+    // outside /api so captive-portal clients are never rate limited.
+    app.use("/capport", require("./routes/capport"));
 
     app.post("/api/client-error", (req, res) => {
       try {
