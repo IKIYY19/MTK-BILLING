@@ -65,10 +65,10 @@ const apiLimiter = rateLimit({
 });
 
 // ─── Tenant-aware auth limiter ────────────────────────────────────────────────
-// 30 login attempts / 15 min per tenant+IP combo
+// 120 requests / 15 min per tenant+IP combo (allows heartbeat every 30s)
 const authLimiter = rateLimit({
   windowMs:       15 * 60 * 1000,
-  max:            30,
+  max:            120,
   keyGenerator:   tenantIpKey,
   standardHeaders: true,
   legacyHeaders:  false,

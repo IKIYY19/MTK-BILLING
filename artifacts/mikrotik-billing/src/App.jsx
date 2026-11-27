@@ -139,8 +139,8 @@ function App() {
       }
     };
 
-    // Send heartbeat every 30 seconds
-    const interval = setInterval(sendHeartbeat, 30000);
+    // Send heartbeat every 60 seconds
+    const interval = setInterval(sendHeartbeat, 60000);
 
     // Send initial heartbeat
     sendHeartbeat();
