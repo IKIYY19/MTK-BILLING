@@ -135,9 +135,14 @@ router.get("/stats", async (req, res) => {
       ),
       // Sparkline: daily revenue for last 12 days
       db.query(
-        `SELECT d::date as date, COALESCE(SUM(p.amount), 0) as total
+        `SELECT d::date as date, COALESCE(SUM(combined.amount), 0) as total
          FROM generate_series(CURRENT_DATE - INTERVAL '11 days', CURRENT_DATE, '1 day') d
-         LEFT JOIN payments p ON DATE(p.received_at) = d::date
+         LEFT JOIN (
+           SELECT amount, received_at FROM payments
+           UNION ALL
+           SELECT amount, paid_at as received_at FROM captive_hotspot_sessions
+           WHERE status IN ('authorized', 'expired', 'suspended') AND paid_at IS NOT NULL
+         ) combined ON DATE(combined.received_at) = d::date
          GROUP BY d::date ORDER BY d::date`,
       ),
       // Sparkline: daily new customers for last 12 days
