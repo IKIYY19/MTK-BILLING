@@ -865,15 +865,7 @@ async function removeHotspotCookie(session) {
 const EXPIRED_HOTSPOT_LIST = "billing-expired-hotspot";
 const PORTAL_HOST_LIST = "billing-portal-hosts";
 const CAPTIVE_PROBE_COMMENT = "billing-captive-probe";
-const CAPTIVE_PROBE_HOSTS = [
-  "captive.apple.com",
-  "connectivitycheck.gstatic.com",
-  "clients3.google.com",
-  "networkcheck.android.com",
-  "detectportal.firefox.com",
-  "www.msftconnecttest.com",
-  "nmcheck.gnome.org",
-];
+const HOTSPOT_DNS_COMMENT = "billing-hotspot-unauth-dns";
 const IS_IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 
 async function removeAddressListEntries(routerId, list, predicate) {
@@ -1056,6 +1048,39 @@ const EXPIRED_RULE_SPECS = [
   },
 ];
 
+const EXPIRED_NAT_RULE_SPECS = [
+  {
+    comment: "billing-expired-dns-udp",
+    params: {
+      chain: "dstnat", action: "redirect", protocol: "udp", "dst-port": "53",
+      "src-address-list": EXPIRED_HOTSPOT_LIST, "to-ports": "64872",
+    },
+  },
+  {
+    comment: "billing-expired-dns-tcp",
+    params: {
+      chain: "dstnat", action: "redirect", protocol: "tcp", "dst-port": "53",
+      "src-address-list": EXPIRED_HOTSPOT_LIST, "to-ports": "64872",
+    },
+  },
+  {
+    comment: "billing-expired-http-redirect",
+    params: {
+      chain: "dstnat", action: "redirect", protocol: "tcp", "dst-port": "80",
+      "src-address-list": EXPIRED_HOTSPOT_LIST,
+      "dst-address-list": `!${PORTAL_HOST_LIST}`, "to-ports": "64874",
+    },
+  },
+  {
+    comment: "billing-expired-https-redirect",
+    params: {
+      chain: "dstnat", action: "redirect", protocol: "tcp", "dst-port": "443",
+      "src-address-list": EXPIRED_HOTSPOT_LIST,
+      "dst-address-list": `!${PORTAL_HOST_LIST}`, "to-ports": "64875",
+    },
+  },
+];
+
 async function resolvePortalAddresses(routerId) {
   const manager = require("./routerConnectionManager");
   const addresses = new Set();
@@ -1090,58 +1115,127 @@ async function resolvePortalAddresses(routerId) {
 }
 
 /**
- * Captive-portal detection endpoints must resolve to the hotspot so expired
- * clients get an immediate sign-in prompt instead of a "connected, no
- * internet" state. Only probe-specific hostnames are redirected; normal web
- * browsing is left alone once the client is authorised.
+ * Unauthenticated clients must be able to query RouterOS DNS on 64872. Legacy
+ * scripts left DROP rules in pre-hs-input, which silently swallowed the
+ * captive-portal probes and produced "connected, no internet" with no banner.
  */
-async function ensureCaptivePortalProbes(routerId) {
+async function ensureHotspotDnsAccess(routerId) {
   const manager = require("./routerConnectionManager");
-  const resolved = await resolveHotspotGateway(routerId).catch(() => null);
-  const gateway = resolved?.gateway;
-  if (!gateway) {return false;}
-  const entries = await manager
-    .print(routerId, "/ip/dns/static", ".id,name,address,comment,type,ttl")
+  const fields = ".id,chain,action,protocol,dst-port,hotspot,comment";
+  const rules = await manager
+    .print(routerId, "/ip/firewall/filter", fields)
     .catch(() => []);
-  const desired = new Set(CAPTIVE_PROBE_HOSTS);
-  const prefix = `${CAPTIVE_PROBE_COMMENT}:`;
-  let changed = false;
-  for (const entry of entries) {
-    const comment = String(entry.comment || "");
-    if (!comment.startsWith(prefix)) {continue;}
-    const host = comment.slice(prefix.length);
-    if (!desired.has(host) || entry.name !== host || entry.address !== gateway ||
-        String(entry.type || "").toUpperCase() !== "A" || entry.ttl !== "1m") {
-      await manager.executeCommand(routerId, "/ip/dns/static/remove", {
-        numbers: entry[".id"] || entry.id,
-      }).catch(() => {});
-      changed = true;
-    }
+  const owned = rules.filter((rule) => String(rule.comment || "") === HOTSPOT_DNS_COMMENT);
+  const validProtocols = owned
+    .filter((rule) => rule.action === "return" && String(rule["dst-port"]) === "64872" &&
+      String(rule.hotspot || "") === "!auth")
+    .map((rule) => String(rule.protocol || "").toLowerCase());
+  const valid = owned.length === 2 && validProtocols.length === 2 &&
+    ["udp", "tcp"].every((protocol) => validProtocols.includes(protocol));
+  if (valid) {return false;}
+
+  for (const rule of owned) {
+    await manager.executeCommand(routerId, "/ip/firewall/filter/remove", {
+      numbers: rule[".id"] || rule.id,
+    }).catch(() => {});
   }
   const after = await manager
-    .print(routerId, "/ip/dns/static", ".id,name,address,comment,type,ttl")
+    .print(routerId, "/ip/firewall/filter", fields)
     .catch(() => []);
-  const present = new Set(after.map((entry) => entry.name).filter(Boolean));
-  for (const host of desired) {
-    if (present.has(host)) {continue;}
-    await manager.executeCommand(routerId, "/ip/dns/static/add", {
-      name: host,
-      address: gateway,
-      type: "A",
-      ttl: "1m",
-      comment: `${prefix}${host}`,
-    }).catch(() => {});
-    changed = true;
+  const anchor = after.find((rule) => rule.chain === "pre-hs-input");
+  for (const protocol of ["udp", "tcp"]) {
+    const params = {
+      chain: "pre-hs-input",
+      action: "return",
+      protocol,
+      "dst-port": "64872",
+      hotspot: "!auth",
+      comment: HOTSPOT_DNS_COMMENT,
+    };
+    if (anchor) {params["place-before"] = anchor[".id"] || anchor.id;}
+    await manager.executeCommand(routerId, "/ip/firewall/filter/add", params).catch(() => {});
   }
-  return changed;
+  return true;
+}
+
+/**
+ * Do not pin probe hostnames to the hotspot address. RouterOS treats that as
+ * local-dst and serves port 64873, bypassing the hotspot portal on 64874.
+ * Probes must resolve normally so the unauthenticated HTTP redirect fires.
+ */
+async function removeCaptivePortalProbeOverrides(routerId) {
+  const manager = require("./routerConnectionManager");
+  const entries = await manager
+    .print(routerId, "/ip/dns/static", ".id,name,comment")
+    .catch(() => []);
+  let removed = 0;
+  for (const entry of entries) {
+    if (!String(entry.comment || "").startsWith(`${CAPTIVE_PROBE_COMMENT}:`)) {continue;}
+    await manager.executeCommand(routerId, "/ip/dns/static/remove", {
+      numbers: entry[".id"] || entry.id,
+    }).catch(() => {});
+    removed++;
+  }
+  if (removed) {
+    await manager.executeCommand(routerId, "/ip/dns/cache/flush", {}).catch(() => {});
+  }
+  return removed;
+}
+
+async function ensureCaptivePortalDetection(routerId) {
+  await ensureHotspotDnsAccess(routerId);
+  await removeCaptivePortalProbeOverrides(routerId);
+}
+
+/**
+ * Force expired clients' DNS and web probes through the hotspot portal. These
+ * rules are scoped to the expired address-list and placed before RouterOS's
+ * own hotspot NAT chain, so a stale auth state cannot hide the sign-in page.
+ */
+async function ensureExpiredClientRedirects(routerId) {
+  const manager = require("./routerConnectionManager");
+  const fields =
+    ".id,chain,action,protocol,dst-port,src-address-list,dst-address-list,to-ports,comment";
+  const ownedComments = new Set(EXPIRED_NAT_RULE_SPECS.map((spec) => spec.comment));
+  let rules = await manager
+    .print(routerId, "/ip/firewall/nat", fields)
+    .catch(() => []);
+  const current = rules.filter((rule) => ownedComments.has(rule.comment));
+  const matches = current.length === EXPIRED_NAT_RULE_SPECS.length &&
+    EXPIRED_NAT_RULE_SPECS.every((spec) => {
+      const row = current.find((rule) => rule.comment === spec.comment);
+      if (!row) {return false;}
+      return Object.entries(spec.params).every(
+        ([key, value]) => String(row[key] ?? "") === String(value),
+      );
+    });
+  if (matches) {return false;}
+
+  for (const rule of current) {
+    await manager.executeCommand(routerId, "/ip/firewall/nat/remove", {
+      numbers: rule[".id"] || rule.id,
+    }).catch(() => {});
+  }
+  rules = await manager
+    .print(routerId, "/ip/firewall/nat", fields)
+    .catch(() => []);
+  const anchor = rules.find(
+    (rule) => rule.chain === "dstnat" && !ownedComments.has(rule.comment),
+  );
+  for (const spec of EXPIRED_NAT_RULE_SPECS) {
+    const params = { ...spec.params, comment: spec.comment };
+    if (anchor) {params["place-before"] = anchor[".id"] || anchor.id;}
+    await manager.executeCommand(routerId, "/ip/firewall/nat/add", params);
+  }
+  return true;
 }
 
 async function ensureExpiredClientRules(routerId) {
   const manager = require("./routerConnectionManager");
   const addresses = await resolvePortalAddresses(routerId);
-  try { await ensureCaptivePortalProbes(routerId); }
+  try { await ensureCaptivePortalDetection(routerId); }
   catch (error) {
-    logger.warn("Could not install captive portal detection DNS entries", {
+    logger.warn("Could not prepare captive portal detection", {
       routerId,
       error: error.message,
     });
@@ -1157,6 +1251,13 @@ async function ensureExpiredClientRules(routerId) {
       list: PORTAL_HOST_LIST,
       comment: `billing-portal-host:${address}`,
     }).catch(() => {});
+  }
+  try { await ensureExpiredClientRedirects(routerId); }
+  catch (error) {
+    logger.warn("Could not install expired client portal redirects", {
+      routerId,
+      error: error.message,
+    });
   }
 
   const ownedComments = new Set(EXPIRED_RULE_SPECS.map((spec) => spec.comment));
@@ -1873,7 +1974,9 @@ module.exports = {
   disableHotspotCookieLogin,
   ensureExpiredClientRules,
   resolvePortalAddresses,
-  ensureCaptivePortalProbes,
+  ensureCaptivePortalDetection,
+  ensureHotspotDnsAccess,
+  ensureExpiredClientRedirects,
   sanitizeHotspotWalledGarden,
   ensureHotspotEnforcement,
   money,
