@@ -473,6 +473,9 @@ async function authorizePaidSession(session) {
     }
     const validityUptime = validity.toUptime(plan);
     const routerManager = require("./routerConnectionManager");
+    await ensureUnauthenticatedJump(working.router_id);
+    await ensureExpiredClientRules(working.router_id);
+    await unblockHotspotClient(working);
     const comment = `paid-hotspot:${working.id}`;
     const existingUsers = await routerManager.print(
       working.router_id,
@@ -758,6 +761,330 @@ async function kickHotspotClient(session) {
   return false;
 }
 
+/**
+ * Established connections are accepted by the router's generic firewall rules
+ * before the hotspot jump. Dropping the hotspot user alone therefore does not
+ * stop traffic that was already flowing when the voucher expired.
+ */
+async function clearClientConnections(session) {
+  if (!session.client_ip && !session.mac_address) {return 0;}
+  const manager = require("./routerConnectionManager");
+  const connections = await manager
+    .print(session.router_id, "/ip/firewall/connection")
+    .catch(() => []);
+  const ids = connections
+    .filter((entry) => {
+      const addresses = [
+        entry["src-address"],
+        entry["dst-address"],
+        entry["reply-src-address"],
+        entry["reply-dst-address"],
+      ].filter(Boolean);
+      return addresses.includes(session.client_ip);
+    })
+    .map((entry) => entry[".id"] || entry.id)
+    .filter(Boolean);
+  let removed = 0;
+  // Connection IDs are short-lived; remove them one by one so an entry that
+  // expires between print and remove does not abort the whole cleanup.
+  for (const id of ids) {
+    try {
+      await manager.executeCommand(session.router_id, "/ip/firewall/connection/remove", {
+        numbers: id,
+      });
+      removed++;
+    } catch {
+      // The connection already closed; nothing left to clear.
+    }
+  }
+  return removed;
+}
+
+async function removeHotspotHost(session) {
+  const manager = require("./routerConnectionManager");
+  const hosts = await manager
+    .print(session.router_id, "/ip/hotspot/host", ".id,mac-address,address")
+    .catch(() => []);
+  const mac = normalizeMac(session.mac_address);
+  const matches = hosts.filter((host) => {
+    const hostMac = normalizeMac(host["mac-address"] || host.mac);
+    return (mac && hostMac === mac) ||
+      (session.client_ip && host.address === session.client_ip);
+  });
+  let removed = 0;
+  for (const host of matches) {
+    try {
+      await manager.executeCommand(session.router_id, "/ip/hotspot/host/remove", {
+        numbers: host[".id"] || host.id,
+      });
+      removed++;
+    } catch {
+      // The host entry may already have timed out; nothing left to clear.
+    }
+  }
+  return removed;
+}
+
+const EXPIRED_HOTSPOT_LIST = "billing-expired-hotspot";
+const PORTAL_HOST_LIST = "billing-portal-hosts";
+const IS_IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+
+async function removeAddressListEntries(routerId, list, predicate) {
+  const manager = require("./routerConnectionManager");
+  const entries = await manager
+    .print(routerId, "/ip/firewall/address-list", ".id,address,list,comment")
+    .catch(() => []);
+  let removed = 0;
+  for (const entry of entries) {
+    if (entry.list !== list || !predicate(entry)) {continue;}
+    try {
+      await manager.executeCommand(routerId, "/ip/firewall/address-list/remove", {
+        numbers: entry[".id"] || entry.id,
+      });
+      removed++;
+    } catch {
+      // Already removed by another process.
+    }
+  }
+  return removed;
+}
+
+async function blockExpiredClient(session) {
+  if (!session.client_ip || !IS_IPV4.test(session.client_ip)) {return false;}
+  const manager = require("./routerConnectionManager");
+  await removeAddressListEntries(
+    session.router_id,
+    EXPIRED_HOTSPOT_LIST,
+    (entry) => entry.address === session.client_ip ||
+      entry.comment === `expired-hotspot:${session.id}`,
+  );
+  await manager.executeCommand(session.router_id, "/ip/firewall/address-list/add", {
+    address: session.client_ip,
+    list: EXPIRED_HOTSPOT_LIST,
+    comment: `expired-hotspot:${session.id}`,
+    timeout: "1d",
+  });
+  return true;
+}
+
+async function unblockHotspotClient(session) {
+  if (!session.client_ip && !session.mac_address) {return 0;}
+  return removeAddressListEntries(
+    session.router_id,
+    EXPIRED_HOTSPOT_LIST,
+    (entry) => entry.comment === `expired-hotspot:${session.id}` ||
+      (session.client_ip && entry.address === session.client_ip),
+  );
+}
+
+async function forceClientOffline(session) {
+  const steps = [
+    ["Router user removal", () => removeRouterHotspotUser(session)],
+    ["Client disconnect", () => kickHotspotClient(session)],
+    ["Expired client block", () => blockExpiredClient(session)],
+    ["Connection cleanup", () => clearClientConnections(session)],
+    ["Hotspot host cleanup", () => removeHotspotHost(session)],
+  ];
+  const errors = [];
+  for (const [label, action] of steps) {
+    try { await action(); }
+    catch (error) { errors.push(`${label}: ${error.message}`); }
+  }
+  if (errors.length) {
+    throw new Error(errors.join("; ").slice(0, 500));
+  }
+}
+
+const UNAUTH_JUMP_COMMENTS = [
+  { comment: "billing-hotspot-unauth-first", matcher: "from-client,!auth", target: "hs-unauth" },
+  { comment: "billing-hotspot-unauth-to-first", matcher: "to-client,!auth", target: "hs-unauth-to" },
+];
+
+async function ensureUnauthenticatedJump(routerId) {
+  const manager = require("./routerConnectionManager");
+  const rules = await manager
+    .print(routerId, "/ip/firewall/filter", ".id,chain,action,jump-target,hotspot,comment")
+    .catch(() => []);
+  // RouterOS creates its own hs-unauth jumps, but they sit below the generic
+  // established-connection accept. Without these early rules, reply traffic
+  // to an expired client is still accepted from the connection tracker.
+  let added = 0;
+  for (const ruleSpec of UNAUTH_JUMP_COMMENTS) {
+    if (rules.some((rule) => rule.comment === ruleSpec.comment)) {continue;}
+    await manager.executeCommand(routerId, "/ip/firewall/filter/add", {
+      chain: "forward",
+      action: "jump",
+      "jump-target": ruleSpec.target,
+      hotspot: ruleSpec.matcher,
+      "place-before": rules[0]?.[".id"] || rules[0]?.id || "0",
+      comment: ruleSpec.comment,
+    });
+    added++;
+  }
+  return added;
+}
+
+/**
+ * Legacy RouterOS configurations often allow Google/Cloudflare hosts through
+ * /ip/hotspot/walled-garden/ip. That creates dynamic hs-unauth return rules,
+ * so apps keep working after a voucher expires even though the hotspot user is
+ * gone. The billing portal is provisioned in /ip/hotspot/walled-garden, so
+ * hostname-based IP garden rules are never needed here.
+ */
+async function sanitizeHotspotWalledGarden(routerId) {
+  const manager = require("./routerConnectionManager");
+  const rows = await manager
+    .print(routerId, "/ip/hotspot/walled-garden/ip", ".id,dst-host,action,comment")
+    .catch(() => []);
+  const targets = rows.filter((row) => {
+    const action = String(row.action || "accept").toLowerCase();
+    return row["dst-host"] && (action === "accept" || action === "allow");
+  });
+  let removed = 0;
+  for (const row of targets) {
+    try {
+      await manager.executeCommand(routerId, "/ip/hotspot/walled-garden/ip/remove", {
+        numbers: row[".id"] || row.id,
+      });
+      removed++;
+    } catch {
+      // The rule may have been removed outside the API; ignore it.
+    }
+  }
+  if (removed) {
+    await manager.executeCommand(routerId, "/ip/dns/cache/flush", {}).catch(() => {});
+  }
+  return removed;
+}
+
+const EXPIRED_RULE_SPECS = [
+  {
+    comment: "billing-expired-portal-out",
+    params: { chain: "forward", action: "accept", "dst-address-list": PORTAL_HOST_LIST },
+  },
+  {
+    comment: "billing-expired-portal-in",
+    params: { chain: "forward", action: "accept", "src-address-list": PORTAL_HOST_LIST },
+  },
+  {
+    comment: "billing-expired-block-out",
+    params: { chain: "forward", action: "reject", "src-address-list": EXPIRED_HOTSPOT_LIST },
+  },
+  {
+    comment: "billing-expired-block-in",
+    params: { chain: "forward", action: "reject", "dst-address-list": EXPIRED_HOTSPOT_LIST },
+  },
+];
+
+async function resolvePortalAddresses(routerId) {
+  const manager = require("./routerConnectionManager");
+  const addresses = new Set();
+  const rules = await manager
+    .print(routerId, "/ip/firewall/filter", ".id,chain,action,src-address,dst-address,comment")
+    .catch(() => []);
+  for (const rule of rules) {
+    if (!/billing server|portal/i.test(String(rule.comment || ""))) {continue;}
+    for (const address of [rule["dst-address"], rule["src-address"]]) {
+      if (IS_IPV4.test(String(address || ""))) {addresses.add(address);}
+    }
+  }
+  const garden = await manager
+    .print(routerId, "/ip/hotspot/walled-garden", "dst-host,comment")
+    .catch(() => []);
+  for (const row of garden) {
+    if (!/portal|billing/i.test(String(row.comment || ""))) {continue;}
+    if (IS_IPV4.test(String(row["dst-host"] || ""))) {addresses.add(row["dst-host"]);}
+  }
+  for (const key of ["VITE_PUBLIC_APP_URL", "VITE_API_URL", "APP_URL"]) {
+    try {
+      const url = new URL(process.env[key] || "");
+      if (IS_IPV4.test(url.hostname)) {addresses.add(url.hostname);}
+    } catch {
+      // Unset or invalid URL; the router rules above are enough.
+    }
+  }
+  if (!addresses.size) {addresses.add("192.168.100.8");}
+  return [...addresses];
+}
+
+async function ensureExpiredClientRules(routerId) {
+  const manager = require("./routerConnectionManager");
+  const addresses = await resolvePortalAddresses(routerId);
+  await removeAddressListEntries(
+    routerId,
+    PORTAL_HOST_LIST,
+    (entry) => String(entry.comment || "").startsWith("billing-portal-host"),
+  );
+  for (const address of addresses) {
+    await manager.executeCommand(routerId, "/ip/firewall/address-list/add", {
+      address,
+      list: PORTAL_HOST_LIST,
+      comment: `billing-portal-host:${address}`,
+    }).catch(() => {});
+  }
+
+  const ownedComments = new Set(EXPIRED_RULE_SPECS.map((spec) => spec.comment));
+  const expected = EXPIRED_RULE_SPECS.map((spec) => spec.comment);
+  let rules = await manager
+    .print(routerId, "/ip/firewall/filter", ".id,chain,action,comment")
+    .catch(() => []);
+  const current = rules.filter((rule) => ownedComments.has(rule.comment)).map((rule) => rule.comment);
+  const ordered = current.length === expected.length &&
+    expected.every((comment, index) => current[index] === comment);
+  if (ordered) {return false;}
+
+  for (const rule of rules) {
+    if (!ownedComments.has(rule.comment)) {continue;}
+    await manager.executeCommand(routerId, "/ip/firewall/filter/remove", {
+      numbers: rule[".id"] || rule.id,
+    }).catch(() => {});
+  }
+  rules = await manager
+    .print(routerId, "/ip/firewall/filter", ".id,chain,action,comment")
+    .catch(() => []);
+  const anchor = rules[0]?.[".id"] || rules[0]?.id;
+  // Each new rule goes immediately before the same anchor, so adding in this
+  // order leaves portal allows ahead of the expired-client blocks.
+  for (const spec of EXPIRED_RULE_SPECS) {
+    const params = { ...spec.params };
+    if (anchor) {params["place-before"] = anchor;}
+    await manager.executeCommand(routerId, "/ip/firewall/filter/add", {
+      ...params,
+      comment: spec.comment,
+    });
+  }
+  return true;
+}
+
+async function ensureHotspotEnforcement() {
+  const rows = await database().query(
+    "SELECT id FROM mikrotik_connections WHERE is_online = true",
+  ).catch(() => ({ rows: [] }));
+  for (const row of rows.rows) {
+    try { await ensureUnauthenticatedJump(row.id); }
+    catch (error) {
+      logger.warn("Could not install hotspot unauthenticated firewall jump", {
+        routerId: row.id,
+        error: error.message,
+      });
+    }
+    try { await ensureExpiredClientRules(row.id); }
+    catch (error) {
+      logger.warn("Could not install expired hotspot firewall rules", {
+        routerId: row.id,
+        error: error.message,
+      });
+    }
+    try { await sanitizeHotspotWalledGarden(row.id); }
+    catch (error) {
+      logger.warn("Could not clean hotspot walled garden", {
+        routerId: row.id,
+        error: error.message,
+      });
+    }
+  }
+}
+
 async function suspendHotspotSession(sessionId, tenantId, reason = "") {
   const session = await findSessionForAdminRetry(sessionId, tenantId);
   if (!session) {
@@ -769,11 +1096,7 @@ async function suspendHotspotSession(sessionId, tenantId, reason = "") {
       { statusCode: 409 },
     );
   }
-  const errors = [];
-  try { await removeRouterHotspotUser(session); }
-  catch (error) { errors.push(`Router user removal: ${error.message}`); }
-  try { await kickHotspotClient(session); }
-  catch (error) { errors.push(`Client disconnect: ${error.message}`); }
+  const errors = await forceClientOffline(session).then(() => []).catch((error) => [error.message]);
 
   const result = await database().query(
     `UPDATE captive_hotspot_sessions
@@ -826,6 +1149,9 @@ async function renewHotspotSession(sessionId, tenantId) {
   const encryptedPassword = encrypt(password);
 
   const routerManager = require("./routerConnectionManager");
+  await ensureUnauthenticatedJump(session.router_id);
+  await ensureExpiredClientRules(session.router_id);
+  await unblockHotspotClient(session);
   await removeRouterHotspotUser(session);
   const rateLimit = require("./rateLimit").buildHotspotRateLimit(plan);
   if (!rateLimit) {
@@ -877,11 +1203,7 @@ async function deleteHotspotSession(sessionId, tenantId) {
   if (!session) {
     throw Object.assign(new Error("The hotspot session was not found."), { statusCode: 404 });
   }
-  const errors = [];
-  try { await removeRouterHotspotUser(session); }
-  catch (error) { errors.push(`Router user removal: ${error.message}`); }
-  try { await kickHotspotClient(session); }
-  catch (error) { errors.push(`Client disconnect: ${error.message}`); }
+  const errors = await forceClientOffline(session).then(() => []).catch((error) => [error.message]);
   await database().query(
     "DELETE FROM captive_hotspot_events WHERE session_id = $1 AND tenant_id = $2",
     [sessionId, tenantId],
@@ -1255,7 +1577,7 @@ async function expireHotspotSessions() {
      ), retrying AS (
        UPDATE captive_hotspot_sessions
        SET status = 'expiration_pending', updated_at = CURRENT_TIMESTAMP
-       WHERE status = 'expiration_cleanup_failed'
+       WHERE status IN ('expiration_cleanup_failed', 'expiration_pending')
          AND updated_at < CURRENT_TIMESTAMP - INTERVAL '5 minutes'
        RETURNING *
      )
@@ -1263,24 +1585,9 @@ async function expireHotspotSessions() {
      UNION ALL
      SELECT * FROM retrying`,
   );
-  const routerManager = require("./routerConnectionManager");
   for (const session of result.rows) {
     try {
-      const users = await routerManager.print(
-        session.router_id,
-        "/ip/hotspot/user",
-        ".id,name,comment",
-      );
-      const routerUser = users.find(
-        (user) => user.comment === `paid-hotspot:${session.id}`,
-      );
-      if (routerUser) {
-        await routerManager.executeCommand(
-          session.router_id,
-          "/ip/hotspot/user/remove",
-          { numbers: routerUser[".id"] || routerUser.id },
-        );
-      }
+      await forceClientOffline(session);
       await database().query(
         `UPDATE captive_hotspot_sessions
          SET status = 'expired', hotspot_password_encrypted = NULL,
@@ -1343,6 +1650,11 @@ async function reconcileStaleExpirations() {
 }
 
 function startExpiryWorker() {
+  ensureHotspotEnforcement().catch((error) => {
+    logger.error("Hotspot firewall enforcement setup failed", {
+      error: error.message,
+    });
+  });
   reconcileStaleExpirations().catch((error) => {
     logger.error("Captive hotspot expiry reconciliation failed", {
       error: error.message,
@@ -1394,5 +1706,15 @@ module.exports = {
   listEvents,
   expireHotspotSessions,
   startExpiryWorker,
+  clearClientConnections,
+  removeHotspotHost,
+  blockExpiredClient,
+  unblockHotspotClient,
+  forceClientOffline,
+  ensureUnauthenticatedJump,
+  ensureExpiredClientRules,
+  resolvePortalAddresses,
+  sanitizeHotspotWalledGarden,
+  ensureHotspotEnforcement,
   money,
 };
