@@ -116,11 +116,22 @@ router.get("/stats", async (req, res) => {
         "SELECT p.name, p.price, COUNT(s.id) as customer_count FROM service_plans p LEFT JOIN subscriptions s ON p.id = s.plan_id AND s.status = 'active' GROUP BY p.id, p.name, p.price ORDER BY customer_count DESC LIMIT 5",
       ),
       db.query(
-        "SELECT DATE(created_at) as date, SUM(amount) as total FROM invoices WHERE status = 'paid' AND created_at >= NOW() - INTERVAL '7 days' GROUP BY DATE(created_at) ORDER BY date DESC",
+        `SELECT date, SUM(total) as total FROM (
+          SELECT DATE(created_at) as date, SUM(amount) as total FROM invoices WHERE status = 'paid' AND created_at >= NOW() - INTERVAL '7 days' GROUP BY DATE(created_at)
+          UNION ALL
+          SELECT DATE(paid_at) as date, SUM(amount) as total FROM captive_hotspot_sessions WHERE status IN ('authorized', 'expired', 'suspended') AND paid_at >= NOW() - INTERVAL '7 days' GROUP BY DATE(paid_at)
+        ) combined GROUP BY date ORDER BY date DESC`,
       ),
       require("../services/onlineStatus").getOnlineStatus(),
       db.query(
-        "SELECT p.id, p.amount, p.method, p.received_at, c.name as customer_name FROM payments p LEFT JOIN customers c ON c.id = p.customer_id ORDER BY p.received_at DESC LIMIT 5"
+        `SELECT * FROM (
+          SELECT p.id, p.amount, p.method, p.received_at, c.name as customer_name, 'billing' as source
+          FROM payments p LEFT JOIN customers c ON c.id = p.customer_id
+          UNION ALL
+          SELECT s.id, s.amount, 'hotspot' as method, s.paid_at as received_at, 'Hotspot User' as customer_name, 'hotspot' as source
+          FROM captive_hotspot_sessions s
+          WHERE s.status IN ('authorized', 'expired', 'suspended') AND s.paid_at IS NOT NULL
+        ) combined ORDER BY received_at DESC LIMIT 5`
       ),
       // Sparkline: daily revenue for last 12 days
       db.query(

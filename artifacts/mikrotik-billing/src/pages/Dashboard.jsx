@@ -482,7 +482,7 @@ export function Dashboard() {
               prefix={`${currencySymbol} `}
               color="var(--accent-emerald)"
               onClick={() => navigate("/billing-reports")}
-              trend={stats.revenueChange || 0}
+              trend={stats.todayPayments > 0 ? stats.revenueChange : undefined}
               trendLabel={`${stats.todayPayments || 0} payments today`}
             />
             <SplynxStatCard
@@ -510,7 +510,7 @@ export function Dashboard() {
               prefix={`${currencySymbol} `}
               color="var(--accent-violet)"
               onClick={() => navigate("/billing-reports")}
-              trend={stats.revenueChange || 0}
+              trend={stats.lastMonthRevenue > 0 ? stats.revenueChange : undefined}
               trendLabel="vs last month"
             />
           </section>
@@ -534,7 +534,7 @@ export function Dashboard() {
               label="Today's Revenue"
               value={stats.todayRevenue || 0}
               prefix={`${currencySymbol} `}
-              trend={stats.revenueChange || 0}
+              trend={stats.todayPayments > 0 ? stats.revenueChange : undefined}
               trendLabel={`${stats.todayPayments || 0} payments today`}
               onClick={() => navigate("/billing-reports")}
             />
@@ -542,7 +542,7 @@ export function Dashboard() {
               label="Month revenue"
               value={stats.monthRevenue || 0}
               prefix={`${currencySymbol} `}
-              trend={stats.revenueChange || 0}
+              trend={stats.lastMonthRevenue > 0 ? stats.revenueChange : undefined}
               trendLabel="vs last month"
               onClick={() => navigate("/billing-reports")}
             />
@@ -602,10 +602,16 @@ export function Dashboard() {
               <div className="dashboard-revenue-summary">
                 <span>Month total</span>
                 <strong>{currencySymbol} {(Number(stats.monthRevenue) || 0).toLocaleString()}</strong>
-                <span>vs last month</span>
-                <strong className={(Number(stats.revenueChange) || 0) >= 0 ? "dashboard-trend-positive" : "dashboard-trend-negative"}>
-                  {(Number(stats.revenueChange) || 0) >= 0 ? "↑" : "↓"} {Math.abs(Number(stats.revenueChange) || 0)}%
-                </strong>
+                 {stats.lastMonthRevenue > 0 ? (
+                   <>
+                     <span>vs last month</span>
+                     <strong className={(Number(stats.revenueChange) || 0) >= 0 ? "dashboard-trend-positive" : "dashboard-trend-negative"}>
+                       {(Number(stats.revenueChange) || 0) >= 0 ? "\u2191" : "\u2193"} {Math.abs(Number(stats.revenueChange) || 0)}%
+                     </strong>
+                   </>
+                 ) : (
+                   <span className="text-zinc-500 text-xs">No previous month data</span>
+                 )}
               </div>
             </section>
 
