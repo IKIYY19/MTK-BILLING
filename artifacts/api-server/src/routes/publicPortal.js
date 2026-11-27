@@ -54,6 +54,9 @@ router.get("/hotspot-plans", async (req, res) => {
 
 // GET /api/public/policy - Non-sensitive policy values for customer portals
 router.get("/policy", async (req, res) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
   try {
     const db = getDb();
     const result = await db.query(
@@ -78,7 +81,7 @@ router.get("/policy", async (req, res) => {
       pppoe_trial_days: 0,
       expiry_reminder_hours: "72,24,4",
       portal_font: "Inter",
-      portal_theme: "aurora",
+      portal_theme: "lagoon",
       portal_terms_enabled: false,
       portal_terms_text: "",
     });

@@ -82,7 +82,7 @@ function getPortalContext() {
     gatewayIp,
     linkLoginOnly,
     brand: params.get("brand") || "",
-    theme: params.get("theme") || storageGet("localStorage", "portal_theme") || "aurora",
+    theme: params.get("theme") || storageGet("localStorage", "portal_theme") || "lagoon",
     welcome: params.get("welcome") || "",
     support: params.get("support") || "",
     font: params.get("font") || "Inter",
