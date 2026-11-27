@@ -866,6 +866,7 @@ const EXPIRED_HOTSPOT_LIST = "billing-expired-hotspot";
 const PORTAL_HOST_LIST = "billing-portal-hosts";
 const CAPTIVE_PROBE_COMMENT = "billing-captive-probe";
 const HOTSPOT_DNS_COMMENT = "billing-hotspot-unauth-dns";
+const PORTAL_UNAUTH_COMMENT = "billing-portal-unauth";
 const IS_IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 
 async function removeAddressListEntries(routerId, list, predicate) {
@@ -1230,6 +1231,57 @@ async function ensureExpiredClientRedirects(routerId) {
   return true;
 }
 
+/**
+ * The forward-chain portal allow is not enough: RouterOS rejects redirected
+ * portal traffic inside hs-unauth/hs-unauth-to before it reaches that allow.
+ * Return rules for every portal address must sit ahead of those rejects.
+ */
+async function ensurePortalUnauthAccess(routerId, addresses) {
+  const manager = require("./routerConnectionManager");
+  const fields = ".id,chain,action,dst-address,src-address,comment";
+  const prefix = `${PORTAL_UNAUTH_COMMENT}:`;
+  const specs = [];
+  for (const address of addresses) {
+    specs.push({
+      chain: "hs-unauth", action: "return", "dst-address": address,
+      comment: `${prefix}hs-unauth:${address}`,
+    });
+    specs.push({
+      chain: "hs-unauth-to", action: "return", "src-address": address,
+      comment: `${prefix}hs-unauth-to:${address}`,
+    });
+  }
+  let rules = await manager
+    .print(routerId, "/ip/firewall/filter", fields)
+    .catch(() => []);
+  const expected = new Set(specs.map((spec) => spec.comment));
+  let changed = false;
+  for (const rule of rules) {
+    const comment = String(rule.comment || "");
+    if (!comment.startsWith(prefix) || expected.has(comment)) {continue;}
+    await manager.executeCommand(routerId, "/ip/firewall/filter/remove", {
+      numbers: rule[".id"] || rule.id,
+    }).catch(() => {});
+    changed = true;
+  }
+  rules = await manager
+    .print(routerId, "/ip/firewall/filter", fields)
+    .catch(() => []);
+  for (const spec of specs) {
+    const exists = rules.some((rule) => rule.comment === spec.comment);
+    if (exists) {continue;}
+    const params = { ...spec };
+    const anchor = rules.find(
+      (rule) => rule.chain === spec.chain && rule.action === "reject",
+    );
+    if (anchor) {params["place-before"] = anchor[".id"] || anchor.id;}
+    await manager.executeCommand(routerId, "/ip/firewall/filter/add", params);
+    changed = true;
+    rules = [...rules, spec];
+  }
+  return changed;
+}
+
 async function ensureExpiredClientRules(routerId) {
   const manager = require("./routerConnectionManager");
   const addresses = await resolvePortalAddresses(routerId);
@@ -1255,6 +1307,13 @@ async function ensureExpiredClientRules(routerId) {
   try { await ensureExpiredClientRedirects(routerId); }
   catch (error) {
     logger.warn("Could not install expired client portal redirects", {
+      routerId,
+      error: error.message,
+    });
+  }
+  try { await ensurePortalUnauthAccess(routerId, addresses); }
+  catch (error) {
+    logger.warn("Could not allow portal traffic in hotspot unauth chains", {
       routerId,
       error: error.message,
     });
@@ -1977,6 +2036,7 @@ module.exports = {
   ensureCaptivePortalDetection,
   ensureHotspotDnsAccess,
   ensureExpiredClientRedirects,
+  ensurePortalUnauthAccess,
   sanitizeHotspotWalledGarden,
   ensureHotspotEnforcement,
   money,
