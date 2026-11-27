@@ -64,6 +64,13 @@ const DEFAULT_TEMPLATES = [
     body: 'Hi {customer_name}: {company_name} {account_number} active. Plan {plan_name}. {credentials_line}Paybill {paybill}/Acc {account_number}. {start_date}-{end_date}. Help {support_phone}',
     is_active: true,
   },
+  {
+    id: 'subscription_due_soon',
+    name: 'PPPoE Due Date Reminder',
+    event: 'subscription_due_soon',
+    body: 'Hi {customer_name}: your {plan_name} account {account_number} is due on {due_date} ({days_left} day(s) left). Pay via M-Pesa Paybill {paybill}/Acc {account_number}. Support {support_phone} - {company_name}',
+    is_active: true,
+  },
 ];
 
 const fallbackState = {

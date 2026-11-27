@@ -13,6 +13,10 @@ async function runPaymentReminders() {
   try {
     console.log("[Cron] Running payment reminders check...");
 
+    // PPPoE customers are reminded from their subscription end date, which is
+    // their real service due date. Invoice reminders below are separate.
+    await runSubscriptionDueReminders();
+
     // 1. Get invoices due in 3, 7, and 14 days
     const reminderDays = [3, 7, 14];
     const reminders = [];
@@ -32,7 +36,7 @@ async function runPaymentReminders() {
     }
 
     if (reminders.length === 0) {
-      console.log("[Cron] No upcoming payment reminders");
+      console.log("[Cron] No upcoming invoice reminders");
       return;
     }
 
@@ -204,6 +208,95 @@ async function sendWebhookReminder(
   }
 }
 
+const DEFAULT_PPPOE_REMINDER_DAYS = [6, 2, 1];
+
+async function getPppoeReminderDays() {
+  try {
+    if (!global.db) {return DEFAULT_PPPOE_REMINDER_DAYS;}
+    const result = await global.db.query(
+      "SELECT value FROM settings WHERE key = 'pppoe_due_reminder_days'",
+    );
+    const days = String(result.rows[0]?.value || "")
+      .split(",")
+      .map((part) => Number(part.trim()))
+      .filter((day) => Number.isInteger(day) && day > 0);
+    return days.length
+      ? [...new Set(days)].sort((a, b) => b - a)
+      : DEFAULT_PPPOE_REMINDER_DAYS;
+  } catch {
+    return DEFAULT_PPPOE_REMINDER_DAYS;
+  }
+}
+
+function nairobiDate(daysFromNow = 0) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Nairobi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(Date.now() + daysFromNow * 86400000));
+  const value = (type) => parts.find((part) => part.type === type)?.value;
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+function readableDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {return String(value || "");}
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "Africa/Nairobi",
+  }).format(date);
+}
+
+async function runSubscriptionDueReminders() {
+  if (!global.dbAvailable || !global.db) {return;}
+
+  const daysList = await getPppoeReminderDays();
+  for (const days of daysList) {
+    const dueDate = nairobiDate(days);
+    const result = await global.db.query(
+      `SELECT s.id, s.end_date, s.pppoe_username,
+              c.id AS customer_id, c.name AS customer_name, c.phone, c.account_number,
+              sp.name AS plan_name
+         FROM subscriptions s
+         JOIN customers c ON c.id = s.customer_id
+         LEFT JOIN service_plans sp ON sp.id = s.plan_id
+        WHERE s.status = 'active'
+          AND s.end_date = $1
+          AND NULLIF(TRIM(COALESCE(s.pppoe_username, '')), '') IS NOT NULL
+          AND NULLIF(TRIM(COALESCE(c.phone, '')), '') IS NOT NULL`,
+      [dueDate],
+    );
+
+    for (const row of result.rows) {
+      // One reminder per subscription / due date / window, even if the cron
+      // runs more than once in a day.
+      const claim = await global.db.query(
+        `INSERT INTO subscription_due_reminders (subscription_id, due_date, days_before)
+         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING id`,
+        [row.id, dueDate, days],
+      );
+      if (!claim.rowCount) {continue;}
+
+      await notificationService.triggerSMS("subscription_due_soon", {
+        customer: {
+          id: row.customer_id,
+          name: row.customer_name,
+          phone: row.phone,
+          account_number: row.account_number,
+        },
+        account_number: row.account_number,
+        plan: { name: row.plan_name || "" },
+        sub: { id: row.id, pppoe_username: row.pppoe_username, end_date: row.end_date },
+        due_date: readableDate(row.end_date),
+        days_left: days,
+      });
+    }
+  }
+}
+
 // Start the cron
 function startCron() {
   // Run every 24 hours
@@ -221,4 +314,4 @@ function startCron() {
   setInterval(runPaymentReminders, interval);
 }
 
-module.exports = { runPaymentReminders, startCron };
+module.exports = { runPaymentReminders, runSubscriptionDueReminders, startCron };

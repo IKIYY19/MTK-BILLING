@@ -193,7 +193,11 @@ function buildMessageVariables(data = {}) {
     invoice_number: data.invoice?.invoice_number || "",
     amount:
       data.invoice?.total?.toFixed?.(2) || data.amount?.toFixed?.(2) || "0",
-    due_date: data.invoice?.due_date || "",
+    due_date: data.invoice?.due_date || data.due_date || "",
+    days_left:
+      data.days_left === undefined
+        ? data.days_until_due ?? ""
+        : data.days_left,
     days_overdue: data.days_overdue || 0,
     mpesa_receipt: data.payment?.reference || data.mpesa_receipt || "",
     balance: data.invoice
@@ -246,6 +250,7 @@ class NotificationService {
         service_resumed: "service_resumed",
         account_created: "account_created",
         welcome: "welcome",
+        subscription_due_soon: "subscription_due_soon",
         outage_detected: "outage_detected",
         outage_resolved: "outage_resolved",
         password_reset: "password_reset",
@@ -349,6 +354,7 @@ class NotificationService {
         service_resumed: "service_resumed",
         account_created: "account_created",
         welcome: "welcome",
+        subscription_due_soon: "subscription_due_soon",
         outage_detected: "outage_detected",
         outage_resolved: "outage_resolved",
         hotspot_payment_received: "hotspot_payment_received",

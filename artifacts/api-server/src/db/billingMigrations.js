@@ -178,8 +178,22 @@ const billingMigrations = [
      ('company_name', 'Giraffe Hotspot'),
      ('contact_phone', '0746447739'),
      ('support_phone', '0746447739'),
-     ('mpesa_paybill', '1474058')
+     ('mpesa_paybill', '1474058'),
+     ('pppoe_due_reminder_days', '6,2,1')
    ON CONFLICT (key) DO NOTHING`,
+  `CREATE TABLE IF NOT EXISTS subscription_due_reminders (
+     id SERIAL PRIMARY KEY,
+     subscription_id UUID NOT NULL,
+     due_date DATE NOT NULL,
+     days_before INTEGER NOT NULL,
+     sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+     UNIQUE (subscription_id, due_date, days_before)
+   )`,
+  `INSERT INTO notification_templates (event_type, channel, subject, body, is_active)
+   VALUES ('subscription_due_soon', 'sms', 'PPPoE Due Date Reminder',
+     'Hi {customer_name}: your {plan_name} account {account_number} is due on {due_date} ({days_left} day(s) left). Pay via M-Pesa Paybill {paybill}/Acc {account_number}. Support {support_phone} - {company_name}',
+     true)
+   ON CONFLICT (event_type, channel) DO NOTHING`,
 
   // QoS Profiles
   `CREATE TABLE IF NOT EXISTS qos_profiles (
