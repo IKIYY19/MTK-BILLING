@@ -40,13 +40,16 @@ router.get("/stats", async (req, res) => {
       activeResult,
       suspendedResult,
       revenueResult,
+      hotspotTotalResult,
       pendingResult,
       mikrotikResult,
       recentProjectsResult,
       recentCustomersResult,
       todayResult,
+      hotspotTodayResult,
       todayCountResult,
       monthResult,
+      hotspotMonthResult,
       lastMonthResult,
       outstandingResult,
       overdueResult,
@@ -70,6 +73,9 @@ router.get("/stats", async (req, res) => {
         "SELECT COALESCE(SUM(amount), 0) as total FROM invoices WHERE status = 'paid'",
       ),
       db.query(
+        "SELECT COALESCE(SUM(amount), 0) as total FROM captive_hotspot_sessions WHERE status IN ('authorized', 'expired', 'suspended')",
+      ),
+      db.query(
         "SELECT COALESCE(SUM(amount), 0) as total FROM invoices WHERE status = 'pending'",
       ),
       db.query("SELECT COUNT(*) FROM mikrotik_connections"),
@@ -83,10 +89,16 @@ router.get("/stats", async (req, res) => {
         "SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE DATE(received_at) = CURRENT_DATE",
       ),
       db.query(
+        "SELECT COALESCE(SUM(amount), 0) as total FROM captive_hotspot_sessions WHERE status IN ('authorized', 'expired', 'suspended') AND DATE(paid_at) = CURRENT_DATE",
+      ),
+      db.query(
         "SELECT COUNT(*) as count FROM payments WHERE DATE(received_at) = CURRENT_DATE",
       ),
       db.query(
         "SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE EXTRACT(MONTH FROM received_at) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM received_at) = EXTRACT(YEAR FROM CURRENT_DATE)",
+      ),
+      db.query(
+        "SELECT COALESCE(SUM(amount), 0) as total FROM captive_hotspot_sessions WHERE status IN ('authorized', 'expired', 'suspended') AND EXTRACT(MONTH FROM paid_at) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM paid_at) = EXTRACT(YEAR FROM CURRENT_DATE)",
       ),
       db.query(
         "SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE EXTRACT(MONTH FROM received_at) = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '1 month') AND EXTRACT(YEAR FROM received_at) = EXTRACT(YEAR FROM CURRENT_DATE - INTERVAL '1 month')",
@@ -152,14 +164,14 @@ router.get("/stats", async (req, res) => {
     stats.totalUsers = val(usersResult);
     stats.activeCustomers = val(activeResult);
     stats.suspendedCustomers = val(suspendedResult);
-    stats.totalRevenue = val(revenueResult, "total");
+    stats.totalRevenue = val(revenueResult, "total") + val(hotspotTotalResult, "total");
     stats.pendingRevenue = val(pendingResult, "total");
     stats.activeDevices = val(mikrotikResult);
     stats.recentProjects = val(recentProjectsResult);
     stats.recentCustomers = val(recentCustomersResult);
-    stats.todayRevenue = val(todayResult, "total");
+    stats.todayRevenue = val(todayResult, "total") + val(hotspotTodayResult, "total");
     stats.todayPayments = val(todayCountResult);
-    stats.monthRevenue = val(monthResult, "total");
+    stats.monthRevenue = val(monthResult, "total") + val(hotspotMonthResult, "total");
     stats.lastMonthRevenue = val(lastMonthResult, "total");
 
     stats.revenueChange =

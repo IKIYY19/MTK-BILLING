@@ -25,6 +25,14 @@ const formatBps = (bps) => {
   return `${value.toFixed(0)} bps`;
 };
 
+const formatBytes = (bytes) => {
+  const value = Number(bytes) || 0;
+  if (value >= 1073741824) {return `${(value / 1073741824).toFixed(1)} GB`;}
+  if (value >= 1048576) {return `${(value / 1048576).toFixed(1)} MB`;}
+  if (value >= 1024) {return `${(value / 1024).toFixed(0)} KB`;}
+  return `${value} B`;
+};
+
 const serverUrlError = (value) => {
   try {
     const parsed = new URL(value);
@@ -1268,21 +1276,18 @@ export default function RoutersPage() {
                     </div>
                     <div className="w-full sm:w-1/2">
                       <p className="text-xs uppercase tracking-wider text-zinc-500 mb-3">Port status</p>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {(portModal.data?.ports || []).map((p) => (
-                          <span
-                            key={p.name}
-                            title={`${p.name} · ${p.mac_address || 'no MAC'} · ${p.disabled ? 'disabled' : p.running ? 'link up' : 'no link'}`}
-                            className={`px-3 py-1.5 rounded-lg font-mono text-xs border ${p.disabled ? 'border-red-500/40 bg-red-500/10 text-red-400' : p.running ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-zinc-700 bg-zinc-800/50 text-zinc-500'}`}
-                          >
-                            <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${p.rx_bps > 0 || p.tx_bps > 0 ? 'animate-pulse' : ''} ${p.disabled ? 'bg-red-400' : p.running ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
-                            {p.name}
+                          <div key={p.name} className={`rounded-lg border p-2.5 ${p.disabled ? 'border-red-500/40 bg-red-500/10' : p.running ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-zinc-700 bg-zinc-800/50'}`}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`font-mono text-xs font-semibold ${p.disabled ? 'text-red-400' : p.running ? 'text-emerald-400' : 'text-zinc-500'}`}>{p.name}</span>
+                              <span className={`w-2 h-2 rounded-full ${p.disabled ? 'bg-red-400' : p.running ? 'bg-emerald-400' : 'bg-zinc-500'} ${p.rx_bps > 0 || p.tx_bps > 0 ? 'animate-pulse' : ''}`} />
+                            </div>
+                            <div className="text-[10px] text-zinc-400">{p.disabled ? 'Disabled' : p.running ? 'Active' : 'No link'}</div>
                             {(p.rx_bps > 0 || p.tx_bps > 0) && (
-                              <span className="ml-2 text-[10px] opacity-80 font-sans">
-                                ↓{formatBps(p.rx_bps)} ↑{formatBps(p.tx_bps)}
-                              </span>
+                              <div className="text-[10px] font-mono text-emerald-400 mt-1">↓{formatBps(p.rx_bps)} ↑{formatBps(p.tx_bps)}</div>
                             )}
-                          </span>
+                          </div>
                         ))}
                       </div>
                       <p className="text-xs text-zinc-500 mt-4">
@@ -1294,21 +1299,19 @@ export default function RoutersPage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-left text-xs uppercase tracking-wider text-zinc-500 border-b border-zinc-800">
-                          <th className="py-2">Port</th><th>Type</th><th>MAC</th><th>Status</th><th>Speed</th><th>Live RX / TX</th><th>Total RX / TX</th>
+                          <th className="py-2">Port</th><th>Status</th><th>Speed</th><th>Live RX / TX</th><th>Total RX / TX</th>
                         </tr>
                       </thead>
                       <tbody>
                         {(portModal.data?.ports || []).map((p) => (
                           <tr key={p.name} className="border-b border-zinc-800/50 text-zinc-300">
-                            <td className="py-2 font-mono">{p.name}</td>
-                            <td className="text-zinc-500 capitalize">{p.type}</td>
-                            <td className="font-mono text-xs text-zinc-500">{p.mac_address || '—'}</td>
+                            <td className="py-2 font-mono font-medium">{p.name}</td>
                             <td className={p.disabled ? 'text-red-400' : p.running ? 'text-emerald-400' : 'text-zinc-500'}>{p.disabled ? 'Disabled' : p.running ? 'Active' : 'Not connected'}</td>
                             <td className="text-zinc-500">{p.speed || '—'}</td>
                             <td className={`text-xs font-mono ${p.rx_bps > 0 || p.tx_bps > 0 ? 'text-emerald-400' : 'text-zinc-600'}`}>
                               {p.rx_bps > 0 || p.tx_bps > 0 ? `↓ ${formatBps(p.rx_bps)} / ↑ ${formatBps(p.tx_bps)}` : '—'}
                             </td>
-                            <td className="text-xs text-zinc-500 font-mono">{p.rx_bytes} / {p.tx_bytes}</td>
+                            <td className="text-xs text-zinc-500 font-mono">{formatBytes(p.rx_bytes)} / {formatBytes(p.tx_bytes)}</td>
                           </tr>
                         ))}
                       </tbody>
